@@ -1,20 +1,21 @@
 import 'dotenv/config';
 import { createApp } from './app.ts';
-import { loadState, saveState } from './store.ts';
+import { createDbFromEnv } from './db/client.ts';
+import { loadState, saveState } from './db/store.ts';
 
 const PORT = Number(process.env.PORT ?? 3001);
+const db = createDbFromEnv();
 
 console.log('Connecting to Neon…');
-const state = await loadState();
+const state = await loadState(db);
 console.log(
   `Loaded ${state.users.length} users, ${state.feed.length} feed events from Neon`,
 );
 
 let pending: Promise<void> = Promise.resolve();
 const persist = (next: typeof state) => {
-  // Serialize writes so overlapping saves don't race on the wipe-and-rewrite store.
   pending = pending
-    .then(() => saveState(next))
+    .then(() => saveState(db, next))
     .catch((err) => {
       console.error('Failed to persist state to Neon:', err);
     });

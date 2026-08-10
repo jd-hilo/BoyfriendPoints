@@ -29,6 +29,14 @@ BoyfriendPoints is a Venmo-style couples rewards app.
   [claimable Neon DB](https://neon.new); claim URL is in `.env` as `NEON_CLAIM_URL`
   (72h unless claimed). Prefer a permanent Neon project + `NEON_API_KEY` / saved
   `DATABASE_URL` secret for durable Cloud Agent runs.
+- **Cloudflare hosting:** `pnpm deploy` builds the SPA and deploys
+  `worker/index.ts` (Hono API + static assets) via Wrangler. Needs
+  `CLOUDFLARE_API_TOKEN` in the environment. Set the Worker secret with
+  `pnpm cf:secret` (`DATABASE_URL`). Config lives in `wrangler.toml`
+  (`assets` → `./dist`, `run_worker_first` for `/api/*`).
+- Local Express (`pnpm dev`) and the Cloudflare Worker share `server/domain.ts`
+  and `server/db/*`. The Worker path uses `server/hono.ts` and loads/saves Neon
+  state per request (stateless isolates).
 - `esbuild` postinstall is allowlisted via `pnpm.onlyBuiltDependencies` — do not run
   interactive `pnpm approve-builds`.
 - Server code uses explicit `.ts` import extensions for `tsx`;

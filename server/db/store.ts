@@ -8,9 +8,8 @@ import type {
   Submission,
   SubmissionStatus,
   User,
-} from '../shared/types.ts';
-import { createEmptyState, type State } from './domain.ts';
-import { db } from './db/client.ts';
+} from '../../shared/types.ts';
+import { createEmptyState, type State } from '../domain.ts';
 import {
   feed,
   prizes,
@@ -18,8 +17,9 @@ import {
   submissions,
   tasks,
   users,
-} from './db/schema.ts';
-import { seedDemo } from './seed.ts';
+} from './schema.ts';
+import type { Database } from './client.ts';
+import { seedDemo } from '../seed.ts';
 
 function asUser(row: typeof users.$inferSelect): User {
   return {
@@ -107,7 +107,7 @@ function asFeed(row: typeof feed.$inferSelect): FeedEvent {
   };
 }
 
-export async function loadState(): Promise<State> {
+export async function loadState(db: Database): Promise<State> {
   const [userRows, prizeRows, taskRows, subRows, redRows, feedRows] =
     await Promise.all([
       db.select().from(users),
@@ -121,7 +121,7 @@ export async function loadState(): Promise<State> {
   if (userRows.length === 0) {
     const state = createEmptyState();
     seedDemo(state);
-    await saveState(state);
+    await saveState(db, state);
     return state;
   }
 
@@ -135,10 +135,7 @@ export async function loadState(): Promise<State> {
   };
 }
 
-/** Persist the in-memory state to Neon. Safe for this demo-scale app. */
-export async function saveState(state: State): Promise<void> {
-  // Clear in FK-safe order, then re-insert. Neon HTTP driver has no multi-statement
-  // transactions, so we wipe dependents first.
+export async function saveState(db: Database, state: State): Promise<void> {
   await db.delete(feed);
   await db.delete(redemptions);
   await db.delete(submissions);
@@ -192,7 +189,8 @@ export async function saveState(state: State): Promise<void> {
   }
 }
 
-/** Wipe every table — used by `pnpm db:reset`. */
-export async function resetDatabase(): Promise<void> {
-  await db.execute(sql`TRUNCATE TABLE feed, redemptions, submissions, tasks, prizes, users CASCADE`);
+export async function resetDatabase(db: Database): Promise<void> {
+  await db.execute(
+    sql`TRUNCATE TABLE feed, redemptions, submissions, tasks, prizes, users CASCADE`,
+  );
 }

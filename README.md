@@ -47,9 +47,29 @@ social feed.
 
 Tap the avatar in the header to switch personas.
 
+## Hosting (Cloudflare)
+
+Production is a **Cloudflare Worker** that serves the Vite SPA (assets) and the
+`/api/*` Hono backend against Neon.
+
+```bash
+# one-time: put your Neon URL into the Worker secret
+pnpm cf:secret          # prompts for DATABASE_URL
+
+# build + deploy to workers.dev / your route
+pnpm deploy
+```
+
+Requires `CLOUDFLARE_API_TOKEN` (Account → Workers Scripts:Edit, Account:Read).
+Optional: `CLOUDFLARE_ACCOUNT_ID`.
+
+Local Worker preview: copy `.dev.vars.example` → `.dev.vars`, then `pnpm cf:dev`.
+
 ## Scripts
 
-- `pnpm dev` — backend (:3001) + frontend (:5173)
+- `pnpm dev` — Express API (:3001) + Vite (:5173) for local development
+- `pnpm deploy` — build SPA + deploy Worker to Cloudflare
+- `pnpm cf:dev` / `pnpm cf:secret`
 - `pnpm test` / `pnpm lint` / `pnpm typecheck` / `pnpm build`
 - `pnpm db:push` — apply Drizzle schema to Neon
 - `pnpm db:reset` — wipe + re-seed mock data

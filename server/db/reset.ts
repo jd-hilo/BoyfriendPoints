@@ -1,8 +1,10 @@
 import 'dotenv/config';
-import { resetDatabase, loadState } from '../store.ts';
+import { createDbFromEnv } from './client.ts';
+import { loadState, resetDatabase } from './store.ts';
 
-await resetDatabase();
-const state = await loadState(); // re-seeds mock data when empty
+const db = createDbFromEnv();
+await resetDatabase(db);
+const state = await loadState(db);
 console.log(
   `Reset complete. Seeded ${state.users.length} users and ${state.feed.length} feed events.`,
 );

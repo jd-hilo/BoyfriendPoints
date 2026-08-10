@@ -6,4 +6,6 @@ dist-server
 data/*.json
 coverage
 .env
+.dev.vars
 .neon
+.wrangler
