@@ -452,6 +452,103 @@ input:focus {
   opacity: 0.4;
 }
 
+/* ---- Center success modal ---- */
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  background: rgba(15, 20, 30, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: fade-in 0.15s ease-out;
+}
+.modal {
+  width: 100%;
+  max-width: 330px;
+  background: #fff;
+  border-radius: 24px;
+  padding: 24px 20px 20px;
+  text-align: center;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+  animation: modal-pop 0.28s cubic-bezier(0.2, 1.1, 0.35, 1);
+}
+@keyframes modal-pop {
+  from {
+    transform: scale(0.86) translateY(10px);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+.modal-check {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: var(--green);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 14px;
+  box-shadow: 0 8px 20px rgba(46, 168, 79, 0.35);
+  animation: modal-pop 0.35s 0.05s both cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.modal-title {
+  font-size: 20px;
+  font-weight: 800;
+  margin: 0 0 4px;
+}
+.modal-sub {
+  color: var(--ink-2);
+  font-size: 14px;
+  margin: 0 0 16px;
+}
+.modal-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 12px 14px;
+  text-align: left;
+  margin-bottom: 14px;
+}
+.modal-summary-emoji {
+  font-size: 24px;
+}
+.modal-summary-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.modal-summary-title {
+  font-weight: 700;
+  font-size: 15px;
+}
+.modal-summary-meta {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.modal-summary-points {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+.modal-note {
+  font-size: 13px;
+  color: var(--ink-muted);
+  line-height: 1.45;
+  margin: 0 0 16px;
+}
+
 /* ---- Photo attach (submit) ---- */
 .photo-attach {
   display: flex;

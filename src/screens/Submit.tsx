@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Submission, Suggestion } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { Button } from '../ui.tsx';
+import { useAuth } from '../auth.tsx';
+import { Button, XpIcon } from '../ui.tsx';
+import { haptic } from '../utils.ts';
+
+interface SuccessInfo {
+  title: string;
+  emoji: string;
+  points: number;
+  photos: number;
+}
 
 export default function Submit({ onDone }: { onDone: () => void }) {
+  const { user } = useAuth();
   const [options, setOptions] = useState<Suggestion[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
   const [title, setTitle] = useState('');
@@ -12,7 +22,7 @@ export default function Submit({ onDone }: { onDone: () => void }) {
   const [note, setNote] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
+  const [success, setSuccess] = useState<SuccessInfo | null>(null);
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
@@ -47,7 +57,13 @@ export default function Submit({ onDone }: { onDone: () => void }) {
     setError(null);
     try {
       await api.submit(title, Number(points), emoji, note, images);
-      setFlash(`Request sent to your partner for ${points} pts!`);
+      haptic([10, 40, 10]);
+      setSuccess({
+        title: title.trim(),
+        emoji,
+        points: Number(points),
+        photos: images.length,
+      });
       setTitle('');
       setEmoji('⭐');
       setPoints('');
@@ -55,7 +71,6 @@ export default function Submit({ onDone }: { onDone: () => void }) {
       setImages([]);
       await load();
       onDone();
-      setTimeout(() => setFlash(null), 2500);
     } catch (err) {
       setError((err as Error).message);
     }
@@ -149,7 +164,6 @@ export default function Submit({ onDone }: { onDone: () => void }) {
         </div>
 
         {error && <p className="error">{error}</p>}
-        {flash && <p className="flash">{flash}</p>}
         <Button type="submit" block disabled={!title || !points}>
           Request points
         </Button>
@@ -174,6 +188,80 @@ export default function Submit({ onDone }: { onDone: () => void }) {
           </div>
         </>
       )}
+
+      {success && (
+        <SuccessModal
+          info={success}
+          partnerName={user?.partnerName}
+          onClose={() => setSuccess(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SuccessModal({
+  info,
+  partnerName,
+  onClose,
+}: {
+  info: SuccessInfo;
+  partnerName?: string;
+  onClose: () => void;
+}) {
+  const partner = partnerName ?? 'your partner';
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Request sent"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-check">
+          <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden>
+            <path
+              d="m5 12 5 5L19 7"
+              fill="none"
+              stroke="#fff"
+              strokeWidth="2.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+
+        <h3 className="modal-title">Request sent! 🎉</h3>
+        <p className="modal-sub">
+          {partner} will get a notification to review it.
+        </p>
+
+        <div className="modal-summary">
+          <span className="modal-summary-emoji">{info.emoji}</span>
+          <div className="modal-summary-text">
+            <span className="modal-summary-title">{info.title}</span>
+            {info.photos > 0 && (
+              <span className="modal-summary-meta">
+                {info.photos} photo{info.photos > 1 ? 's' : ''} attached
+              </span>
+            )}
+          </div>
+          <span className="modal-summary-points">
+            +{info.points}
+            <XpIcon size={16} />
+          </span>
+        </div>
+
+        <p className="modal-note">
+          Once {partner} approves, the points land in your balance and the win
+          shows up on the feed. They can also revise the amount before approving.
+        </p>
+
+        <Button block onClick={onClose}>
+          Got it
+        </Button>
+      </div>
     </div>
   );
 }
