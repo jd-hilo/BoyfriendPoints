@@ -10,7 +10,7 @@ function Router() {
   if (loading) {
     return (
       <div className="splash">
-        <span className="wordmark big">boyfriendpoints</span>
+        <span className="wordmark big">Love Receipts</span>
       </div>
     );
   }

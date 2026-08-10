@@ -34,7 +34,7 @@ export default function AuthScreen() {
   return (
     <div className="auth">
       <div className="auth-hero">
-        <span className="wordmark big">boyfriendpoints</span>
+        <span className="wordmark big">Love Receipts</span>
         <p className="auth-tag">Tap who you are. No password needed.</p>
       </div>
 

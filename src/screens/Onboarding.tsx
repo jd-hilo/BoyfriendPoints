@@ -13,7 +13,7 @@ export default function Onboarding() {
   return (
     <div className="onboarding">
       <header className="ob-header">
-        <span className="wordmark">boyfriendpoints</span>
+        <span className="wordmark">Love Receipts</span>
         <div className="ob-progress">
           {STEPS.map((label, i) => (
             <span

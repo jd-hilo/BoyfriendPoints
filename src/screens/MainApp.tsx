@@ -60,7 +60,7 @@ export default function MainApp() {
             src={user.avatarUrl}
             size={28}
           />
-          <span className="wordmark">boyfriendpoints</span>
+          <span className="wordmark">Love Receipts</span>
           {!isWife && (
             <span className="search-meta">
               <Xp value={user.points} size={16} />
@@ -121,7 +121,10 @@ export default function MainApp() {
                 <CheckIcon />
               )
             ) : (
-              <PlusIcon />
+              <span className="fab-plus-gem">
+                <PlusIcon />
+                <img className="fab-gem" src="/xp-diamond.png" alt="" aria-hidden />
+              </span>
             )}
           </button>
           <span className={`fab-label ${tab === midTab ? 'active' : ''}`}>
