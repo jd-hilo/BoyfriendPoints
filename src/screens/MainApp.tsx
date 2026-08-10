@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Avatar } from '../ui.tsx';
+import { Avatar, Xp } from '../ui.tsx';
+import { haptic } from '../utils.ts';
 import Feed from './Feed.tsx';
 import Submit from './Submit.tsx';
 import Redeem from './Redeem.tsx';
@@ -44,6 +45,7 @@ export default function MainApp() {
   const rightLabel = isWife ? 'Manage' : 'Redeem';
 
   function go(next: Tab) {
+    haptic(10);
     setTab(next);
     setTick((n) => n + 1);
   }
@@ -59,7 +61,11 @@ export default function MainApp() {
             size={28}
           />
           <span className="wordmark">boyfriendpoints</span>
-          {!isWife && <span className="search-meta">{user.points} pts</span>}
+          {!isWife && (
+            <span className="search-meta">
+              <Xp value={user.points} size={16} />
+            </span>
+          )}
           {isWife && pending > 0 && (
             <span className="search-meta">{pending} pending</span>
           )}

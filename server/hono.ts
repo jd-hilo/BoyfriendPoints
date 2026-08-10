@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { User } from '../shared/types.ts';
 import {
+  addComment,
   addFriend,
   addPrize,
   addTask,
@@ -22,6 +23,7 @@ import {
   pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
+  reactToFeed,
   redeemPrize,
   removePrize,
   removeTask,
@@ -419,6 +421,42 @@ export function createApiApp() {
         likes: event.likes.length,
         likedByMe: event.likes.includes(user.id),
       });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/feed/:id/react', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ emoji?: string }>();
+      const event = reactToFeed(
+        c.get('state'),
+        user,
+        c.req.param('id'),
+        String(body?.emoji ?? ''),
+      );
+      markDirty(c);
+      return c.json({ id: event.id, reactions: event.reactions });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/feed/:id/comment', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ text?: string }>();
+      const event = addComment(
+        c.get('state'),
+        user,
+        c.req.param('id'),
+        String(body?.text ?? ''),
+      );
+      markDirty(c);
+      return c.json({ id: event.id, comments: event.comments });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }

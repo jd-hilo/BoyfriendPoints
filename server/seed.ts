@@ -118,6 +118,8 @@ function pushEvents(state: State, wife: User, boyfriend: User, seed: CoupleSeed)
       note: ev.note,
       images: (ev.photos ?? []).map(stockPhoto),
       likes: [],
+      reactions: [],
+      comments: [],
       createdAt: ago(ev.minutesAgo),
     };
     state.feed.push(feed);
@@ -261,4 +263,36 @@ export function seedDemo(state: State): void {
       if (a.id !== b.id && !a.friendIds.includes(b.id)) a.friendIds.push(b.id);
     }
   }
+
+  // Sprinkle some reactions + comments so the feed feels alive.
+  const reactorIds = state.users.map((u) => u.id);
+  const react = (i: number, emoji: string, who: number) => {
+    const ev = state.feed[i];
+    if (ev && reactorIds[who]) {
+      ev.reactions.push({ emoji, userId: reactorIds[who] });
+    }
+  };
+  const comment = (i: number, who: number, text: string) => {
+    const ev = state.feed[i];
+    const u = state.users[who];
+    if (ev && u) {
+      ev.comments.push({
+        id: id('c_'),
+        userId: u.id,
+        name: u.name,
+        avatarUrl: u.avatarUrl,
+        text,
+        createdAt: ago(10),
+      });
+    }
+  };
+  react(0, '🔥', 2);
+  react(0, '😍', 4);
+  react(0, '👏', 6);
+  react(1, '💪', 3);
+  react(4, '🌮', 0);
+  react(4, '😂', 5);
+  comment(0, 2, 'ok husband of the year fr 😭');
+  comment(0, 4, 'need to send this to mine');
+  comment(4, 0, 'the rooftop??? obsessed');
 }

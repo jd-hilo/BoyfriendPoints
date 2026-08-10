@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { FeedEventView } from '../../shared/types.ts';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FeedComment, FeedEventView } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { Avatar } from '../ui.tsx';
-import { timeAgo } from '../utils.ts';
+import { useAuth } from '../auth.tsx';
+import { Avatar, XpIcon } from '../ui.tsx';
+import { haptic, timeAgo } from '../utils.ts';
+
+const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
 
 function PhotoCarousel({ images }: { images: string[] }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -40,8 +43,12 @@ function PhotoCarousel({ images }: { images: string[] }) {
 }
 
 export default function Feed() {
+  const { user } = useAuth();
   const [events, setEvents] = useState<FeedEventView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [commentsFor, setCommentsFor] = useState<string | null>(null);
+  const [popped, setPopped] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -56,6 +63,7 @@ export default function Feed() {
   }, [load]);
 
   async function like(id: string) {
+    haptic(12);
     const res = await api.like(id);
     setEvents((prev) =>
       prev.map((e) =>
@@ -71,6 +79,27 @@ export default function Feed() {
             }
           : e,
       ),
+    );
+  }
+
+  async function react(id: string, emoji: string) {
+    haptic([8, 20, 8]);
+    setPickerFor(null);
+    setPopped(`${id}:${emoji}`);
+    setTimeout(() => setPopped(null), 450);
+    const res = await api.react(id, emoji);
+    setEvents((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, reactions: res.reactions } : e)),
+    );
+  }
+
+  const activeCommentEvent = events.find((e) => e.id === commentsFor) ?? null;
+
+  async function addComment(id: string, text: string) {
+    haptic(12);
+    const res = await api.comment(id, text);
+    setEvents((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, comments: res.comments } : e)),
     );
   }
 
@@ -119,14 +148,33 @@ export default function Feed() {
               >
                 {e.type === 'earn' ? '+' : '−'}
                 {e.points}
+                <XpIcon size={15} />
               </span>
             </div>
 
             {e.images.length > 0 && <PhotoCarousel images={e.images} />}
 
+            <ReactionRow
+              event={e}
+              meId={user?.id}
+              poppedKey={popped}
+              onToggle={(emoji) => react(e.id, emoji)}
+            />
+
             <div className="feed-actions">
-              <button className="action-circle" aria-label="Comment" type="button">
+              <button
+                className="action-circle"
+                aria-label="Comment"
+                type="button"
+                onClick={() => {
+                  haptic(10);
+                  setCommentsFor(e.id);
+                }}
+              >
                 💬
+                {e.comments.length > 0 && (
+                  <span className="action-count">{e.comments.length}</span>
+                )}
               </button>
               <button
                 className={`action-circle ${e.likedByMe ? 'liked' : ''}`}
@@ -139,13 +187,174 @@ export default function Feed() {
                   <span className="action-count">{e.likes.length}</span>
                 )}
               </button>
-              <button className="action-circle" aria-label="React" type="button">
-                ☺
-              </button>
+              <div className="react-anchor">
+                <button
+                  className="action-circle"
+                  aria-label="React"
+                  type="button"
+                  onClick={() => {
+                    haptic(10);
+                    setPickerFor(pickerFor === e.id ? null : e.id);
+                  }}
+                >
+                  ☺
+                </button>
+                {pickerFor === e.id && (
+                  <EmojiPicker
+                    onPick={(emoji) => react(e.id, emoji)}
+                    onClose={() => setPickerFor(null)}
+                  />
+                )}
+              </div>
             </div>
           </article>
         ))
       )}
+
+      {activeCommentEvent && (
+        <CommentSheet
+          event={activeCommentEvent}
+          onClose={() => setCommentsFor(null)}
+          onSubmitComment={(text) => addComment(activeCommentEvent.id, text)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ReactionRow({
+  event,
+  meId,
+  poppedKey,
+  onToggle,
+}: {
+  event: FeedEventView;
+  meId?: string;
+  poppedKey: string | null;
+  onToggle: (emoji: string) => void;
+}) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, { count: number; mine: boolean }>();
+    for (const r of event.reactions) {
+      const cur = map.get(r.emoji) ?? { count: 0, mine: false };
+      cur.count += 1;
+      if (meId && r.userId === meId) cur.mine = true;
+      map.set(r.emoji, cur);
+    }
+    return [...map.entries()];
+  }, [event.reactions, meId]);
+
+  if (grouped.length === 0) return null;
+
+  return (
+    <div className="reaction-row">
+      {grouped.map(([emoji, { count, mine }]) => (
+        <button
+          key={emoji}
+          className={`reaction-pill ${mine ? 'mine' : ''} ${
+            poppedKey === `${event.id}:${emoji}` ? 'pop' : ''
+          }`}
+          onClick={() => onToggle(emoji)}
+        >
+          <span className="reaction-emoji">{emoji}</span>
+          <span className="reaction-count">{count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function EmojiPicker({
+  onPick,
+  onClose,
+}: {
+  onPick: (emoji: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="picker-backdrop" onClick={onClose} />
+      <div className="emoji-picker" role="menu">
+        {REACTION_CHOICES.map((emoji) => (
+          <button
+            key={emoji}
+            className="emoji-choice"
+            onClick={() => onPick(emoji)}
+            type="button"
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function CommentSheet({
+  event,
+  onClose,
+  onSubmitComment,
+}: {
+  event: FeedEventView;
+  onClose: () => void;
+  onSubmitComment: (text: string) => void | Promise<void>;
+}) {
+  const [text, setText] = useState('');
+  const comments: FeedComment[] = event.comments;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const value = text.trim();
+    if (!value) return;
+    setText('');
+    await onSubmitComment(value);
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="sheet-handle" />
+        <div className="sheet-head">
+          <h3>Comments</h3>
+          <button className="sheet-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+
+        <div className="sheet-body">
+          {comments.length === 0 ? (
+            <p className="muted center" style={{ padding: '24px 0' }}>
+              No comments yet. Be the first 💬
+            </p>
+          ) : (
+            comments.map((c) => (
+              <div key={c.id} className="comment">
+                <Avatar name={c.name} color="#008CFF" src={c.avatarUrl} size={34} />
+                <div className="comment-body">
+                  <p className="comment-meta">
+                    <span className="comment-name">{c.name}</span>
+                    <span className="comment-time">{timeAgo(c.createdAt)}</span>
+                  </p>
+                  <p className="comment-text">{c.text}</p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <form className="sheet-input" onSubmit={submit}>
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Add a comment…"
+            aria-label="Add a comment"
+            autoFocus
+          />
+          <button type="submit" className="sheet-send" disabled={!text.trim()}>
+            Post
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

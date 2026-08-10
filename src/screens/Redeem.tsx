@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Prize, PublicUser } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { Button } from '../ui.tsx';
+import { Button, Xp, XpIcon } from '../ui.tsx';
+import { haptic } from '../utils.ts';
 
 export default function Redeem({
   user,
@@ -26,6 +27,7 @@ export default function Redeem({
   async function redeem(prize: Prize) {
     setError(null);
     setBusy(prize.id);
+    haptic([12, 30, 12]);
     try {
       await api.redeem(prize.id);
       setFlash(`Redeemed "${prize.title}"! ${user.partnerName ?? 'Your partner'} was alerted.`);
@@ -39,13 +41,16 @@ export default function Redeem({
   }
 
   return (
-    <div className="pad screen-scroll">
+    <div className="screen">
       <div className="balance-card">
         <span className="balance-label">Your balance</span>
-        <span className="balance-value">{user.points} pts</span>
+        <span className="balance-value">
+          <XpIcon size={30} />
+          {user.points}
+        </span>
       </div>
 
-      <h2 className="screen-title">Redeem</h2>
+      <h2 className="screen-title flush">Redeem</h2>
       {error && <p className="error">{error}</p>}
       {flash && <p className="flash">{flash}</p>}
 
@@ -61,7 +66,9 @@ export default function Redeem({
               <div key={p.id} className={`prize ${affordable ? '' : 'locked'}`}>
                 <span className="prize-emoji">{p.emoji}</span>
                 <span className="prize-title">{p.title}</span>
-                <span className="prize-cost">{p.cost} pts</span>
+                <span className="prize-cost">
+                  <Xp value={p.cost} size={14} />
+                </span>
                 <Button
                   variant={affordable ? 'primary' : 'secondary'}
                   block

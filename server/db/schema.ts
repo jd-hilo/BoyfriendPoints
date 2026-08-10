@@ -107,6 +107,23 @@ export const feed = pgTable('feed', {
   note: text('note').notNull().default(''),
   images: jsonb('images').$type<string[]>().notNull().default([]),
   likes: jsonb('likes').$type<string[]>().notNull().default([]),
+  reactions: jsonb('reactions')
+    .$type<{ emoji: string; userId: string }[]>()
+    .notNull()
+    .default([]),
+  comments: jsonb('comments')
+    .$type<
+      {
+        id: string;
+        userId: string;
+        name: string;
+        avatarUrl?: string;
+        text: string;
+        createdAt: string;
+      }[]
+    >()
+    .notNull()
+    .default([]),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),

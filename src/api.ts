@@ -1,6 +1,8 @@
 import type {
   EarnTask,
+  FeedComment,
   FeedEventView,
+  FeedReaction,
   Prize,
   PublicUser,
   Redemption,
@@ -123,4 +125,14 @@ export const api = {
       `/feed/${id}/like`,
       { method: 'POST' },
     ),
+  react: (id: string, emoji: string) =>
+    request<{ id: string; reactions: FeedReaction[] }>(`/feed/${id}/react`, {
+      method: 'POST',
+      body: { emoji },
+    }),
+  comment: (id: string, text: string) =>
+    request<{ id: string; comments: FeedComment[] }>(`/feed/${id}/comment`, {
+      method: 'POST',
+      body: { text },
+    }),
 };

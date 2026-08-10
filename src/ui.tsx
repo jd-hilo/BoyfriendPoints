@@ -1,5 +1,28 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
+export function XpIcon({ size = 18 }: { size?: number }) {
+  return (
+    <img
+      src="/xp-diamond.png"
+      alt="XP"
+      width={size}
+      height={size}
+      className="xp-icon"
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+/** Points value rendered with the 3D XP diamond. */
+export function Xp({ value, size = 16 }: { value: number; size?: number }) {
+  return (
+    <span className="xp">
+      <XpIcon size={size} />
+      <span className="xp-value">{value}</span>
+    </span>
+  );
+}
+
 export function PhoneFrame({ children }: { children: ReactNode }) {
   return (
     <div className="device-bg">

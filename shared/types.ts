@@ -85,6 +85,20 @@ export interface Redemption {
 
 export type FeedType = 'earn' | 'redeem';
 
+export interface FeedReaction {
+  emoji: string;
+  userId: string;
+}
+
+export interface FeedComment {
+  id: string;
+  userId: string;
+  name: string;
+  avatarUrl?: string;
+  text: string;
+  createdAt: string;
+}
+
 export interface FeedEvent {
   id: string;
   type: FeedType;
@@ -96,6 +110,8 @@ export interface FeedEvent {
   note: string;
   images: string[];
   likes: string[];
+  reactions: FeedReaction[];
+  comments: FeedComment[];
   createdAt: string;
 }
 

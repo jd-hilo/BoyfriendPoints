@@ -1,3 +1,14 @@
+/** Best-effort haptic feedback (no-op where the Vibration API is unavailable). */
+export function haptic(pattern: number | number[] = 12): void {
+  try {
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      navigator.vibrate(pattern);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.round(diff / 60000);

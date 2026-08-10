@@ -220,6 +220,238 @@ input:focus {
   display: block;
 }
 
+/* ---- XP diamond ---- */
+.xp-icon {
+  display: inline-block;
+  object-fit: contain;
+  vertical-align: -0.18em;
+  filter: drop-shadow(0 1px 1px rgba(0, 90, 180, 0.25));
+}
+.xp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.xp-value {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.feed-amount .xp-icon {
+  margin-left: 3px;
+}
+
+/* ---- Reactions ---- */
+.reaction-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 13px;
+  line-height: 1;
+}
+.reaction-pill.mine {
+  background: var(--blue-soft);
+  border-color: #bfe0ff;
+}
+.reaction-emoji {
+  font-size: 14px;
+}
+.reaction-count {
+  font-weight: 700;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+.reaction-pill.pop {
+  animation: reaction-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+@keyframes reaction-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.2;
+  }
+  55% {
+    transform: scale(1.25);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.react-anchor {
+  position: relative;
+  display: inline-flex;
+}
+.picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.emoji-picker {
+  position: absolute;
+  bottom: 46px;
+  right: 0;
+  z-index: 41;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+  animation: picker-in 0.16s ease-out;
+}
+@keyframes picker-in {
+  from {
+    transform: translateY(6px) scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+.emoji-choice {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  font-size: 22px;
+  line-height: 1;
+}
+.emoji-choice:active {
+  transform: scale(0.9);
+}
+.emoji-choice:hover {
+  background: var(--bg);
+}
+
+/* ---- Comment bottom sheet ---- */
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: rgba(15, 20, 30, 0.4);
+  display: flex;
+  align-items: flex-end;
+  animation: fade-in 0.15s ease-out;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.sheet {
+  width: 100%;
+  max-height: 78%;
+  background: #fff;
+  border-radius: 22px 22px 0 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px 16px;
+  animation: sheet-up 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+.sheet-handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 999px;
+  background: #d7dbe0;
+  margin: 6px auto 8px;
+}
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.sheet-head h3 {
+  margin: 0;
+  font-size: 17px;
+}
+.sheet-close {
+  background: var(--bg);
+  border: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  color: var(--ink-2);
+}
+.sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+}
+.comment {
+  display: flex;
+  gap: 10px;
+}
+.comment-body {
+  flex: 1;
+  min-width: 0;
+}
+.comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 2px;
+}
+.comment-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+.comment-time {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.comment-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.sheet-input {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.sheet-send {
+  border: none;
+  background: var(--blue);
+  color: #fff;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 0 18px;
+  flex: 0 0 auto;
+}
+.sheet-send:disabled {
+  opacity: 0.4;
+}
+
 /* ---- Photo attach (submit) ---- */
 .photo-attach {
   display: flex;
@@ -573,17 +805,25 @@ input:focus {
 .app-main {
   flex: 1;
   overflow-y: auto;
-  padding: 4px 12px 108px;
+  padding: 8px 14px 120px;
   background: var(--bg);
 }
+/* Screens sit inside .app-main, which already provides the side gutter. */
+.screen,
 .screen-scroll {
-  padding-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px 0 8px;
 }
 .screen-title {
   font-size: 28px;
   font-weight: 800;
   letter-spacing: -0.6px;
-  margin: 8px 4px 6px;
+  margin: 4px 2px 0;
+}
+.screen-title.flush {
+  margin: 0 2px;
 }
 
 /* ---- Feed cards (Venmo-style) ---- */

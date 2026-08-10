@@ -416,6 +416,8 @@ export function approveSubmission(
     note: submission.note,
     images: submission.images ?? [],
     likes: [],
+    reactions: [],
+    comments: [],
     createdAt: new Date().toISOString(),
   };
   state.feed.push(feed);
@@ -477,6 +479,8 @@ export function redeemPrize(
     note: '',
     images: [],
     likes: [],
+    reactions: [],
+    comments: [],
     createdAt: new Date().toISOString(),
   };
   state.feed.push(feed);
@@ -538,6 +542,48 @@ export function toggleLike(
   const idx = event.likes.indexOf(user.id);
   if (idx >= 0) event.likes.splice(idx, 1);
   else event.likes.push(user.id);
+  return event;
+}
+
+/** Toggle an emoji reaction from a user on a post. */
+export function reactToFeed(
+  state: State,
+  user: User,
+  feedId: string,
+  emoji: string,
+): FeedEvent {
+  const event = state.feed.find((e) => e.id === feedId);
+  if (!event) throw new Error('Post not found');
+  const clean = emoji.trim().slice(0, 8);
+  if (!clean) throw new Error('Pick an emoji');
+  if (!event.reactions) event.reactions = [];
+  const idx = event.reactions.findIndex(
+    (r) => r.userId === user.id && r.emoji === clean,
+  );
+  if (idx >= 0) event.reactions.splice(idx, 1);
+  else event.reactions.push({ emoji: clean, userId: user.id });
+  return event;
+}
+
+export function addComment(
+  state: State,
+  user: User,
+  feedId: string,
+  text: string,
+): FeedEvent {
+  const event = state.feed.find((e) => e.id === feedId);
+  if (!event) throw new Error('Post not found');
+  const clean = text.trim().slice(0, 400);
+  if (!clean) throw new Error('Write a comment');
+  if (!event.comments) event.comments = [];
+  event.comments.push({
+    id: id('c_'),
+    userId: user.id,
+    name: user.name,
+    avatarUrl: user.avatarUrl ?? avatarFor(user.name),
+    text: clean,
+    createdAt: new Date().toISOString(),
+  });
   return event;
 }
 

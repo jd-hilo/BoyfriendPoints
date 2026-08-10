@@ -45,8 +45,8 @@ export default function WifeManage() {
   }
 
   return (
-    <div className="pad screen-scroll">
-      <h2 className="screen-title">Manage</h2>
+    <div className="screen">
+      <h2 className="screen-title flush">Manage</h2>
       {error && <p className="error">{error}</p>}
 
       <p className="section-label">Prizes he can redeem</p>

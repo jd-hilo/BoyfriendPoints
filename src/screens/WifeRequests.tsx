@@ -31,11 +31,13 @@ export default function WifeRequests({ onChange }: { onChange: () => void }) {
   }
 
   return (
-    <div className="pad screen-scroll">
-      <h2 className="screen-title">Requests</h2>
-      <p className="muted small" style={{ margin: '0 4px 8px' }}>
-        Approve point requests and fulfill redemptions.
-      </p>
+    <div className="screen">
+      <div>
+        <h2 className="screen-title flush">Requests</h2>
+        <p className="muted small" style={{ margin: '4px 2px 0' }}>
+          Approve point requests and fulfill redemptions.
+        </p>
+      </div>
       {error && <p className="error">{error}</p>}
 
       <p className="section-label">

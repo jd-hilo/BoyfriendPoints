@@ -6,6 +6,7 @@ import express, {
 } from 'express';
 import type { User } from '../shared/types.ts';
 import {
+  addComment,
   addFriend,
   addPrize,
   addTask,
@@ -26,6 +27,7 @@ import {
   pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
+  reactToFeed,
   redeemPrize,
   removePrize,
   removeTask,
@@ -363,6 +365,30 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
       const event = toggleLike(state, user, req.params.id);
       persist();
       res.json({ id: event.id, likes: event.likes.length, likedByMe: event.likes.includes(user.id) });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/feed/:id/react', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const event = reactToFeed(state, user, req.params.id, String(req.body?.emoji ?? ''));
+      persist();
+      res.json({ id: event.id, reactions: event.reactions });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/feed/:id/comment', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const event = addComment(state, user, req.params.id, String(req.body?.text ?? ''));
+      persist();
+      res.json({ id: event.id, comments: event.comments });
     } catch (err) {
       fail(res, err);
     }

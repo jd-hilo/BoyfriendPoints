@@ -106,6 +106,8 @@ function asFeed(row: typeof feed.$inferSelect): FeedEvent {
     note: row.note,
     images: row.images ?? [],
     likes: row.likes ?? [],
+    reactions: row.reactions ?? [],
+    comments: row.comments ?? [],
     createdAt: row.createdAt,
   };
 }
