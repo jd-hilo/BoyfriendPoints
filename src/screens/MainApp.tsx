@@ -8,7 +8,7 @@ import Redeem from './Redeem.tsx';
 import WifeRequests from './WifeRequests.tsx';
 import WifeManage from './WifeManage.tsx';
 
-type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage' | 'me';
+type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
 
 export default function MainApp() {
   const { user, logout, refresh } = useAuth();
@@ -41,12 +41,9 @@ export default function MainApp() {
   const fabTab: Tab = isWife ? 'requests' : 'submit';
   const sideTab: Tab = isWife ? 'manage' : 'redeem';
   const fabLabel = isWife ? 'Requests' : 'Submit';
+  const sideLabel = isWife ? 'Manage' : 'Redeem';
 
   function go(next: Tab) {
-    if (next === 'me') {
-      void logout();
-      return;
-    }
     setTab(next);
     setTick((n) => n + 1);
   }
@@ -64,7 +61,7 @@ export default function MainApp() {
         </div>
         <button
           className="header-icon-btn"
-          onClick={() => go('me')}
+          onClick={() => void logout()}
           aria-label="Switch persona"
           title="Switch persona"
         >
@@ -84,49 +81,125 @@ export default function MainApp() {
         {tab === 'manage' && <WifeManage key={`man-${tick}`} />}
       </main>
 
-      <div className="tab-bar-wrap">
+      <nav className="tab-bar" aria-label="Main">
         <button
-          className={`fab ${tab === fabTab ? 'active' : ''}`}
-          onClick={() => go(fabTab)}
-          aria-label={fabLabel}
+          type="button"
+          className={`tab ${tab === 'feed' ? 'active' : ''}`}
+          onClick={() => go('feed')}
         >
-          {isWife ? (pending > 0 ? pending : '✓') : '+'}
+          <HomeIcon active={tab === 'feed'} />
+          <span className="tab-label">Home</span>
         </button>
-        <span className={`fab-label ${tab === fabTab ? 'active' : ''}`}>
-          {fabLabel}
-        </span>
-        <nav className="tab-bar">
+
+        <button
+          type="button"
+          className={`tab ${tab === sideTab ? 'active' : ''}`}
+          onClick={() => go(sideTab)}
+        >
+          <GiftIcon active={tab === sideTab} />
+          <span className="tab-label">{sideLabel}</span>
+        </button>
+
+        <div className="tab-fab-slot">
           <button
-            className={`tab ${tab === 'feed' ? 'active' : ''}`}
-            onClick={() => go('feed')}
+            type="button"
+            className={`fab ${tab === fabTab ? 'active' : ''}`}
+            onClick={() => go(fabTab)}
+            aria-label={fabLabel}
           >
-            <span className="tab-icon" aria-hidden>
-              ⌂
-            </span>
-            <span className="tab-label">Home</span>
+            {isWife ? (
+              pending > 0 ? (
+                <span className="fab-count">{pending}</span>
+              ) : (
+                <CheckIcon />
+              )
+            ) : (
+              <PlusIcon />
+            )}
           </button>
-          <button
-            className={`tab ${tab === sideTab ? 'active' : ''}`}
-            onClick={() => go(sideTab)}
-          >
-            <span className="tab-icon" aria-hidden>
-              {isWife ? '▣' : '◈'}
-              {isWife && pending > 0 ? (
-                <span className="tab-badge">{pending}</span>
-              ) : null}
-            </span>
-            <span className="tab-label">{isWife ? 'Manage' : 'Redeem'}</span>
-          </button>
-          <span aria-hidden />
-          <span aria-hidden />
-          <button className="tab" onClick={() => go('me')}>
-            <span className="tab-icon">
-              <Avatar name={user.name} color={user.color} size={26} />
-            </span>
-            <span className="tab-label">Me</span>
-          </button>
-        </nav>
-      </div>
+          <span className={`fab-label ${tab === fabTab ? 'active' : ''}`}>
+            {fabLabel}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          className="tab"
+          onClick={() => void logout()}
+          aria-label="Switch persona"
+        >
+          <span className="tab-avatar">
+            <Avatar name={user.name} color={user.color} size={26} />
+          </span>
+          <span className="tab-label">Me</span>
+        </button>
+      </nav>
     </div>
+  );
+}
+
+function HomeIcon({ active }: { active: boolean }) {
+  return (
+    <svg className="tab-svg" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function GiftIcon({ active }: { active: boolean }) {
+  return (
+    <svg className="tab-svg" viewBox="0 0 24 24" aria-hidden>
+      <rect
+        x="4"
+        y="8"
+        width="16"
+        height="12"
+        rx="2"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M4 12h16M12 8v12"
+        fill="none"
+        stroke={active ? '#fff' : 'currentColor'}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="#fff"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="m5 12 5 5L19 7"
+        fill="none"
+        stroke="#fff"
+        strokeWidth="2.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
