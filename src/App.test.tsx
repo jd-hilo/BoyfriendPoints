@@ -42,7 +42,7 @@ describe('<App />', () => {
       expect(screen.getByText('Emma')).toBeInTheDocument();
     });
     expect(
-      screen.getByText(/tap a persona to enter/i),
+      screen.getByText(/tap who you are/i),
     ).toBeInTheDocument();
   });
 });

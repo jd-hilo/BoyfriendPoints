@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FeedEventView } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { Avatar, PointsPill } from '../ui.tsx';
+import { Avatar } from '../ui.tsx';
 import { timeAgo } from '../utils.ts';
 
 export default function Feed() {
@@ -29,8 +29,10 @@ export default function Feed() {
               ...e,
               likedByMe: res.likedByMe,
               likes: res.likedByMe
-                ? [...e.likes, 'me']
-                : e.likes.slice(0, Math.max(0, res.likes)),
+                ? e.likes.includes('me')
+                  ? e.likes
+                  : [...e.likes, 'me']
+                : e.likes.filter((x) => x !== 'me').slice(0, res.likes),
             }
           : e,
       ),
@@ -42,36 +44,63 @@ export default function Feed() {
   return (
     <div className="feed">
       {events.length === 0 ? (
-        <p className="muted center pad">
-          No activity yet. Invite friends to fill up your feed!
-        </p>
+        <div className="feed-card">
+          <p className="muted center" style={{ margin: 12 }}>
+            No activity yet. Invite friends to fill up your feed!
+          </p>
+        </div>
       ) : (
         events.map((e) => (
-          <article key={e.id} className="feed-row">
-            <Avatar name={e.boyfriendName} color={e.boyfriendColor} />
-            <div className="feed-body">
-              <p className="feed-line">
-                <span className="name">{e.boyfriendName}</span>
-                <span className="verb">
-                  {e.type === 'earn' ? ' earned points from ' : ' redeemed with '}
-                </span>
-                <span className="name">{e.wifeName}</span>
-              </p>
-              <p className="feed-note">
-                {e.emoji} {e.title}
-                {e.note ? ` — ${e.note}` : ''}
-              </p>
-              <div className="feed-meta">
-                <span className="time">{timeAgo(e.createdAt)}</span>
-                <button
-                  className={`like ${e.likedByMe ? 'liked' : ''}`}
-                  onClick={() => like(e.id)}
-                >
-                  {e.likedByMe ? '♥' : '♡'} {e.likes.length || ''}
-                </button>
-              </div>
+          <article key={e.id} className="feed-card">
+            <div className="feed-card-top">
+              <span className="feed-time">{timeAgo(e.createdAt)} ago</span>
+              <button className="feed-more" aria-label="More">
+                ···
+              </button>
             </div>
-            <PointsPill value={e.points} kind={e.type} />
+
+            <div className="feed-story">
+              <Avatar name={e.boyfriendName} color={e.boyfriendColor} size={40} />
+              <div className="feed-story-text">
+                <p className="feed-line">
+                  <span className="name">{e.boyfriendName}</span>
+                  <span className="verb">
+                    {e.type === 'earn' ? ' earned from ' : ' redeemed with '}
+                  </span>
+                  <span className="name">{e.wifeName}</span>
+                </p>
+                <p className="feed-note">
+                  {e.emoji} {e.title}
+                  {e.note ? ` — ${e.note}` : ''}
+                </p>
+              </div>
+              <span
+                className={`feed-amount ${e.type === 'earn' ? 'earn' : 'redeem'}`}
+              >
+                {e.type === 'earn' ? '+' : '−'}
+                {e.points}
+              </span>
+            </div>
+
+            <div className="feed-actions">
+              <button className="action-circle" aria-label="Comment" type="button">
+                💬
+              </button>
+              <button
+                className={`action-circle ${e.likedByMe ? 'liked' : ''}`}
+                onClick={() => like(e.id)}
+                aria-label="Like"
+                type="button"
+              >
+                {e.likedByMe ? '♥' : '♡'}
+                {e.likes.length > 0 && (
+                  <span className="action-count">{e.likes.length}</span>
+                )}
+              </button>
+              <button className="action-circle" aria-label="React" type="button">
+                ☺
+              </button>
+            </div>
           </article>
         ))
       )}

@@ -45,7 +45,7 @@ export default function Redeem({
         <span className="balance-value">{user.points} pts</span>
       </div>
 
-      <h2 className="screen-title">Redeem a prize</h2>
+      <h2 className="screen-title">Redeem</h2>
       {error && <p className="error">{error}</p>}
       {flash && <p className="flash">{flash}</p>}
 

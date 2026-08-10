@@ -35,7 +35,7 @@ export default function AuthScreen() {
     <div className="auth">
       <div className="auth-hero">
         <span className="wordmark big">boyfriendpoints</span>
-        <p className="auth-tag">Tap a persona to enter. No password needed.</p>
+        <p className="auth-tag">Tap who you are. No password needed.</p>
       </div>
 
       {error && <p className="error">{error}</p>}

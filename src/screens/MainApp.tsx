@@ -8,7 +8,7 @@ import Redeem from './Redeem.tsx';
 import WifeRequests from './WifeRequests.tsx';
 import WifeManage from './WifeManage.tsx';
 
-type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
+type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage' | 'me';
 
 export default function MainApp() {
   const { user, logout, refresh } = useAuth();
@@ -38,34 +38,38 @@ export default function MainApp() {
 
   if (!user) return null;
 
-  const tabs: Array<{ id: Tab; label: string; icon: string; badge?: number }> =
-    isWife
-      ? [
-          { id: 'feed', label: 'Feed', icon: '🏠' },
-          { id: 'requests', label: 'Requests', icon: '✅', badge: pending },
-          { id: 'manage', label: 'Manage', icon: '🎁' },
-        ]
-      : [
-          { id: 'feed', label: 'Feed', icon: '🏠' },
-          { id: 'submit', label: 'Submit', icon: '➕' },
-          { id: 'redeem', label: 'Redeem', icon: '🎁' },
-        ];
+  const fabTab: Tab = isWife ? 'requests' : 'submit';
+  const sideTab: Tab = isWife ? 'manage' : 'redeem';
+  const fabLabel = isWife ? 'Requests' : 'Submit';
+
+  function go(next: Tab) {
+    if (next === 'me') {
+      void logout();
+      return;
+    }
+    setTab(next);
+    setTick((n) => n + 1);
+  }
 
   return (
     <div className="app">
       <header className="app-header">
-        <span className="wordmark">boyfriendpoints</span>
-        <div className="header-right">
-          {!isWife && <span className="points-chip">{user.points} pts</span>}
-          <button
-            className="avatar-btn"
-            onClick={logout}
-            aria-label="Switch persona"
-            title="Switch persona"
-          >
-            <Avatar name={user.name} color={user.color} size={32} />
-          </button>
+        <div className="search-pill">
+          <Avatar name={user.name} color={user.color} size={28} />
+          <span className="wordmark">boyfriendpoints</span>
+          {!isWife && <span className="search-meta">{user.points} pts</span>}
+          {isWife && pending > 0 && (
+            <span className="search-meta">{pending} pending</span>
+          )}
         </div>
+        <button
+          className="header-icon-btn"
+          onClick={() => go('me')}
+          aria-label="Switch persona"
+          title="Switch persona"
+        >
+          <Avatar name={user.name} color={user.color} size={28} />
+        </button>
       </header>
 
       <main className="app-main">
@@ -74,28 +78,55 @@ export default function MainApp() {
         {tab === 'redeem' && (
           <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />
         )}
-        {tab === 'requests' && <WifeRequests key={`req-${tick}`} onChange={bump} />}
+        {tab === 'requests' && (
+          <WifeRequests key={`req-${tick}`} onChange={bump} />
+        )}
         {tab === 'manage' && <WifeManage key={`man-${tick}`} />}
       </main>
 
-      <nav className="tab-bar">
-        {tabs.map((t) => (
+      <div className="tab-bar-wrap">
+        <button
+          className={`fab ${tab === fabTab ? 'active' : ''}`}
+          onClick={() => go(fabTab)}
+          aria-label={fabLabel}
+        >
+          {isWife ? (pending > 0 ? pending : '✓') : '+'}
+        </button>
+        <span className={`fab-label ${tab === fabTab ? 'active' : ''}`}>
+          {fabLabel}
+        </span>
+        <nav className="tab-bar">
           <button
-            key={t.id}
-            className={`tab ${tab === t.id ? 'active' : ''}`}
-            onClick={() => {
-              setTab(t.id);
-              setTick((n) => n + 1);
-            }}
+            className={`tab ${tab === 'feed' ? 'active' : ''}`}
+            onClick={() => go('feed')}
           >
-            <span className="tab-icon">
-              {t.icon}
-              {t.badge ? <span className="tab-badge">{t.badge}</span> : null}
+            <span className="tab-icon" aria-hidden>
+              ⌂
             </span>
-            <span className="tab-label">{t.label}</span>
+            <span className="tab-label">Home</span>
           </button>
-        ))}
-      </nav>
+          <button
+            className={`tab ${tab === sideTab ? 'active' : ''}`}
+            onClick={() => go(sideTab)}
+          >
+            <span className="tab-icon" aria-hidden>
+              {isWife ? '▣' : '◈'}
+              {isWife && pending > 0 ? (
+                <span className="tab-badge">{pending}</span>
+              ) : null}
+            </span>
+            <span className="tab-label">{isWife ? 'Manage' : 'Redeem'}</span>
+          </button>
+          <span aria-hidden />
+          <span aria-hidden />
+          <button className="tab" onClick={() => go('me')}>
+            <span className="tab-icon">
+              <Avatar name={user.name} color={user.color} size={26} />
+            </span>
+            <span className="tab-label">Me</span>
+          </button>
+        </nav>
+      </div>
     </div>
   );
 }

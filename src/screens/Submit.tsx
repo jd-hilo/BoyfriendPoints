@@ -61,8 +61,8 @@ export default function Submit({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="pad screen-scroll">
-      <h2 className="screen-title">Submit for points</h2>
-      <p className="muted small">
+      <h2 className="screen-title">Submit</h2>
+      <p className="muted small" style={{ margin: '0 4px 12px' }}>
         Pick something you did or write your own. Your partner approves it.
       </p>
 
