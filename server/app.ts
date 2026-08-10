@@ -11,6 +11,7 @@ import {
   addPrize,
   addTask,
   approveSubmission,
+  buildNotifications,
   completeOnboarding,
   createSubmission,
   denySubmission,
@@ -356,6 +357,12 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     const user = requireAuth(req, res);
     if (!user) return;
     res.json(feedForUser(state, user));
+  });
+
+  app.get('/api/notifications', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    res.json(buildNotifications(state, user));
   });
 
   app.post('/api/feed/:id/like', (req: AuthedRequest, res) => {

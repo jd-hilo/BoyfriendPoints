@@ -129,3 +129,25 @@ export interface Suggestion {
   emoji: string;
   points: number;
 }
+
+export type NotificationKind =
+  | 'request'
+  | 'approved'
+  | 'denied'
+  | 'redeem'
+  | 'reaction'
+  | 'comment'
+  | 'prize';
+
+export interface NotificationItem {
+  id: string;
+  kind: NotificationKind;
+  emoji: string;
+  title: string;
+  body?: string;
+  points?: number;
+  actorName?: string;
+  actorColor?: string;
+  actorAvatar?: string;
+  createdAt: string;
+}

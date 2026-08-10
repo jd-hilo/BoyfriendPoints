@@ -3,6 +3,7 @@ import type {
   FeedComment,
   FeedEventView,
   FeedReaction,
+  NotificationItem,
   Prize,
   PublicUser,
   Redemption,
@@ -120,6 +121,7 @@ export const api = {
     request<Redemption>(`/redemptions/${id}/fulfill`, { method: 'POST' }),
 
   feed: () => request<FeedEventView[]>('/feed'),
+  notifications: () => request<NotificationItem[]>('/notifications'),
   like: (id: string) =>
     request<{ id: string; likes: number; likedByMe: boolean }>(
       `/feed/${id}/like`,

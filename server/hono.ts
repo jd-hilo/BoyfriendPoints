@@ -7,6 +7,7 @@ import {
   addPrize,
   addTask,
   approveSubmission,
+  buildNotifications,
   completeOnboarding,
   createSubmission,
   denySubmission,
@@ -408,6 +409,12 @@ export function createApiApp() {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     return c.json(feedForUser(c.get('state'), user));
+  });
+
+  app.get('/api/notifications', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    return c.json(buildNotifications(c.get('state'), user));
   });
 
   app.post('/api/feed/:id/like', (c) => {

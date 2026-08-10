@@ -8,6 +8,7 @@ import Submit from './Submit.tsx';
 import Redeem from './Redeem.tsx';
 import WifeRequests from './WifeRequests.tsx';
 import WifeManage from './WifeManage.tsx';
+import Notifications from './Notifications.tsx';
 
 type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
 
@@ -16,6 +17,7 @@ export default function MainApp() {
   const [tab, setTab] = useState<Tab>('feed');
   const [tick, setTick] = useState(0);
   const [pending, setPending] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const isWife = user?.role === 'wife';
 
@@ -66,7 +68,10 @@ export default function MainApp() {
         </div>
         <button
           className="header-icon-btn"
-          onClick={() => go(isWife ? 'requests' : 'feed')}
+          onClick={() => {
+            haptic(10);
+            setNotifOpen(true);
+          }}
           aria-label="Notifications"
           title="Notifications"
         >
@@ -148,6 +153,8 @@ export default function MainApp() {
           <span className="tab-label">{rightLabel}</span>
         </button>
       </nav>
+
+      {notifOpen && <Notifications onClose={() => setNotifOpen(false)} />}
     </div>
   );
 }

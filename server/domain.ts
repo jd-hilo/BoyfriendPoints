@@ -2,6 +2,7 @@ import type {
   EarnTask,
   FeedEvent,
   FeedEventView,
+  NotificationItem,
   Prize,
   PublicUser,
   Redemption,
@@ -612,4 +613,151 @@ export function submissionsForBoyfriend(
   return state.submissions
     .filter((s) => s.boyfriendId === boyfriend.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function displayUser(state: State, userId: string) {
+  const u = state.users.find((x) => x.id === userId);
+  return {
+    name: u?.name ?? 'Someone',
+    color: u?.color ?? '#008CFF',
+    avatar: u ? (u.avatarUrl ?? avatarFor(u.name)) : undefined,
+  };
+}
+
+/** Derive a notifications feed for a user from existing activity. */
+export function buildNotifications(
+  state: State,
+  user: User,
+): NotificationItem[] {
+  const items: NotificationItem[] = [];
+
+  if (user.role === 'boyfriend') {
+    // Results of your own requests.
+    for (const s of state.submissions) {
+      if (s.boyfriendId !== user.id || s.status === 'pending') continue;
+      const wife = displayUser(state, s.wifeId);
+      if (s.status === 'approved') {
+        items.push({
+          id: `n_appr_${s.id}`,
+          kind: 'approved',
+          emoji: '✅',
+          title: `${wife.name} approved your request`,
+          body: `${s.emoji} ${s.title}${s.revised ? ' · revised' : ''}`,
+          points: s.points,
+          actorName: wife.name,
+          actorColor: wife.color,
+          actorAvatar: wife.avatar,
+          createdAt: s.resolvedAt ?? s.createdAt,
+        });
+      } else {
+        items.push({
+          id: `n_deny_${s.id}`,
+          kind: 'denied',
+          emoji: '🙈',
+          title: `${wife.name} passed on your request`,
+          body: `${s.emoji} ${s.title}`,
+          actorName: wife.name,
+          actorColor: wife.color,
+          actorAvatar: wife.avatar,
+          createdAt: s.resolvedAt ?? s.createdAt,
+        });
+      }
+    }
+    // New prizes your partner added.
+    for (const p of state.prizes) {
+      if (p.wifeId !== user.partnerId) continue;
+      const wife = displayUser(state, p.wifeId);
+      items.push({
+        id: `n_prize_${p.id}`,
+        kind: 'prize',
+        emoji: p.emoji,
+        title: `${wife.name} added a new prize`,
+        body: p.title,
+        points: p.cost,
+        actorName: wife.name,
+        actorColor: wife.color,
+        actorAvatar: wife.avatar,
+        createdAt: p.createdAt,
+      });
+    }
+  } else {
+    // Wife: incoming point requests to review.
+    for (const s of state.submissions) {
+      if (s.wifeId !== user.id || s.status !== 'pending') continue;
+      const bf = displayUser(state, s.boyfriendId);
+      items.push({
+        id: `n_req_${s.id}`,
+        kind: 'request',
+        emoji: s.emoji,
+        title: `${bf.name} requested points`,
+        body: s.title,
+        points: s.requestedPoints,
+        actorName: bf.name,
+        actorColor: bf.color,
+        actorAvatar: bf.avatar,
+        createdAt: s.createdAt,
+      });
+    }
+    // Wife: redemptions to fulfill.
+    for (const r of state.redemptions) {
+      if (r.wifeId !== user.id || r.status !== 'pending') continue;
+      const bf = displayUser(state, r.boyfriendId);
+      items.push({
+        id: `n_redeem_${r.id}`,
+        kind: 'redeem',
+        emoji: r.emoji,
+        title: `${bf.name} redeemed a prize`,
+        body: r.prizeTitle,
+        points: r.cost,
+        actorName: bf.name,
+        actorColor: bf.color,
+        actorAvatar: bf.avatar,
+        createdAt: r.createdAt,
+      });
+    }
+  }
+
+  // Reactions + comments on posts that belong to this user's household.
+  const myWifeId = ownerWifeId(user);
+  for (const e of state.feed) {
+    const mine =
+      e.boyfriendId === user.id || (myWifeId && e.wifeId === myWifeId);
+    if (!mine) continue;
+
+    const others = e.reactions.filter((r) => r.userId !== user.id);
+    if (others.length > 0) {
+      const first = displayUser(state, others[0].userId);
+      const extra = others.length - 1;
+      items.push({
+        id: `n_react_${e.id}`,
+        kind: 'reaction',
+        emoji: others[0].emoji,
+        title:
+          extra > 0
+            ? `${first.name} & ${extra} other${extra > 1 ? 's' : ''} reacted`
+            : `${first.name} reacted`,
+        body: `${e.emoji} ${e.title}`,
+        actorName: first.name,
+        actorColor: first.color,
+        actorAvatar: first.avatar,
+        createdAt: e.createdAt,
+      });
+    }
+
+    for (const c of e.comments) {
+      if (c.userId === user.id) continue;
+      items.push({
+        id: `n_comment_${c.id}`,
+        kind: 'comment',
+        emoji: '💬',
+        title: `${c.name} commented`,
+        body: `“${c.text}”`,
+        actorName: c.name,
+        actorAvatar: c.avatarUrl,
+        createdAt: c.createdAt,
+      });
+    }
+  }
+
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
