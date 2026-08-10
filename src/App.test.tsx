@@ -1,33 +1,24 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import App from './App.tsx';
 
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  localStorage.clear();
 });
 
 describe('<App />', () => {
-  it('renders the leaderboard from the API', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(
-        JSON.stringify([
-          { id: '1', name: 'Taylor', points: 15, createdAt: '2024-01-01' },
-        ]),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
-      ),
-    );
-
+  it('shows the sign-up screen when signed out', async () => {
     render(<App />);
 
-    expect(
-      screen.getByRole('heading', { name: /BoyfriendPoints/i }),
-    ).toBeInTheDocument();
-
     await waitFor(() => {
-      expect(screen.getByText('Taylor')).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /create my account/i }),
+      ).toBeInTheDocument();
     });
-    expect(screen.getByText('15 pts')).toBeInTheDocument();
+
+    expect(screen.getByPlaceholderText(/your name/i)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument();
   });
 });

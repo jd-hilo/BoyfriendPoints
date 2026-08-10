@@ -1,18 +1,109 @@
-export interface Boyfriend {
+export type Role = 'wife' | 'boyfriend';
+
+export interface User {
   id: string;
   name: string;
+  email: string;
+  password: string;
+  role: Role;
+  color: string;
+  partnerId?: string;
+  friendIds: string[];
+  points: number;
+  token?: string;
+  onboarded: boolean;
+  demo?: boolean;
+  createdAt: string;
+}
+
+/** User shape returned to clients (no secrets). */
+export interface PublicUser {
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  color: string;
+  partnerId?: string;
+  partnerName?: string;
+  friendIds: string[];
+  points: number;
+  onboarded: boolean;
+}
+
+export interface Prize {
+  id: string;
+  wifeId: string;
+  title: string;
+  emoji: string;
+  cost: number;
+  createdAt: string;
+}
+
+export interface EarnTask {
+  id: string;
+  wifeId: string;
+  title: string;
+  emoji: string;
   points: number;
   createdAt: string;
 }
 
-export interface PointEvent {
+export type SubmissionStatus = 'pending' | 'approved' | 'denied';
+
+export interface Submission {
   id: string;
   boyfriendId: string;
-  delta: number;
-  reason: string;
+  wifeId: string;
+  title: string;
+  emoji: string;
+  points: number;
+  requestedPoints: number;
+  note: string;
+  status: SubmissionStatus;
+  revised: boolean;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export type RedemptionStatus = 'pending' | 'fulfilled';
+
+export interface Redemption {
+  id: string;
+  boyfriendId: string;
+  wifeId: string;
+  prizeTitle: string;
+  emoji: string;
+  cost: number;
+  status: RedemptionStatus;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export type FeedType = 'earn' | 'redeem';
+
+export interface FeedEvent {
+  id: string;
+  type: FeedType;
+  boyfriendId: string;
+  wifeId: string;
+  title: string;
+  emoji: string;
+  points: number;
+  note: string;
+  likes: string[];
   createdAt: string;
 }
 
-export interface BoyfriendWithHistory extends Boyfriend {
-  history: PointEvent[];
+/** Feed row enriched with display names for the client. */
+export interface FeedEventView extends FeedEvent {
+  boyfriendName: string;
+  boyfriendColor: string;
+  wifeName: string;
+  likedByMe: boolean;
+}
+
+export interface Suggestion {
+  title: string;
+  emoji: string;
+  points: number;
 }
