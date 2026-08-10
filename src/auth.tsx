@@ -13,8 +13,7 @@ import { api, getToken, setToken } from './api.ts';
 interface AuthContextValue {
   user: PublicUser | null;
   loading: boolean;
-  signup: (name: string, email: string, password: string) => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
+  enterAs: (userId: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -42,17 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh().finally(() => setLoading(false));
   }, [refresh]);
 
-  const signup = useCallback(
-    async (name: string, email: string, password: string) => {
-      const res = await api.signup(name, email, password);
-      setToken(res.token);
-      setUser(res.user);
-    },
-    [],
-  );
-
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await api.login(email, password);
+  const enterAs = useCallback(async (userId: string) => {
+    const res = await api.enterAs(userId);
     setToken(res.token);
     setUser(res.user);
   }, []);
@@ -64,8 +54,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, signup, login, logout, refresh }),
-    [user, loading, signup, login, logout, refresh],
+    () => ({ user, loading, enterAs, logout, refresh }),
+    [user, loading, enterAs, logout, refresh],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

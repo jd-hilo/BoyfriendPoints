@@ -57,7 +57,12 @@ export default function MainApp() {
         <span className="wordmark">boyfriendpoints</span>
         <div className="header-right">
           {!isWife && <span className="points-chip">{user.points} pts</span>}
-          <button className="avatar-btn" onClick={logout} aria-label="Sign out">
+          <button
+            className="avatar-btn"
+            onClick={logout}
+            aria-label="Switch persona"
+            title="Switch persona"
+          >
             <Avatar name={user.name} color={user.color} size={32} />
           </button>
         </div>

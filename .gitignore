@@ -5,3 +5,5 @@ dist-server
 .DS_Store
 data/*.json
 coverage
+.env
+.neon

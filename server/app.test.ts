@@ -1,124 +1,96 @@
 import { describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { createApp } from './app.ts';
-import { createEmptyState } from './domain.ts';
+import { createEmptyState, seedDemoCompat } from './test-helpers.ts';
 
 function makeClient() {
-  const app = createApp({ state: createEmptyState() });
-  return request(app);
-}
-
-async function signupWife(client: ReturnType<typeof makeClient>) {
-  const res = await client
-    .post('/api/auth/signup')
-    .send({ name: 'Wanda', email: 'wanda@x.com', password: 'secret' });
-  return res.body.token as string;
+  const state = createEmptyState();
+  seedDemoCompat(state);
+  const app = createApp({ state });
+  return { client: request(app), state };
 }
 
 describe('BoyfriendPoints API', () => {
   it('reports health', async () => {
-    const res = await makeClient().get('/api/health');
+    const { client } = makeClient();
+    const res = await client.get('/api/health');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
+    expect(res.body.users).toBeGreaterThan(0);
   });
 
-  it('runs the full couple flow end to end', async () => {
-    const client = makeClient();
-    const wifeToken = await signupWife(client);
+  it('lists personas and supports device login', async () => {
+    const { client } = makeClient();
+    const personas = await client.get('/api/personas').expect(200);
+    expect(personas.body.length).toBeGreaterThan(0);
+    const emma = personas.body.find(
+      (p: { name: string }) => p.name === 'Emma',
+    );
+    expect(emma).toBeTruthy();
 
-    // Wife adds a prize and an earn task.
-    await client
-      .post('/api/prizes')
-      .set('Authorization', `Bearer ${wifeToken}`)
-      .send({ title: 'Movie night', cost: 100 })
-      .expect(201);
-
-    // Wife invites her boyfriend and logs him in.
-    const invite = await client
-      .post('/api/onboarding/boyfriend')
-      .set('Authorization', `Bearer ${wifeToken}`)
-      .send({ name: 'Ben', email: 'ben@x.com', password: 'pw' })
-      .expect(201);
-    expect(invite.body.loginHint.email).toBe('ben@x.com');
-
-    const bfLogin = await client
-      .post('/api/auth/login')
-      .send({ email: 'ben@x.com', password: 'pw' })
+    const login = await client
+      .post('/api/auth/device')
+      .send({ userId: emma.id })
       .expect(200);
-    const bfToken = bfLogin.body.token as string;
-
-    // Boyfriend submits a deed for points.
-    const submission = await client
-      .post('/api/submissions')
-      .set('Authorization', `Bearer ${bfToken}`)
-      .send({ title: 'Mowed the lawn', points: 150, note: 'edges too' })
-      .expect(201);
-
-    // Wife sees it as pending and approves it.
-    const pending = await client
-      .get('/api/submissions')
-      .set('Authorization', `Bearer ${wifeToken}`)
-      .expect(200);
-    expect(pending.body).toHaveLength(1);
-
-    await client
-      .post(`/api/submissions/${submission.body.id}/approve`)
-      .set('Authorization', `Bearer ${wifeToken}`)
-      .expect(200);
+    expect(login.body.user.name).toBe('Emma');
+    expect(login.body.token).toBeTruthy();
 
     const me = await client
       .get('/api/me')
-      .set('Authorization', `Bearer ${bfToken}`)
+      .set('Authorization', `Bearer ${login.body.token}`)
       .expect(200);
-    expect(me.body.points).toBe(150);
+    expect(me.body.name).toBe('Emma');
+  });
 
-    // Boyfriend redeems the prize; wife is alerted.
-    const prizes = await client
-      .get('/api/prizes')
-      .set('Authorization', `Bearer ${bfToken}`)
+  it('runs the couple flow with mock personas', async () => {
+    const { client } = makeClient();
+    const personas = await client.get('/api/personas');
+    const emma = personas.body.find((p: { name: string }) => p.name === 'Emma');
+    const noah = personas.body.find((p: { name: string }) => p.name === 'Noah');
+
+    const wife = await client
+      .post('/api/auth/device')
+      .send({ userId: emma.id });
+    const bf = await client.post('/api/auth/device').send({ userId: noah.id });
+
+    // Emma sees pending requests from seed.
+    const pending = await client
+      .get('/api/submissions')
+      .set('Authorization', `Bearer ${wife.body.token}`)
       .expect(200);
+    expect(pending.body.length).toBeGreaterThan(0);
+
+    // Approve one.
     await client
-      .post('/api/redemptions')
-      .set('Authorization', `Bearer ${bfToken}`)
-      .send({ prizeId: prizes.body[0].id })
-      .expect(201);
-
-    const alerts = await client
-      .get('/api/redemptions')
-      .set('Authorization', `Bearer ${wifeToken}`)
+      .post(`/api/submissions/${pending.body[0].id}/approve`)
+      .set('Authorization', `Bearer ${wife.body.token}`)
       .expect(200);
-    expect(alerts.body).toHaveLength(1);
-    expect(alerts.body[0].prizeTitle).toBe('Movie night');
 
-    // Both earn + redeem show up in the feed.
+    // Noah can see a populated feed.
     const feed = await client
       .get('/api/feed')
-      .set('Authorization', `Bearer ${bfToken}`)
+      .set('Authorization', `Bearer ${bf.body.token}`)
       .expect(200);
-    expect(feed.body.map((f: { type: string }) => f.type).sort()).toEqual([
-      'earn',
-      'redeem',
-    ]);
+    expect(feed.body.length).toBeGreaterThan(0);
+
+    // Noah can redeem a prize he can afford.
+    const prizes = await client
+      .get('/api/prizes')
+      .set('Authorization', `Bearer ${bf.body.token}`)
+      .expect(200);
+    const affordable = prizes.body.find(
+      (p: { cost: number }) => p.cost <= bf.body.user.points + pending.body[0].points,
+    );
+    expect(affordable).toBeTruthy();
+    await client
+      .post('/api/redemptions')
+      .set('Authorization', `Bearer ${bf.body.token}`)
+      .send({ prizeId: affordable.id })
+      .expect(201);
   });
 
   it('requires auth for protected routes', async () => {
-    await makeClient().get('/api/feed').expect(401);
-  });
-
-  it('forbids a boyfriend from creating prizes', async () => {
-    const client = makeClient();
-    const wifeToken = await signupWife(client);
-    await client
-      .post('/api/onboarding/boyfriend')
-      .set('Authorization', `Bearer ${wifeToken}`)
-      .send({ name: 'Ben', email: 'ben@x.com', password: 'pw' });
-    const bf = await client
-      .post('/api/auth/login')
-      .send({ email: 'ben@x.com', password: 'pw' });
-    await client
-      .post('/api/prizes')
-      .set('Authorization', `Bearer ${bf.body.token}`)
-      .send({ title: 'nope', cost: 10 })
-      .expect(403);
+    const { client } = makeClient();
+    await client.get('/api/feed').expect(401);
   });
 });

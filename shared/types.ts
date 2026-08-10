@@ -28,6 +28,7 @@ export interface PublicUser {
   friendIds: string[];
   points: number;
   onboarded: boolean;
+  demo?: boolean;
 }
 
 export interface Prize {

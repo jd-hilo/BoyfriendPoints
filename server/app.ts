@@ -13,8 +13,10 @@ import {
   completeOnboarding,
   createSubmission,
   denySubmission,
+  deviceLogin,
   feedForUser,
   findByToken,
+  listPersonas,
   fulfillRedemption,
   inviteBoyfriend,
   login,
@@ -117,6 +119,20 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
       res.json({ token: user.token, user: publicUser(state, user) });
     } catch (err) {
       res.status(401).json({ error: (err as Error).message });
+    }
+  });
+
+  app.get('/api/personas', (_req, res) => {
+    res.json(listPersonas(state));
+  });
+
+  app.post('/api/auth/device', (req, res) => {
+    try {
+      const user = deviceLogin(state, String(req.body?.userId ?? ''));
+      persist();
+      res.json({ token: user.token, user: publicUser(state, user) });
+    } catch (err) {
+      res.status(404).json({ error: (err as Error).message });
     }
   });
 

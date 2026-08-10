@@ -1,11 +1,22 @@
-import type { FeedEvent, User } from '../shared/types.ts';
-import { id, type State } from './domain.ts';
+import type {
+  EarnTask,
+  FeedEvent,
+  Prize,
+  Redemption,
+  Submission,
+  User,
+} from '../shared/types.ts';
+import { id, TASK_SUGGESTIONS, type State } from './domain.ts';
 
-interface DemoCouple {
+const now = () => Date.now();
+const ago = (minutes: number) => new Date(now() - minutes * 60_000).toISOString();
+
+interface CoupleSeed {
   wife: string;
   boyfriend: string;
-  color: string;
+  wifeColor: string;
   bfColor: string;
+  bfPoints: number;
   events: Array<{
     type: 'earn' | 'redeem';
     title: string;
@@ -16,12 +27,13 @@ interface DemoCouple {
   }>;
 }
 
-const DEMO: DemoCouple[] = [
+const COMMUNITY: CoupleSeed[] = [
   {
     wife: 'Priya',
     boyfriend: 'Dev',
-    color: '#7C5CFF',
+    wifeColor: '#7C5CFF',
     bfColor: '#00B8B8',
+    bfPoints: 180,
     events: [
       { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: 'Even did the edges 😤', minutesAgo: 42 },
       { type: 'redeem', title: 'Movie night, my pick', emoji: '🍿', points: 100, note: '', minutesAgo: 220 },
@@ -31,8 +43,9 @@ const DEMO: DemoCouple[] = [
   {
     wife: 'Mia',
     boyfriend: 'Jake',
-    color: '#E0498A',
+    wifeColor: '#E0498A',
     bfColor: '#F5A623',
+    bfPoints: 90,
     events: [
       { type: 'earn', title: 'Planned a date night', emoji: '🌹', points: 120, note: 'Rooftop tacos 🌮', minutesAgo: 90 },
       { type: 'earn', title: 'Took out the trash', emoji: '🗑️', points: 20, note: 'without being asked!!', minutesAgo: 640 },
@@ -42,8 +55,9 @@ const DEMO: DemoCouple[] = [
   {
     wife: 'Sofia',
     boyfriend: 'Leo',
-    color: '#2EA84F',
+    wifeColor: '#2EA84F',
     bfColor: '#FF6B6B',
+    bfPoints: 30,
     events: [
       { type: 'earn', title: 'Did the dishes', emoji: '🍽️', points: 30, note: 'and the pots 🙃', minutesAgo: 15 },
       { type: 'redeem', title: 'Girls night, no questions', emoji: '💃', points: 250, note: '', minutesAgo: 380 },
@@ -52,61 +66,172 @@ const DEMO: DemoCouple[] = [
   },
 ];
 
-/** Populate a fresh state with a demo community so the feed looks alive. */
-export function seedDemo(state: State): void {
-  const now = Date.now();
-  for (const couple of DEMO) {
-    const wife: User = {
-      id: id('u_'),
-      name: couple.wife,
-      email: `${couple.wife.toLowerCase()}@demo.boyfriendpoints.app`,
-      password: 'points',
-      role: 'wife',
-      color: couple.color,
-      friendIds: [],
-      points: 0,
-      onboarded: true,
-      demo: true,
-      createdAt: new Date(now).toISOString(),
-    };
-    const boyfriend: User = {
-      id: id('u_'),
-      name: couple.boyfriend,
-      email: `${couple.boyfriend.toLowerCase()}@demo.boyfriendpoints.app`,
-      password: 'points',
-      role: 'boyfriend',
-      color: couple.bfColor,
-      partnerId: wife.id,
-      friendIds: [],
-      points: 180,
-      onboarded: true,
-      demo: true,
-      createdAt: new Date(now).toISOString(),
-    };
-    wife.partnerId = boyfriend.id;
-    state.users.push(wife, boyfriend);
+function makeCouple(
+  seed: CoupleSeed,
+  demo: boolean,
+): { wife: User; boyfriend: User } {
+  const domain = demo ? 'demo.boyfriendpoints.app' : 'boyfriendpoints.app';
+  const wife: User = {
+    id: id('u_'),
+    name: seed.wife,
+    email: `${seed.wife.toLowerCase()}@${domain}`,
+    password: 'points',
+    role: 'wife',
+    color: seed.wifeColor,
+    friendIds: [],
+    points: 0,
+    onboarded: true,
+    demo,
+    createdAt: new Date(now()).toISOString(),
+  };
+  const boyfriend: User = {
+    id: id('u_'),
+    name: seed.boyfriend,
+    email: `${seed.boyfriend.toLowerCase()}@${domain}`,
+    password: 'points',
+    role: 'boyfriend',
+    color: seed.bfColor,
+    partnerId: wife.id,
+    friendIds: [],
+    points: seed.bfPoints,
+    onboarded: true,
+    demo,
+    createdAt: new Date(now()).toISOString(),
+  };
+  wife.partnerId = boyfriend.id;
+  return { wife, boyfriend };
+}
 
-    for (const ev of couple.events) {
-      const feed: FeedEvent = {
-        id: id('f_'),
-        type: ev.type,
-        boyfriendId: boyfriend.id,
-        wifeId: wife.id,
-        title: ev.title,
-        emoji: ev.emoji,
-        points: ev.points,
-        note: ev.note,
-        likes: [],
-        createdAt: new Date(now - ev.minutesAgo * 60_000).toISOString(),
-      };
-      state.feed.push(feed);
-    }
+function pushEvents(state: State, wife: User, boyfriend: User, seed: CoupleSeed) {
+  for (const ev of seed.events) {
+    const feed: FeedEvent = {
+      id: id('f_'),
+      type: ev.type,
+      boyfriendId: boyfriend.id,
+      wifeId: wife.id,
+      title: ev.title,
+      emoji: ev.emoji,
+      points: ev.points,
+      note: ev.note,
+      likes: [],
+      createdAt: ago(ev.minutesAgo),
+    };
+    state.feed.push(feed);
+  }
+}
+
+/** Populate a fresh state with a primary household + a demo community. */
+export function seedDemo(state: State): void {
+  // --- Primary household: Emma + Noah (this is "you" in the demo) ---------
+  const { wife: emma, boyfriend: noah } = makeCouple(
+    {
+      wife: 'Emma',
+      boyfriend: 'Noah',
+      wifeColor: '#008CFF',
+      bfColor: '#7C5CFF',
+      bfPoints: 240,
+      events: [
+        { type: 'earn', title: 'Cooked dinner', emoji: '🍳', points: 60, note: 'mushroom risotto 🍚', minutesAgo: 130 },
+        { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: '', minutesAgo: 1500 },
+        { type: 'redeem', title: 'Movie night, my pick', emoji: '🍿', points: 100, note: '', minutesAgo: 2900 },
+        { type: 'earn', title: 'Folded the laundry', emoji: '🧺', points: 40, note: 'matched all the socks', minutesAgo: 5200 },
+      ],
+    },
+    false,
+  );
+  state.users.push(emma, noah);
+
+  const emmaPrizes: Array<[string, string, number]> = [
+    ['🍿', 'Movie night, my pick', 100],
+    ['🥞', 'Breakfast in bed', 150],
+    ['🧹', 'Get out of one chore', 120],
+    ['💆‍♀️', 'Full-body massage', 300],
+  ];
+  for (const [emoji, title, cost] of emmaPrizes) {
+    const prize: Prize = {
+      id: id('p_'),
+      wifeId: emma.id,
+      title,
+      emoji,
+      cost,
+      createdAt: new Date(now()).toISOString(),
+    };
+    state.prizes.push(prize);
   }
 
-  // Cross-friend the demo wives so their feeds form one community.
-  const demoWives = state.users.filter((u) => u.demo && u.role === 'wife');
-  for (const a of demoWives) {
-    for (const b of demoWives) {
+  for (const suggestion of TASK_SUGGESTIONS) {
+    const task: EarnTask = {
+      id: id('t_'),
+      wifeId: emma.id,
+      title: suggestion.title,
+      emoji: suggestion.emoji,
+      points: suggestion.points,
+      createdAt: new Date(now()).toISOString(),
+    };
+    state.tasks.push(task);
+  }
+
+  pushEvents(state, emma, noah, {
+    wife: 'Emma',
+    boyfriend: 'Noah',
+    wifeColor: '',
+    bfColor: '',
+    bfPoints: 0,
+    events: [
+      { type: 'earn', title: 'Cooked dinner', emoji: '🍳', points: 60, note: 'mushroom risotto 🍚', minutesAgo: 130 },
+      { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: '', minutesAgo: 1500 },
+      { type: 'redeem', title: 'Movie night, my pick', emoji: '🍿', points: 100, note: '', minutesAgo: 2900 },
+      { type: 'earn', title: 'Folded the laundry', emoji: '🧺', points: 40, note: 'matched all the socks', minutesAgo: 5200 },
+    ],
+  });
+
+  // Pending point requests waiting for Emma to approve.
+  const pending: Array<[string, string, number, string, number]> = [
+    ['🔧', 'Fixed the leaky sink', 80, 'took two trips to the hardware store 😅', 35],
+    ['🚗', 'Washed & vacuumed the car', 45, '', 190],
+  ];
+  for (const [emoji, title, points, note, minutesAgo] of pending) {
+    const submission: Submission = {
+      id: id('s_'),
+      boyfriendId: noah.id,
+      wifeId: emma.id,
+      title,
+      emoji,
+      points,
+      requestedPoints: points,
+      note,
+      status: 'pending',
+      revised: false,
+      createdAt: ago(minutesAgo),
+    };
+    state.submissions.push(submission);
+  }
+
+  // A redemption Emma still needs to fulfill (shows as an alert).
+  const redemption: Redemption = {
+    id: id('r_'),
+    boyfriendId: noah.id,
+    wifeId: emma.id,
+    prizeTitle: 'Breakfast in bed',
+    emoji: '🥞',
+    cost: 150,
+    status: 'pending',
+    createdAt: ago(300),
+  };
+  state.redemptions.push(redemption);
+
+  // --- Community couples (fill the social feed) ---------------------------
+  const wives: User[] = [emma];
+  for (const seed of COMMUNITY) {
+    const { wife, boyfriend } = makeCouple(seed, true);
+    state.users.push(wife, boyfriend);
+    pushEvents(state, wife, boyfriend, seed);
+    wives.push(wife);
+  }
+
+  // Everyone follows everyone so the feed is one shared community.
+  for (const a of wives) {
+    for (const b of wives) {
       if (a.id !== b.id && !a.friendIds.includes(b.id)) a.friendIds.push(b.id);
     }
   }

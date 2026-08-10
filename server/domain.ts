@@ -70,6 +70,7 @@ export function publicUser(state: State, user: User): PublicUser {
     friendIds: user.friendIds,
     points: user.points,
     onboarded: user.onboarded,
+    demo: user.demo,
   };
 }
 
@@ -160,6 +161,25 @@ export function login(state: State, email: string, password: string): User {
   }
   user.token = token();
   return user;
+}
+
+/** Device-based sign-in: enter as an existing persona, no password. */
+export function deviceLogin(state: State, userId: string): User {
+  const user = state.users.find((u) => u.id === userId);
+  if (!user) throw new Error('Persona not found');
+  user.token = token();
+  return user;
+}
+
+/** Personas the device can tap to enter as, primary household first. */
+export function listPersonas(state: State): PublicUser[] {
+  return [...state.users]
+    .sort((a, b) => {
+      const rank = (u: User) => (u.demo ? 1 : 0);
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      return a.createdAt.localeCompare(b.createdAt);
+    })
+    .map((u) => publicUser(state, u));
 }
 
 export function logout(user: User): void {

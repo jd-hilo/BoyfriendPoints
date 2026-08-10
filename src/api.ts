@@ -48,15 +48,11 @@ export interface AuthResult {
 }
 
 export const api = {
-  signup: (name: string, email: string, password: string) =>
-    request<AuthResult>('/auth/signup', {
+  personas: () => request<PublicUser[]>('/personas'),
+  enterAs: (userId: string) =>
+    request<AuthResult>('/auth/device', {
       method: 'POST',
-      body: { name, email, password },
-    }),
-  login: (email: string, password: string) =>
-    request<AuthResult>('/auth/login', {
-      method: 'POST',
-      body: { email, password },
+      body: { userId },
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<PublicUser>('/me'),
@@ -85,7 +81,10 @@ export const api = {
 
   tasks: () => request<EarnTask[]>('/tasks'),
   addTask: (title: string, points: number, emoji?: string) =>
-    request<EarnTask>('/tasks', { method: 'POST', body: { title, points, emoji } }),
+    request<EarnTask>('/tasks', {
+      method: 'POST',
+      body: { title, points, emoji },
+    }),
   removeTask: (id: string) =>
     request<void>(`/tasks/${id}`, { method: 'DELETE' }),
 
