@@ -6,7 +6,7 @@ import type {
   Submission,
   User,
 } from '../shared/types.ts';
-import { id, TASK_SUGGESTIONS, type State } from './domain.ts';
+import { avatarFor, id, stockPhoto, TASK_SUGGESTIONS, type State } from './domain.ts';
 
 const now = () => Date.now();
 const ago = (minutes: number) => new Date(now() - minutes * 60_000).toISOString();
@@ -24,6 +24,7 @@ interface CoupleSeed {
     points: number;
     note: string;
     minutesAgo: number;
+    photos?: string[];
   }>;
 }
 
@@ -35,9 +36,9 @@ const COMMUNITY: CoupleSeed[] = [
     bfColor: '#00B8B8',
     bfPoints: 180,
     events: [
-      { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: 'Even did the edges 😤', minutesAgo: 42 },
+      { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: 'Even did the edges 😤', minutesAgo: 42, photos: ['dev-lawn-1', 'dev-lawn-2'] },
       { type: 'redeem', title: 'Movie night, my pick', emoji: '🍿', points: 100, note: '', minutesAgo: 220 },
-      { type: 'earn', title: 'Cooked dinner', emoji: '🍳', points: 60, note: 'Butter chicken from scratch', minutesAgo: 1500 },
+      { type: 'earn', title: 'Cooked dinner', emoji: '🍳', points: 60, note: 'Butter chicken from scratch', minutesAgo: 1500, photos: ['dev-dinner-1'] },
     ],
   },
   {
@@ -47,7 +48,7 @@ const COMMUNITY: CoupleSeed[] = [
     bfColor: '#F5A623',
     bfPoints: 90,
     events: [
-      { type: 'earn', title: 'Planned a date night', emoji: '🌹', points: 120, note: 'Rooftop tacos 🌮', minutesAgo: 90 },
+      { type: 'earn', title: 'Planned a date night', emoji: '🌹', points: 120, note: 'Rooftop tacos 🌮', minutesAgo: 90, photos: ['jake-date-1', 'jake-date-2', 'jake-date-3'] },
       { type: 'earn', title: 'Took out the trash', emoji: '🗑️', points: 20, note: 'without being asked!!', minutesAgo: 640 },
       { type: 'redeem', title: 'Control the remote all weekend', emoji: '📺', points: 200, note: '', minutesAgo: 2600 },
     ],
@@ -59,7 +60,7 @@ const COMMUNITY: CoupleSeed[] = [
     bfColor: '#FF6B6B',
     bfPoints: 30,
     events: [
-      { type: 'earn', title: 'Did the dishes', emoji: '🍽️', points: 30, note: 'and the pots 🙃', minutesAgo: 15 },
+      { type: 'earn', title: 'Did the dishes', emoji: '🍽️', points: 30, note: 'and the pots 🙃', minutesAgo: 15, photos: ['leo-dishes-1'] },
       { type: 'redeem', title: 'Girls night, no questions', emoji: '💃', points: 250, note: '', minutesAgo: 380 },
       { type: 'earn', title: 'Folded the laundry', emoji: '🧺', points: 40, note: '', minutesAgo: 4300 },
     ],
@@ -78,6 +79,7 @@ function makeCouple(
     password: 'points',
     role: 'wife',
     color: seed.wifeColor,
+    avatarUrl: avatarFor(seed.wife),
     friendIds: [],
     points: 0,
     onboarded: true,
@@ -91,6 +93,7 @@ function makeCouple(
     password: 'points',
     role: 'boyfriend',
     color: seed.bfColor,
+    avatarUrl: avatarFor(seed.boyfriend),
     partnerId: wife.id,
     friendIds: [],
     points: seed.bfPoints,
@@ -113,6 +116,7 @@ function pushEvents(state: State, wife: User, boyfriend: User, seed: CoupleSeed)
       emoji: ev.emoji,
       points: ev.points,
       note: ev.note,
+      images: (ev.photos ?? []).map(stockPhoto),
       likes: [],
       createdAt: ago(ev.minutesAgo),
     };
@@ -178,31 +182,53 @@ export function seedDemo(state: State): void {
     bfColor: '',
     bfPoints: 0,
     events: [
-      { type: 'earn', title: 'Cooked dinner', emoji: '🍳', points: 60, note: 'mushroom risotto 🍚', minutesAgo: 130 },
-      { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: '', minutesAgo: 1500 },
+      { type: 'earn', title: 'Cooked dinner', emoji: '🍳', points: 60, note: 'mushroom risotto 🍚', minutesAgo: 130, photos: ['noah-risotto-1', 'noah-risotto-2'] },
+      { type: 'earn', title: 'Mowed the lawn', emoji: '🌱', points: 50, note: '', minutesAgo: 1500, photos: ['noah-lawn-1'] },
       { type: 'redeem', title: 'Movie night, my pick', emoji: '🍿', points: 100, note: '', minutesAgo: 2900 },
       { type: 'earn', title: 'Folded the laundry', emoji: '🧺', points: 40, note: 'matched all the socks', minutesAgo: 5200 },
     ],
   });
 
   // Pending point requests waiting for Emma to approve.
-  const pending: Array<[string, string, number, string, number]> = [
-    ['🔧', 'Fixed the leaky sink', 80, 'took two trips to the hardware store 😅', 35],
-    ['🚗', 'Washed & vacuumed the car', 45, '', 190],
+  const pending: Array<{
+    emoji: string;
+    title: string;
+    points: number;
+    note: string;
+    minutesAgo: number;
+    photos: string[];
+  }> = [
+    {
+      emoji: '🔧',
+      title: 'Fixed the leaky sink',
+      points: 80,
+      note: 'took two trips to the hardware store 😅',
+      minutesAgo: 35,
+      photos: ['noah-sink-1', 'noah-sink-2'],
+    },
+    {
+      emoji: '🚗',
+      title: 'Washed & vacuumed the car',
+      points: 45,
+      note: '',
+      minutesAgo: 190,
+      photos: ['noah-car-1'],
+    },
   ];
-  for (const [emoji, title, points, note, minutesAgo] of pending) {
+  for (const p of pending) {
     const submission: Submission = {
       id: id('s_'),
       boyfriendId: noah.id,
       wifeId: emma.id,
-      title,
-      emoji,
-      points,
-      requestedPoints: points,
-      note,
+      title: p.title,
+      emoji: p.emoji,
+      points: p.points,
+      requestedPoints: p.points,
+      note: p.note,
+      images: p.photos.map(stockPhoto),
       status: 'pending',
       revised: false,
-      createdAt: ago(minutesAgo),
+      createdAt: ago(p.minutesAgo),
     };
     state.submissions.push(submission);
   }

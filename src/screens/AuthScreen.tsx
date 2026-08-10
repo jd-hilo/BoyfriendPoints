@@ -95,7 +95,12 @@ function PersonaCard({
 
   return (
     <button className="persona" onClick={onPick} disabled={busy}>
-      <Avatar name={persona.name} color={persona.color} size={48} />
+      <Avatar
+        name={persona.name}
+        color={persona.color}
+        src={persona.avatarUrl}
+        size={48}
+      />
       <span className="persona-copy">
         <span className="persona-name">{persona.name}</span>
         <span className="persona-sub">{subtitle}</span>

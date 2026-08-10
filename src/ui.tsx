@@ -14,10 +14,12 @@ export function PhoneFrame({ children }: { children: ReactNode }) {
 export function Avatar({
   name,
   color,
+  src,
   size = 44,
 }: {
   name: string;
   color: string;
+  src?: string;
   size?: number;
 }) {
   const initials = name
@@ -26,6 +28,19 @@ export function Avatar({
     .join('')
     .slice(0, 2)
     .toUpperCase();
+  if (src) {
+    return (
+      <img
+        className="avatar avatar-img"
+        src={src}
+        alt={name}
+        width={size}
+        height={size}
+        style={{ background: color, width: size, height: size }}
+        loading="lazy"
+      />
+    );
+  }
   return (
     <span
       className="avatar"

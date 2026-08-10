@@ -89,10 +89,16 @@ export const api = {
     request<void>(`/tasks/${id}`, { method: 'DELETE' }),
 
   submissions: () => request<Submission[]>('/submissions'),
-  submit: (title: string, points: number, emoji?: string, note?: string) =>
+  submit: (
+    title: string,
+    points: number,
+    emoji?: string,
+    note?: string,
+    images?: string[],
+  ) =>
     request<Submission>('/submissions', {
       method: 'POST',
-      body: { title, points, emoji, note },
+      body: { title, points, emoji, note, images },
     }),
   approve: (id: string, points?: number) =>
     request<{ submission: Submission }>(`/submissions/${id}/approve`, {

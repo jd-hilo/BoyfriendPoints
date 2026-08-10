@@ -38,10 +38,10 @@ export default function MainApp() {
 
   if (!user) return null;
 
-  const fabTab: Tab = isWife ? 'requests' : 'submit';
-  const sideTab: Tab = isWife ? 'manage' : 'redeem';
-  const fabLabel = isWife ? 'Requests' : 'Submit';
-  const sideLabel = isWife ? 'Manage' : 'Redeem';
+  const midTab: Tab = isWife ? 'requests' : 'submit';
+  const rightTab: Tab = isWife ? 'manage' : 'redeem';
+  const midLabel = isWife ? 'Review' : 'Submit';
+  const rightLabel = isWife ? 'Manage' : 'Redeem';
 
   function go(next: Tab) {
     setTab(next);
@@ -52,7 +52,12 @@ export default function MainApp() {
     <div className="app">
       <header className="app-header">
         <div className="search-pill">
-          <Avatar name={user.name} color={user.color} size={28} />
+          <Avatar
+            name={user.name}
+            color={user.color}
+            src={user.avatarUrl}
+            size={28}
+          />
           <span className="wordmark">boyfriendpoints</span>
           {!isWife && <span className="search-meta">{user.points} pts</span>}
           {isWife && pending > 0 && (
@@ -65,7 +70,12 @@ export default function MainApp() {
           aria-label="Switch persona"
           title="Switch persona"
         >
-          <Avatar name={user.name} color={user.color} size={28} />
+          <Avatar
+            name={user.name}
+            color={user.color}
+            src={user.avatarUrl}
+            size={30}
+          />
         </button>
       </header>
 
@@ -91,21 +101,12 @@ export default function MainApp() {
           <span className="tab-label">Home</span>
         </button>
 
-        <button
-          type="button"
-          className={`tab ${tab === sideTab ? 'active' : ''}`}
-          onClick={() => go(sideTab)}
-        >
-          <GiftIcon active={tab === sideTab} />
-          <span className="tab-label">{sideLabel}</span>
-        </button>
-
         <div className="tab-fab-slot">
           <button
             type="button"
-            className={`fab ${tab === fabTab ? 'active' : ''}`}
-            onClick={() => go(fabTab)}
-            aria-label={fabLabel}
+            className={`fab ${tab === midTab ? 'active' : ''}`}
+            onClick={() => go(midTab)}
+            aria-label={midLabel}
           >
             {isWife ? (
               pending > 0 ? (
@@ -117,21 +118,18 @@ export default function MainApp() {
               <PlusIcon />
             )}
           </button>
-          <span className={`fab-label ${tab === fabTab ? 'active' : ''}`}>
-            {fabLabel}
+          <span className={`fab-label ${tab === midTab ? 'active' : ''}`}>
+            {midLabel}
           </span>
         </div>
 
         <button
           type="button"
-          className="tab"
-          onClick={() => void logout()}
-          aria-label="Switch persona"
+          className={`tab ${tab === rightTab ? 'active' : ''}`}
+          onClick={() => go(rightTab)}
         >
-          <span className="tab-avatar">
-            <Avatar name={user.name} color={user.color} size={26} />
-          </span>
-          <span className="tab-label">Me</span>
+          <GiftIcon active={tab === rightTab} />
+          <span className="tab-label">{rightLabel}</span>
         </button>
       </nav>
     </div>

@@ -55,6 +55,18 @@ function pickColor(state: State): string {
   return AVATAR_COLORS[state.users.length % AVATAR_COLORS.length];
 }
 
+/** Deterministic, playful profile image for a given seed (renders client-side). */
+export function avatarFor(seed: string): string {
+  return `https://api.dicebear.com/9.x/adventurer/svg?seed=${encodeURIComponent(
+    seed,
+  )}&backgroundType=gradientLinear&radius=50`;
+}
+
+/** Deterministic stock photo for attaching to posts (renders client-side). */
+export function stockPhoto(seed: string): string {
+  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/720/480`;
+}
+
 export function publicUser(state: State, user: User): PublicUser {
   const partner = user.partnerId
     ? state.users.find((u) => u.id === user.partnerId)
@@ -65,6 +77,7 @@ export function publicUser(state: State, user: User): PublicUser {
     email: user.email,
     role: user.role,
     color: user.color,
+    avatarUrl: user.avatarUrl ?? avatarFor(user.name),
     partnerId: user.partnerId,
     partnerName: partner?.name,
     friendIds: user.friendIds,
@@ -332,7 +345,13 @@ export function tasksForUser(state: State, user: User): EarnTask[] {
 export function createSubmission(
   state: State,
   boyfriend: User,
-  input: { title: string; emoji?: string; points: number; note?: string },
+  input: {
+    title: string;
+    emoji?: string;
+    points: number;
+    note?: string;
+    images?: string[];
+  },
 ): Submission {
   if (boyfriend.role !== 'boyfriend') {
     throw new Error('Only a boyfriend can submit for points');
@@ -352,6 +371,7 @@ export function createSubmission(
     points: Math.round(input.points),
     requestedPoints: Math.round(input.points),
     note: input.note?.trim() ?? '',
+    images: (input.images ?? []).filter(Boolean).slice(0, 4),
     status: 'pending',
     revised: false,
     createdAt: new Date().toISOString(),
@@ -394,6 +414,7 @@ export function approveSubmission(
     emoji: submission.emoji,
     points: submission.points,
     note: submission.note,
+    images: submission.images ?? [],
     likes: [],
     createdAt: new Date().toISOString(),
   };
@@ -454,6 +475,7 @@ export function redeemPrize(
     emoji: prize.emoji,
     points: prize.cost,
     note: '',
+    images: [],
     likes: [],
     createdAt: new Date().toISOString(),
   };
@@ -497,6 +519,9 @@ export function feedForUser(state: State, user: User): FeedEventView[] {
         ...e,
         boyfriendName: boyfriend?.name ?? 'Someone',
         boyfriendColor: boyfriend?.color ?? '#008CFF',
+        boyfriendAvatar: boyfriend
+          ? (boyfriend.avatarUrl ?? avatarFor(boyfriend.name))
+          : undefined,
         wifeName: wife?.name ?? 'their partner',
         likedByMe: e.likes.includes(user.id),
       };

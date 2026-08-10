@@ -303,12 +303,16 @@ export function createApiApp() {
         emoji?: string;
         points?: number;
         note?: string;
+        images?: string[];
       }>();
       const submission = createSubmission(c.get('state'), user, {
         title: String(body?.title ?? ''),
         emoji: body?.emoji ? String(body.emoji) : undefined,
         points: Number(body?.points),
         note: body?.note ? String(body.note) : undefined,
+        images: Array.isArray(body?.images)
+          ? body.images.map(String)
+          : undefined,
       });
       markDirty(c);
       return c.json(submission, 201);

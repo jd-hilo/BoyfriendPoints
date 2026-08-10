@@ -10,6 +10,7 @@ export default function Submit({ onDone }: { onDone: () => void }) {
   const [emoji, setEmoji] = useState('⭐');
   const [points, setPoints] = useState('');
   const [note, setNote] = useState('');
+  const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
@@ -45,12 +46,13 @@ export default function Submit({ onDone }: { onDone: () => void }) {
     e.preventDefault();
     setError(null);
     try {
-      await api.submit(title, Number(points), emoji, note);
+      await api.submit(title, Number(points), emoji, note, images);
       setFlash(`Request sent to your partner for ${points} pts!`);
       setTitle('');
       setEmoji('⭐');
       setPoints('');
       setNote('');
+      setImages([]);
       await load();
       onDone();
       setTimeout(() => setFlash(null), 2500);
@@ -112,6 +114,38 @@ export default function Submit({ onDone }: { onDone: () => void }) {
           placeholder="Add a note (optional)"
           aria-label="Note"
         />
+
+        <div className="photo-attach">
+          {images.map((src) => (
+            <span key={src} className="photo-thumb">
+              <img src={src} alt="Attached" />
+              <button
+                type="button"
+                className="photo-remove"
+                aria-label="Remove photo"
+                onClick={() => setImages((p) => p.filter((x) => x !== src))}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+          {images.length < 4 && (
+            <button
+              type="button"
+              className="photo-add"
+              onClick={() =>
+                setImages((p) => [
+                  ...p,
+                  `https://picsum.photos/seed/bp-${Date.now()}-${p.length}/720/480`,
+                ])
+              }
+            >
+              <span className="photo-add-plus">＋</span>
+              <span>Add photo</span>
+            </button>
+          )}
+        </div>
+
         {error && <p className="error">{error}</p>}
         {flash && <p className="flash">{flash}</p>}
         <Button type="submit" block disabled={!title || !points}>

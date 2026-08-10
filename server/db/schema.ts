@@ -14,6 +14,7 @@ export const users = pgTable('users', {
   password: text('password').notNull(),
   role: text('role').notNull(), // 'wife' | 'boyfriend'
   color: text('color').notNull(),
+  avatarUrl: text('avatar_url'),
   partnerId: text('partner_id'),
   friendIds: jsonb('friend_ids').$type<string[]>().notNull().default([]),
   points: integer('points').notNull().default(0),
@@ -64,6 +65,7 @@ export const submissions = pgTable('submissions', {
   points: integer('points').notNull(),
   requestedPoints: integer('requested_points').notNull(),
   note: text('note').notNull().default(''),
+  images: jsonb('images').$type<string[]>().notNull().default([]),
   status: text('status').notNull(), // pending | approved | denied
   revised: boolean('revised').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -103,6 +105,7 @@ export const feed = pgTable('feed', {
   emoji: text('emoji').notNull(),
   points: integer('points').notNull(),
   note: text('note').notNull().default(''),
+  images: jsonb('images').$type<string[]>().notNull().default([]),
   likes: jsonb('likes').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()

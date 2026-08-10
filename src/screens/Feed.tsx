@@ -1,8 +1,43 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FeedEventView } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { Avatar } from '../ui.tsx';
 import { timeAgo } from '../utils.ts';
+
+function PhotoCarousel({ images }: { images: string[] }) {
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [active, setActive] = useState(0);
+
+  function onScroll() {
+    const el = trackRef.current;
+    if (!el) return;
+    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    setActive(Math.max(0, Math.min(images.length - 1, idx)));
+  }
+
+  return (
+    <div className="carousel">
+      <div className="carousel-track" ref={trackRef} onScroll={onScroll}>
+        {images.map((src, i) => (
+          <img
+            key={src}
+            className="carousel-img"
+            src={src}
+            alt={`Photo ${i + 1}`}
+            loading="lazy"
+          />
+        ))}
+      </div>
+      {images.length > 1 && (
+        <div className="carousel-dots">
+          {images.map((src, i) => (
+            <span key={src} className={`dot ${i === active ? 'on' : ''}`} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Feed() {
   const [events, setEvents] = useState<FeedEventView[]>([]);
@@ -60,7 +95,12 @@ export default function Feed() {
             </div>
 
             <div className="feed-story">
-              <Avatar name={e.boyfriendName} color={e.boyfriendColor} size={40} />
+              <Avatar
+                name={e.boyfriendName}
+                color={e.boyfriendColor}
+                src={e.boyfriendAvatar}
+                size={40}
+              />
               <div className="feed-story-text">
                 <p className="feed-line">
                   <span className="name">{e.boyfriendName}</span>
@@ -81,6 +121,8 @@ export default function Feed() {
                 {e.points}
               </span>
             </div>
+
+            {e.images.length > 0 && <PhotoCarousel images={e.images} />}
 
             <div className="feed-actions">
               <button className="action-circle" aria-label="Comment" type="button">

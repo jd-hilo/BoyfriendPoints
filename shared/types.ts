@@ -7,6 +7,7 @@ export interface User {
   password: string;
   role: Role;
   color: string;
+  avatarUrl?: string;
   partnerId?: string;
   friendIds: string[];
   points: number;
@@ -23,6 +24,7 @@ export interface PublicUser {
   email: string;
   role: Role;
   color: string;
+  avatarUrl?: string;
   partnerId?: string;
   partnerName?: string;
   friendIds: string[];
@@ -60,6 +62,7 @@ export interface Submission {
   points: number;
   requestedPoints: number;
   note: string;
+  images: string[];
   status: SubmissionStatus;
   revised: boolean;
   createdAt: string;
@@ -91,6 +94,7 @@ export interface FeedEvent {
   emoji: string;
   points: number;
   note: string;
+  images: string[];
   likes: string[];
   createdAt: string;
 }
@@ -99,6 +103,7 @@ export interface FeedEvent {
 export interface FeedEventView extends FeedEvent {
   boyfriendName: string;
   boyfriendColor: string;
+  boyfriendAvatar?: string;
   wifeName: string;
   likedByMe: boolean;
 }

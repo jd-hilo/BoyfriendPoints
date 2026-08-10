@@ -281,6 +281,9 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
         emoji: req.body?.emoji ? String(req.body.emoji) : undefined,
         points: Number(req.body?.points),
         note: req.body?.note ? String(req.body.note) : undefined,
+        images: Array.isArray(req.body?.images)
+          ? req.body.images.map(String)
+          : undefined,
       });
       persist();
       res.status(201).json(submission);
