@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-server
+*.local
+.DS_Store
+data/*.json
+coverage
+.env
+.dev.vars
+.neon
+.wrangler
