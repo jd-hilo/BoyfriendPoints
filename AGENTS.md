@@ -2,37 +2,39 @@
 
 ## Project overview
 
-BoyfriendPoints is a full-stack TypeScript web app: a Venmo-style couples rewards app.
-A wife/girlfriend signs up, creates prizes, invites her boyfriend and friends; boyfriends
-submit deeds for points (wife approves/revises), then redeem points for prizes. Earn/redeem
-events show up in a shared social feed across the friend network.
+BoyfriendPoints is a Venmo-style couples rewards app.
 
-- Frontend: React 18 + Vite (`src/`, entry `src/main.tsx`). Top-level routing in `src/App.tsx`;
-  screens in `src/screens/`; auth context in `src/auth.tsx`; typed API client in `src/api.ts`.
-- Backend: Express API (`server/`, entry `server/index.ts`). Routes + token auth in `server/app.ts`;
-  pure domain logic (fully unit-tested) in `server/domain.ts`; demo seed in `server/seed.ts`.
-- Shared types: `shared/types.ts`.
-- Storage: a JSON file at `data/store.json` (created on first write, gitignored). No database.
-  On first load with no data file, the store auto-seeds a demo community so the feed is populated.
-- Roles: `wife` (signs up, owns prizes/tasks, approves) and `boyfriend` (invited, earns/redeems).
-  A boyfriend's economy is owned by his partner wife (`ownerWifeId`).
+- Frontend: React 18 + Vite (`src/`). Screens in `src/screens/`. Device-auth
+  context in `src/auth.tsx` (tap a persona — no email/password).
+- Backend: Express (`server/app.ts`) with pure domain logic in `server/domain.ts`.
+- Database: **Neon Postgres** via Drizzle (`server/db/schema.ts`, `server/store.ts`).
+  Connection from `DATABASE_URL` in `.env` (gitignored).
+- Auth is device-based: `GET /api/personas` + `POST /api/auth/device` with a `userId`.
+  The client stores the returned token in `localStorage` (`bp_token`).
+- Mock seed (`server/seed.ts`) creates Emma + Noah (primary household with pending
+  requests, prizes, points) plus three community couples that fill the feed.
+  `pnpm db:reset` wipes Neon and re-seeds.
 
 ## Commands
 
-All commands run from the repo root with `pnpm` (see `package.json` scripts):
-
-- `pnpm dev` — runs backend (`tsx watch`, port 3001) and frontend (Vite, port 5173) together via `concurrently`. Open the app at http://localhost:5173.
-- `pnpm test` — Vitest (server unit + supertest API tests + a jsdom React test).
-- `pnpm lint` — ESLint (flat config in `eslint.config.js`).
-- `pnpm typecheck` — `tsc -b` across the app/server/node project references.
-- `pnpm build` — type-checks then builds the frontend to `dist/`.
+- `pnpm install` / `pnpm dev` / `pnpm test` / `pnpm lint` / `pnpm typecheck` / `pnpm build`
+- `pnpm db:push` — push Drizzle schema to Neon (uses `DATABASE_URL_UNPOOLED` if set)
+- `pnpm db:reset` — truncate + re-seed mock data
+- `pnpm db:studio` — Drizzle Studio
 
 ## Cursor Cloud specific instructions
 
-- Dependencies are managed by `pnpm`; the startup update script runs `pnpm install`.
-- `esbuild` (a Vite dependency) needs its postinstall build script, which pnpm blocks by default. This is handled non-interactively via `pnpm.onlyBuiltDependencies` in `package.json` — do NOT run the interactive `pnpm approve-builds`.
-- The app is two dev processes. The frontend must be reached at http://localhost:5173 (NOT 3001); Vite proxies `/api/*` to the Express server on port 3001 (see `server.proxy` in `vite.config.ts`). Hitting 3001 directly only serves the JSON API, not the UI.
-- Server code uses explicit `.ts` import extensions because it runs under `tsx`. `tsconfig.server.json` sets `allowImportingTsExtensions` so `pnpm typecheck` passes; keep it when adding server files.
-- Data persists to `data/store.json`. To reset app state, stop the dev server and remove `data/store.json`; on next start the store re-seeds the demo community (3 couples + a populated feed). Note the running server holds state in memory, so deleting the file without restarting has no effect.
-- Auth is token-based: signup/login returns a token the client stores in `localStorage` (`bp_token`) and sends as `Authorization: Bearer <token>`. Passwords are stored in plaintext in the JSON store — this is a demo convenience, not production-ready.
-- The UI is an original implementation styled after Venmo's general look (brand blue `#008CFF`, white transaction-feed rows); it does not use any Venmo logo or proprietary assets.
+- Open the UI at http://localhost:5173 (not :3001). Vite proxies `/api` to Express.
+- Requires `DATABASE_URL` in `.env`. This workspace was bootstrapped with a
+  [claimable Neon DB](https://neon.new); claim URL is in `.env` as `NEON_CLAIM_URL`
+  (72h unless claimed). Prefer a permanent Neon project + `NEON_API_KEY` / saved
+  `DATABASE_URL` secret for durable Cloud Agent runs.
+- `esbuild` postinstall is allowlisted via `pnpm.onlyBuiltDependencies` — do not run
+  interactive `pnpm approve-builds`.
+- Server code uses explicit `.ts` import extensions for `tsx`;
+  `tsconfig.server.json` sets `allowImportingTsExtensions`.
+- Persistence is wipe-and-rewrite of the full in-memory state to Neon on each
+  mutation (demo scale). Writes are serialized in `server/index.ts` so overlapping
+  saves don't race. Domain unit tests stay in-memory and do not need Neon.
+- Tap the header avatar to switch personas (clears the device token and returns to
+  the picker).

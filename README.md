@@ -2,63 +2,71 @@
 
 Track and manage boyfriend points — a playful, Venmo-style rewards app for couples.
 
-A wife or girlfriend signs up, creates **prizes** her boyfriend can redeem, invites her
-**boyfriend**, and follows her **friends**. Boyfriends submit the things they do (mowed
-the lawn, cooked dinner) for points; the wife approves or revises the request. Points can
-then be redeemed for prizes, and every earn/redeem shows up in a shared, Venmo-like
-social feed across the friend network.
+A wife or girlfriend creates **prizes**, invites her **boyfriend**, and follows her
+**friends**. Boyfriends submit the things they do for points; she approves or revises.
+Points are redeemed for prizes, and every earn/redeem shows up in a shared, Venmo-like
+social feed.
 
 ## Tech stack
 
 - **Frontend:** React 18 + Vite + TypeScript, mobile phone-framed UI (`src/`).
-- **Backend:** Express + TypeScript REST API with token auth (`server/`).
+- **Backend:** Express + TypeScript REST API with **device-based auth** (`server/`).
+- **Database:** [Neon](https://neon.tech) Postgres via Drizzle ORM (`server/db/`).
 - **Shared types:** `shared/types.ts`.
-- **Storage:** a JSON file at `data/store.json` (gitignored), auto-seeded with a demo
-  community so the feed is populated on first run.
 
 ## Getting started
 
-```bash
-pnpm install
-pnpm dev
-```
+1. Copy a Neon connection string into `.env`:
 
-Then open http://localhost:5173. The Vite dev server proxies `/api/*` to the Express API
-on port 3001.
+   ```bash
+   DATABASE_URL=postgresql://...
+   DATABASE_URL_UNPOOLED=postgresql://...   # optional; used by drizzle-kit push
+   ```
 
-### Try it
+   Or claim the temporary DB provisioned for this workspace:
+   see `NEON_CLAIM_URL` in `.env` (expires in 72h unless claimed).
 
-1. **Sign up** as a wife/girlfriend.
-2. **Onboarding:** pick a few prizes, invite your boyfriend (note the login shown), and
-   add a friend.
-3. Open a second browser/incognito window and **sign in as the boyfriend** with the
-   invite credentials.
-4. Boyfriend: **Submit** a chore for points; Wife: **approve** it under Requests;
-   Boyfriend: **Redeem** a prize; Wife: sees the **redemption alert**.
+2. Install, push schema, seed mock data, run:
 
-Seeded demo accounts (password `points`) are available too, e.g. `priya@demo.boyfriendpoints.app`.
+   ```bash
+   pnpm install
+   pnpm db:push
+   pnpm db:reset
+   pnpm dev
+   ```
+
+3. Open http://localhost:5173 and **tap a persona** (Emma or Noah) — no password.
+
+### Mock personas
+
+| Persona | Role | Notes |
+| --- | --- | --- |
+| **Emma** | Wife | Pending point requests + a redemption alert |
+| **Noah** | Boyfriend | 240 pts, prizes ready to redeem |
+| Priya / Dev, Mia / Jake, Sofia / Leo | Community | Fill the Venmo-style feed |
+
+Tap the avatar in the header to switch personas.
 
 ## Scripts
 
-- `pnpm dev` — run backend + frontend together.
-- `pnpm test` — Vitest (server domain + API + a React test).
-- `pnpm lint` — ESLint.
-- `pnpm typecheck` — `tsc -b`.
-- `pnpm build` — type-check and build the frontend.
+- `pnpm dev` — backend (:3001) + frontend (:5173)
+- `pnpm test` / `pnpm lint` / `pnpm typecheck` / `pnpm build`
+- `pnpm db:push` — apply Drizzle schema to Neon
+- `pnpm db:reset` — wipe + re-seed mock data
+- `pnpm db:studio` — Drizzle Studio
 
 ## Project structure
 
 ```
 server/
-  domain.ts     pure business logic (users, prizes, tasks, submissions, redemptions, feed)
-  app.ts        Express routes + auth middleware
-  seed.ts       demo community used on first run
-  store.ts      JSON persistence
-  index.ts      bootstrap
+  domain.ts       pure business logic
+  app.ts          Express routes + device auth
+  seed.ts         mock household + community
+  store.ts        Neon load/save via Drizzle
+  db/schema.ts    Drizzle tables
+  db/client.ts    Neon HTTP driver
 src/
-  screens/      AuthScreen, Onboarding, Feed, Submit, Redeem, WifeRequests, WifeManage, MainApp
-  auth.tsx      auth context
-  api.ts        typed API client
-  ui.tsx        PhoneFrame, Avatar, Button, PointsPill
-shared/types.ts shared domain types
+  screens/        AuthScreen (persona picker), Feed, Submit, Redeem, …
+  auth.tsx        device-auth context
+shared/types.ts
 ```
