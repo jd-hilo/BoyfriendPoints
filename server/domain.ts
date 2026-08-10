@@ -133,6 +133,18 @@ export function signupWife(
   };
   state.users.push(wife);
 
+  // Give her a starter table of earn tasks the boyfriend can pick from.
+  for (const suggestion of TASK_SUGGESTIONS) {
+    state.tasks.push({
+      id: id('t_'),
+      wifeId: wife.id,
+      title: suggestion.title,
+      emoji: suggestion.emoji,
+      points: suggestion.points,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   // Connect new sign-ups to the seeded demo community so the feed is alive.
   for (const demoWife of state.users.filter((u) => u.demo && u.role === 'wife')) {
     if (!wife.friendIds.includes(demoWife.id)) wife.friendIds.push(demoWife.id);

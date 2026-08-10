@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { EarnTask, Submission } from '../../shared/types.ts';
+import type { Submission, Suggestion } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { Button } from '../ui.tsx';
 
 export default function Submit({ onDone }: { onDone: () => void }) {
-  const [tasks, setTasks] = useState<EarnTask[]>([]);
+  const [options, setOptions] = useState<Suggestion[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
   const [title, setTitle] = useState('');
   const [emoji, setEmoji] = useState('⭐');
@@ -15,7 +15,18 @@ export default function Submit({ onDone }: { onDone: () => void }) {
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
-    setTasks(t);
+    if (t.length > 0) {
+      setOptions(
+        t.map((task) => ({
+          title: task.title,
+          emoji: task.emoji,
+          points: task.points,
+        })),
+      );
+    } else {
+      const suggestions = await api.suggestions();
+      setOptions(suggestions.tasks);
+    }
     setMine(s);
   }, []);
 
@@ -23,7 +34,7 @@ export default function Submit({ onDone }: { onDone: () => void }) {
     void load();
   }, [load]);
 
-  function pickTask(task: EarnTask) {
+  function pickTask(task: Suggestion) {
     setTitle(task.title);
     setEmoji(task.emoji);
     setPoints(String(task.points));
@@ -55,12 +66,12 @@ export default function Submit({ onDone }: { onDone: () => void }) {
         Pick something you did or write your own. Your partner approves it.
       </p>
 
-      {tasks.length > 0 && (
+      {options.length > 0 && (
         <>
           <p className="section-label">Quick submit</p>
           <div className="chip-grid">
-            {tasks.map((t) => (
-              <button key={t.id} className="chip" onClick={() => pickTask(t)}>
+            {options.map((t) => (
+              <button key={t.title} className="chip" onClick={() => pickTask(t)}>
                 <span className="chip-emoji">{t.emoji}</span>
                 <span className="chip-title">{t.title}</span>
                 <span className="chip-points">+{t.points}</span>
