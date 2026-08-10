@@ -54,22 +54,27 @@ export default function MainApp() {
     <div className="app">
       <header className="app-header">
         <div className="search-pill">
-          <Avatar
-            name={user.name}
-            color={user.color}
-            src={user.avatarUrl}
-            size={28}
-          />
-          <span className="wordmark">Love Receipts</span>
+          <span className="brand-gem" aria-hidden>
+            💎
+          </span>
+          <span className="wordmark sm">LoveReceipts</span>
           {!isWife && (
             <span className="search-meta">
-              <Xp value={user.points} size={16} />
+              <Xp value={user.points} size={15} />
             </span>
           )}
-          {isWife && pending > 0 && (
-            <span className="search-meta">{pending} pending</span>
-          )}
         </div>
+        <button
+          className="header-icon-btn"
+          onClick={() => go(isWife ? 'requests' : 'feed')}
+          aria-label="Notifications"
+          title="Notifications"
+        >
+          <BellIcon />
+          {isWife && pending > 0 && (
+            <span className="icon-badge">{pending}</span>
+          )}
+        </button>
         <button
           className="header-icon-btn"
           onClick={() => void logout()}
@@ -178,6 +183,28 @@ function GiftIcon({ active }: { active: boolean }) {
         d="M4 12h16M12 8v12"
         fill="none"
         stroke={active ? '#fff' : 'currentColor'}
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function BellIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.7 21a2 2 0 0 1-3.4 0"
+        fill="none"
+        stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
       />

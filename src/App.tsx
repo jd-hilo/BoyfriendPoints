@@ -10,7 +10,12 @@ function Router() {
   if (loading) {
     return (
       <div className="splash">
-        <span className="wordmark big">Love Receipts</span>
+        <span className="brand-lockup">
+          <span className="brand-gem big" aria-hidden>
+            💎
+          </span>
+          <span className="wordmark big">LoveReceipts</span>
+        </span>
       </div>
     );
   }
