@@ -2,14 +2,14 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
 export function XpIcon({ size = 18 }: { size?: number }) {
   return (
-    <img
-      src="/xp-diamond.png"
-      alt="XP"
-      width={size}
-      height={size}
+    <span
       className="xp-icon"
-      style={{ width: size, height: size }}
-    />
+      role="img"
+      aria-label="gems"
+      style={{ fontSize: size, lineHeight: 1 }}
+    >
+      💎
+    </span>
   );
 }
 

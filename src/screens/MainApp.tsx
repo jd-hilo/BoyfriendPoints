@@ -123,7 +123,9 @@ export default function MainApp() {
             ) : (
               <span className="fab-plus-gem">
                 <PlusIcon />
-                <img className="fab-gem" src="/xp-diamond.png" alt="" aria-hidden />
+                <span className="fab-gem" aria-hidden>
+                  💎
+                </span>
               </span>
             )}
           </button>
