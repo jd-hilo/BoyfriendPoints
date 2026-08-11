@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FeedComment, FeedEventView } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Avatar, XpIcon } from '../ui.tsx';
+import { Avatar, Xp } from '../ui.tsx';
 import { haptic, timeAgo } from '../utils.ts';
 
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
@@ -118,9 +118,6 @@ export default function Feed() {
           <article key={e.id} className="feed-card">
             <div className="feed-card-top">
               <span className="feed-time">{timeAgo(e.createdAt)} ago</span>
-              <button className="feed-more" aria-label="More">
-                ···
-              </button>
             </div>
 
             <div className="feed-story">
@@ -143,12 +140,12 @@ export default function Feed() {
                   {e.note ? ` — ${e.note}` : ''}
                 </p>
               </div>
-              <span
-                className={`feed-amount ${e.type === 'earn' ? 'earn' : 'redeem'}`}
-              >
-                {e.type === 'earn' ? '+' : '−'}
-                {e.points}
-                <XpIcon size={15} />
+              <span className="feed-amount">
+                <Xp
+                  value={e.points}
+                  sign={e.type === 'earn' ? '+' : '−'}
+                  size={13}
+                />
               </span>
             </div>
 

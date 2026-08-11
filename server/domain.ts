@@ -81,6 +81,10 @@ export function publicUser(state: State, user: User): PublicUser {
     avatarUrl: user.avatarUrl ?? avatarFor(user.name),
     partnerId: user.partnerId,
     partnerName: partner?.name,
+    partnerColor: partner?.color,
+    partnerAvatar: partner
+      ? (partner.avatarUrl ?? avatarFor(partner.name))
+      : undefined,
     friendIds: user.friendIds,
     points: user.points,
     onboarded: user.onboarded,
@@ -177,6 +181,29 @@ export function login(state: State, email: string, password: string): User {
   return user;
 }
 
+/** Link a verified identity (Neon Auth / Apple) to an app user. */
+export function loginOrCreateFromIdentity(
+  state: State,
+  input: { email: string; name: string; provider: string },
+): User {
+  const email = input.email.trim();
+  if (!email) throw new Error('Email is required');
+  const existing = findByEmail(state, email);
+  if (existing) {
+    existing.token = token();
+    if (input.name.trim() && existing.name !== input.name.trim()) {
+      // Keep the household name they already chose; only fill blanks.
+      if (!existing.name.trim()) existing.name = input.name.trim();
+    }
+    return existing;
+  }
+  return signupWife(state, {
+    name: input.name.trim() || email.split('@')[0] || 'Partner',
+    email,
+    password: `oauth:${input.provider}:${token()}`,
+  });
+}
+
 /** Device-based sign-in: enter as an existing persona, no password. */
 export function deviceLogin(state: State, userId: string): User {
   const user = state.users.find((u) => u.id === userId);
@@ -205,7 +232,8 @@ export function inviteBoyfriend(
   wife: User,
   input: { name: string; email: string; password?: string },
 ): User {
-  if (wife.role !== 'wife') throw new Error('Only a wife can invite a partner');
+  if (wife.role !== 'wife') throw new Error('Only a partner manager can invite');
+  if (wife.partnerId) throw new Error('You already have a partner linked');
   const name = input.name.trim();
   const email = input.email.trim();
   if (!name) throw new Error('Name is required');
@@ -219,6 +247,7 @@ export function inviteBoyfriend(
     password: input.password?.trim() || 'points',
     role: 'boyfriend',
     color: pickColor(state),
+    avatarUrl: avatarFor(name),
     partnerId: wife.id,
     friendIds: [],
     points: 0,
@@ -228,6 +257,25 @@ export function inviteBoyfriend(
   state.users.push(boyfriend);
   wife.partnerId = boyfriend.id;
   return boyfriend;
+}
+
+/** Unlink the current partner from both sides. */
+export function removePartner(state: State, wife: User): void {
+  if (wife.role !== 'wife') throw new Error('Only a partner manager can remove');
+  if (!wife.partnerId) throw new Error('No partner to remove');
+  const partner = state.users.find((u) => u.id === wife.partnerId);
+  if (partner?.partnerId === wife.id) {
+    partner.partnerId = undefined;
+    partner.token = undefined;
+  }
+  wife.partnerId = undefined;
+}
+
+export function listFriends(state: State, wife: User): PublicUser[] {
+  return wife.friendIds
+    .map((id) => state.users.find((u) => u.id === id))
+    .filter((u): u is User => Boolean(u))
+    .map((u) => publicUser(state, u));
 }
 
 export function addFriend(
@@ -375,9 +423,25 @@ export function createSubmission(
     images: (input.images ?? []).filter(Boolean).slice(0, 4),
     status: 'pending',
     revised: false,
+    shared: false,
     createdAt: new Date().toISOString(),
   };
   state.submissions.push(submission);
+  return submission;
+}
+
+/** Mark a pending submission to appear on the feed once approved. */
+export function shareSubmission(
+  state: State,
+  boyfriend: User,
+  submissionId: string,
+): Submission {
+  const submission = state.submissions.find((s) => s.id === submissionId);
+  if (!submission) throw new Error('Request not found');
+  if (submission.boyfriendId !== boyfriend.id) {
+    throw new Error('Not your request');
+  }
+  submission.shared = true;
   return submission;
 }
 
@@ -386,7 +450,7 @@ export function approveSubmission(
   wife: User,
   submissionId: string,
   revisedPoints?: number,
-): { submission: Submission; feed: FeedEvent } {
+): { submission: Submission; feed?: FeedEvent } {
   const submission = state.submissions.find((s) => s.id === submissionId);
   if (!submission) throw new Error('Request not found');
   if (submission.wifeId !== wife.id) throw new Error('Not your request');
@@ -405,6 +469,10 @@ export function approveSubmission(
 
   const boyfriend = requireUser(state, submission.boyfriendId);
   boyfriend.points += submission.points;
+
+  if (!submission.shared) {
+    return { submission };
+  }
 
   const feed: FeedEvent = {
     id: id('f_'),
@@ -445,7 +513,7 @@ export function redeemPrize(
   state: State,
   boyfriend: User,
   prizeId: string,
-): { redemption: Redemption; feed: FeedEvent } {
+): { redemption: Redemption; feed?: FeedEvent } {
   if (boyfriend.role !== 'boyfriend') {
     throw new Error('Only a boyfriend can redeem prizes');
   }
@@ -465,18 +533,44 @@ export function redeemPrize(
     emoji: prize.emoji,
     cost: prize.cost,
     status: 'pending',
+    shared: false,
     createdAt: new Date().toISOString(),
   };
   state.redemptions.push(redemption);
+  return { redemption };
+}
 
+/** Post a redemption to the social feed (Venmo-style share). */
+export function shareRedemption(
+  state: State,
+  boyfriend: User,
+  redemptionId: string,
+): { redemption: Redemption; feed: FeedEvent } {
+  const redemption = state.redemptions.find((r) => r.id === redemptionId);
+  if (!redemption) throw new Error('Redemption not found');
+  if (redemption.boyfriendId !== boyfriend.id) {
+    throw new Error('Not your redemption');
+  }
+  if (redemption.shared) {
+    const existing = state.feed.find(
+      (e) =>
+        e.type === 'redeem' &&
+        e.boyfriendId === redemption.boyfriendId &&
+        e.title === redemption.prizeTitle &&
+        e.points === redemption.cost &&
+        e.createdAt === redemption.createdAt,
+    );
+    if (existing) return { redemption, feed: existing };
+  }
+  redemption.shared = true;
   const feed: FeedEvent = {
     id: id('f_'),
     type: 'redeem',
     boyfriendId: boyfriend.id,
-    wifeId: prize.wifeId,
-    title: prize.title,
-    emoji: prize.emoji,
-    points: prize.cost,
+    wifeId: redemption.wifeId,
+    title: redemption.prizeTitle,
+    emoji: redemption.emoji,
+    points: redemption.cost,
     note: '',
     images: [],
     likes: [],

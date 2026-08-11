@@ -1,13 +1,29 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Redemption, Submission } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { Button } from '../ui.tsx';
+import { useAuth } from '../auth.tsx';
+import { Button, ReceiptModal, Xp } from '../ui.tsx';
+import { haptic } from '../utils.ts';
+import type { ReceiptKind } from '../receipt.ts';
+
+interface ReceiptState {
+  kind: ReceiptKind;
+  emoji: string;
+  title: string;
+  points: number;
+  subtitle: string;
+  fromName: string;
+  toName: string;
+  note: string;
+}
 
 export default function WifeRequests({ onChange }: { onChange: () => void }) {
+  const { user } = useAuth();
   const [subs, setSubs] = useState<Submission[]>([]);
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   const [revise, setRevise] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<ReceiptState | null>(null);
 
   const load = useCallback(async () => {
     const [s, r] = await Promise.all([api.submissions(), api.redemptions()]);
@@ -19,12 +35,61 @@ export default function WifeRequests({ onChange }: { onChange: () => void }) {
     void load();
   }, [load]);
 
+  function closeReceipt() {
+    setReceipt(null);
+    onChange();
+  }
+
   async function act(fn: () => Promise<unknown>) {
     setError(null);
     try {
       await fn();
       await load();
       onChange();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function approve(s: Submission) {
+    setError(null);
+    try {
+      const revised = revise[s.id] ? Number(revise[s.id]) : undefined;
+      const res = await api.approve(s.id, revised);
+      haptic([10, 40, 10]);
+      await load();
+      // Defer onChange until the receipt closes so remounts don't kill it.
+      setReceipt({
+        kind: 'approve',
+        emoji: s.emoji,
+        title: s.title,
+        points: res.submission.points,
+        subtitle: `You just paid out +${res.submission.points} XP.`,
+        fromName: user?.name ?? 'You',
+        toName: user?.partnerName ?? 'Partner',
+        note: 'Share the receipt — it’s the best part.',
+      });
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function fulfill(r: Redemption) {
+    setError(null);
+    try {
+      await api.fulfill(r.id);
+      haptic([10, 30, 10]);
+      await load();
+      setReceipt({
+        kind: 'fulfill',
+        emoji: r.emoji,
+        title: r.prizeTitle,
+        points: r.cost,
+        subtitle: `Marked as given to ${user?.partnerName ?? 'your partner'}.`,
+        fromName: user?.name ?? 'You',
+        toName: user?.partnerName ?? 'Partner',
+        note: 'Share a receipt for the prize handoff.',
+      });
     } catch (err) {
       setError((err as Error).message);
     }
@@ -53,7 +118,9 @@ export default function WifeRequests({ onChange }: { onChange: () => void }) {
                 <span className="request-title">
                   {s.emoji} {s.title}
                 </span>
-                <span className="request-points">+{s.requestedPoints}</span>
+                <span className="request-points">
+                  <Xp value={s.requestedPoints} sign="+" size={13} />
+                </span>
               </div>
               {s.note && <p className="request-note">“{s.note}”</p>}
               <div className="request-actions">
@@ -69,18 +136,16 @@ export default function WifeRequests({ onChange }: { onChange: () => void }) {
                 />
                 <Button
                   variant="secondary"
-                  onClick={() =>
-                    act(() =>
-                      api.approve(
-                        s.id,
-                        revise[s.id] ? Number(revise[s.id]) : undefined,
-                      ),
-                    )
-                  }
+                  disabled={!!receipt}
+                  onClick={() => void approve(s)}
                 >
                   {revise[s.id] ? 'Revise & approve' : 'Approve'}
                 </Button>
-                <Button variant="danger" onClick={() => act(() => api.deny(s.id))}>
+                <Button
+                  variant="danger"
+                  disabled={!!receipt}
+                  onClick={() => act(() => api.deny(s.id))}
+                >
                   Deny
                 </Button>
               </div>
@@ -105,18 +170,37 @@ export default function WifeRequests({ onChange }: { onChange: () => void }) {
                 <span className="request-title">
                   {r.emoji} {r.prizeTitle}
                 </span>
-                <span className="request-points redeem">−{r.cost}</span>
+                <span className="request-points">
+                  <Xp value={r.cost} sign="−" size={13} />
+                </span>
               </div>
               <Button
                 block
                 variant="secondary"
-                onClick={() => act(() => api.fulfill(r.id))}
+                disabled={!!receipt}
+                onClick={() => void fulfill(r)}
               >
                 Mark as given
               </Button>
             </div>
           ))}
         </div>
+      )}
+
+      {receipt && (
+        <ReceiptModal
+          kind={receipt.kind}
+          subtitle={receipt.subtitle}
+          emoji={receipt.emoji}
+          itemTitle={receipt.title}
+          points={receipt.points}
+          fromName={receipt.fromName}
+          toName={receipt.toName}
+          note={receipt.note}
+          shareLabel="Share receipt"
+          skipLabel="Done"
+          onSkip={closeReceipt}
+        />
       )}
     </div>
   );

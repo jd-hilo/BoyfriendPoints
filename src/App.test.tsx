@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from './App.tsx';
 
 afterEach(() => {
@@ -10,7 +10,7 @@ afterEach(() => {
 });
 
 describe('<App />', () => {
-  it('shows the persona picker when signed out', async () => {
+  it('shows sign-in and demo personas when signed out', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = String(input);
       if (url.endsWith('/api/personas')) {
@@ -39,10 +39,15 @@ describe('<App />', () => {
     render(<App />);
 
     await waitFor(() => {
+      expect(screen.getByText(/sign in to your household/i)).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /apple/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /try the demo instead/i }));
+
+    await waitFor(() => {
       expect(screen.getByText('Emma')).toBeInTheDocument();
     });
-    expect(
-      screen.getByText(/tap who you are/i),
-    ).toBeInTheDocument();
   });
 });

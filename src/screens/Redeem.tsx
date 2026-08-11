@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Prize, PublicUser } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { Button, Xp, XpIcon } from '../ui.tsx';
+import { Button, ReceiptModal, Xp } from '../ui.tsx';
 import { haptic } from '../utils.ts';
+
+interface SuccessInfo {
+  id: string;
+  title: string;
+  emoji: string;
+  cost: number;
+}
 
 export default function Redeem({
   user,
@@ -13,8 +20,9 @@ export default function Redeem({
 }) {
   const [prizes, setPrizes] = useState<Prize[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [success, setSuccess] = useState<SuccessInfo | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async () => {
     setPrizes(await api.prizes());
@@ -29,14 +37,34 @@ export default function Redeem({
     setBusy(prize.id);
     haptic([12, 30, 12]);
     try {
-      await api.redeem(prize.id);
-      setFlash(`Redeemed "${prize.title}"! ${user.partnerName ?? 'Your partner'} was alerted.`);
-      onChange();
-      setTimeout(() => setFlash(null), 3000);
+      const { redemption } = await api.redeem(prize.id);
+      setSuccess({
+        id: redemption.id,
+        title: prize.title,
+        emoji: prize.emoji,
+        cost: prize.cost,
+      });
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function finish(share: boolean) {
+    if (!success) return;
+    setSharing(true);
+    try {
+      if (share) {
+        await api.shareRedemption(success.id);
+        haptic(12);
+      }
+      setSuccess(null);
+      onChange();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -45,14 +73,12 @@ export default function Redeem({
       <div className="balance-card">
         <span className="balance-label">Your balance</span>
         <span className="balance-value">
-          <XpIcon size={30} />
-          {user.points}
+          <Xp value={user.points} size={18} large />
         </span>
       </div>
 
       <h2 className="screen-title flush">Redeem</h2>
       {error && <p className="error">{error}</p>}
-      {flash && <p className="flash">{flash}</p>}
 
       {prizes.length === 0 ? (
         <p className="muted center pad">
@@ -67,12 +93,12 @@ export default function Redeem({
                 <span className="prize-emoji">{p.emoji}</span>
                 <span className="prize-title">{p.title}</span>
                 <span className="prize-cost">
-                  <Xp value={p.cost} size={14} />
+                  <Xp value={p.cost} size={12} />
                 </span>
                 <Button
                   variant={affordable ? 'primary' : 'secondary'}
                   block
-                  disabled={!affordable || busy === p.id}
+                  disabled={!affordable || busy === p.id || !!success}
                   onClick={() => redeem(p)}
                 >
                   {affordable
@@ -85,6 +111,25 @@ export default function Redeem({
             );
           })}
         </div>
+      )}
+
+      {success && (
+        <ReceiptModal
+          kind="redeem"
+          subtitle={`${user.partnerName ?? 'Your partner'} was alerted to fulfill it.`}
+          emoji={success.emoji}
+          itemTitle={success.title}
+          points={success.cost}
+          fromName={user.name}
+          toName={user.partnerName ?? 'Partner'}
+          note="Uncheck below if you want this kept off the feed."
+          shareLabel="Share receipt"
+          skipLabel="Done"
+          feedLabel="Post to feed"
+          busy={sharing}
+          onShare={() => finish(true)}
+          onSkip={() => void finish(false)}
+        />
       )}
     </div>
   );

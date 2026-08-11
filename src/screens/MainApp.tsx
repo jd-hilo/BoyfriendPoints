@@ -18,6 +18,8 @@ export default function MainApp() {
   const [tick, setTick] = useState(0);
   const [pending, setPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [booted, setBooted] = useState(false);
 
   const isWife = user?.role === 'wife';
 
@@ -38,6 +40,39 @@ export default function MainApp() {
   useEffect(() => {
     void loadPending();
   }, [loadPending, tick]);
+
+  useEffect(() => {
+    if (!user || booted) return;
+    let cancelled = false;
+    void (async () => {
+      if (user.role === 'wife') {
+        const [subs, redemptions] = await Promise.all([
+          api.submissions(),
+          api.redemptions(),
+        ]);
+        if (cancelled) return;
+        const count = subs.length + redemptions.length;
+        setPending(count);
+        if (count > 0) setTab('requests');
+      } else {
+        const key = `lr_coach_${user.id}`;
+        if (!localStorage.getItem(key)) {
+          setCoachOpen(true);
+          setTab('submit');
+        }
+      }
+      if (!cancelled) setBooted(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, booted]);
+
+  function dismissCoach() {
+    if (!user) return;
+    localStorage.setItem(`lr_coach_${user.id}`, '1');
+    setCoachOpen(false);
+  }
 
   if (!user) return null;
 
@@ -97,13 +132,18 @@ export default function MainApp() {
 
       <main className="app-main">
         {tab === 'feed' && <Feed key={`feed-${tick}`} />}
-        {tab === 'submit' && <Submit key={`submit-${tick}`} onDone={bump} />}
+        {tab === 'submit' && (
+          <Submit
+            key={`submit-${tick}`}
+            onDone={bump}
+            coachOpen={coachOpen}
+            onCoachDismiss={dismissCoach}
+          />
+        )}
         {tab === 'redeem' && (
           <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />
         )}
-        {tab === 'requests' && (
-          <WifeRequests key={`req-${tick}`} onChange={bump} />
-        )}
+        {tab === 'requests' && <WifeRequests onChange={bump} />}
         {tab === 'manage' && <WifeManage key={`man-${tick}`} />}
       </main>
 

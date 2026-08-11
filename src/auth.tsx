@@ -9,11 +9,14 @@ import {
 } from 'react';
 import type { PublicUser } from '../shared/types.ts';
 import { api, getToken, setToken } from './api.ts';
+import { neonIdToken, neonSignOut } from './neonAuth.ts';
 
 interface AuthContextValue {
   user: PublicUser | null;
   loading: boolean;
   enterAs: (userId: string) => Promise<void>;
+  signInWithNeonToken: () => Promise<void>;
+  signInWithAppleToken: (idToken: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -47,15 +50,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(res.user);
   }, []);
 
+  const signInWithNeonToken = useCallback(async () => {
+    const idToken = await neonIdToken();
+    const res = await api.neonSession(idToken);
+    setToken(res.token);
+    setUser(res.user);
+  }, []);
+
+  const signInWithAppleToken = useCallback(
+    async (idToken: string, name?: string) => {
+      const res = await api.appleSession(idToken, name);
+      setToken(res.token);
+      setUser(res.user);
+    },
+    [],
+  );
+
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined);
+    await neonSignOut();
     setToken(null);
     setUser(null);
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, enterAs, logout, refresh }),
-    [user, loading, enterAs, logout, refresh],
+    () => ({
+      user,
+      loading,
+      enterAs,
+      signInWithNeonToken,
+      signInWithAppleToken,
+      logout,
+      refresh,
+    }),
+    [
+      user,
+      loading,
+      enterAs,
+      signInWithNeonToken,
+      signInWithAppleToken,
+      logout,
+      refresh,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

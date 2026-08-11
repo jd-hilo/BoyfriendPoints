@@ -9,3 +9,4 @@ coverage
 .dev.vars
 .neon
 .wrangler
+.cf-secrets.env

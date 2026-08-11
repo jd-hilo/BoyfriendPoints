@@ -16,8 +16,10 @@ import {
   findByToken,
   fulfillRedemption,
   inviteBoyfriend,
+  listFriends,
   listPersonas,
   login,
+  loginOrCreateFromIdentity,
   logout,
   PRIZE_SUGGESTIONS,
   pendingRedemptionsForWife,
@@ -26,8 +28,11 @@ import {
   publicUser,
   reactToFeed,
   redeemPrize,
+  removePartner,
   removePrize,
   removeTask,
+  shareRedemption,
+  shareSubmission,
   signupWife,
   submissionsForBoyfriend,
   TASK_SUGGESTIONS,
@@ -37,9 +42,17 @@ import {
 } from './domain.ts';
 import { createDb, type Database } from './db/client.ts';
 import { loadState, saveState } from './db/store.ts';
+import {
+  neonAuthEnv,
+  verifyAppleIdentityToken,
+  verifyNeonIdentityToken,
+} from './identity.ts';
 
 export type WorkerEnv = {
   DATABASE_URL: string;
+  NEON_AUTH_URL?: string;
+  NEON_JWKS_URL?: string;
+  APPLE_CLIENT_ID?: string;
 };
 
 type Variables = {
@@ -51,24 +64,36 @@ type Variables = {
 
 export function createApiApp() {
   const app = new Hono<{ Bindings: WorkerEnv; Variables: Variables }>();
+  const processEnv =
+    typeof process !== 'undefined' && process.env ? process.env : {};
 
   app.use('/api/*', cors());
 
   app.use('/api/*', async (c, next) => {
-    const db = createDb(c.env.DATABASE_URL);
-    const state = await loadState(db);
-    c.set('db', db);
-    c.set('state', state);
-    c.set('dirty', false);
+    try {
+      const databaseUrl = c.env?.DATABASE_URL;
+      if (!databaseUrl) {
+        return c.json({ error: 'DATABASE_URL is not configured on the Worker' }, 500);
+      }
+      const db = createDb(databaseUrl);
+      const state = await loadState(db);
+      c.set('db', db);
+      c.set('state', state);
+      c.set('dirty', false);
 
-    const header = c.req.header('authorization') ?? '';
-    const tok = header.startsWith('Bearer ') ? header.slice(7) : undefined;
-    c.set('user', findByToken(state, tok));
+      const header = c.req.header('authorization') ?? '';
+      const tok = header.startsWith('Bearer ') ? header.slice(7) : undefined;
+      c.set('user', findByToken(state, tok));
 
-    await next();
+      await next();
 
-    if (c.get('dirty')) {
-      await saveState(db, state);
+      if (c.get('dirty')) {
+        await saveState(db, state);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('api middleware failed', message);
+      return c.json({ error: message }, 500);
     }
   });
 
@@ -97,6 +122,73 @@ export function createApiApp() {
       });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 404);
+    }
+  });
+
+  app.post('/api/auth/neon', async (c) => {
+    try {
+      const body = await c.req.json<{ idToken?: string }>();
+      const idToken = String(body?.idToken ?? '');
+      if (!idToken) return c.json({ error: 'Missing Neon id token' }, 400);
+      const cfg = neonAuthEnv({
+        NEON_AUTH_URL: c.env.NEON_AUTH_URL ?? processEnv.NEON_AUTH_URL,
+        NEON_JWKS_URL: c.env.NEON_JWKS_URL ?? processEnv.NEON_JWKS_URL,
+        VITE_NEON_AUTH_URL: processEnv.VITE_NEON_AUTH_URL,
+      });
+      const identity = await verifyNeonIdentityToken(idToken, {
+        jwksUrl: cfg.jwksUrl,
+        issuer: cfg.issuer,
+      });
+      const user = loginOrCreateFromIdentity(c.get('state'), {
+        email: identity.email,
+        name: identity.name,
+        provider: 'neon',
+      });
+      markDirty(c);
+      return c.json({
+        token: user.token,
+        user: publicUser(c.get('state'), user),
+      });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 401);
+    }
+  });
+
+  app.post('/api/auth/apple', async (c) => {
+    try {
+      const body = await c.req.json<{
+        idToken?: string;
+        name?: string;
+      }>();
+      const idToken = String(body?.idToken ?? '');
+      if (!idToken) return c.json({ error: 'Missing Apple id token' }, 400);
+      const clientId =
+        c.env.APPLE_CLIENT_ID?.trim() ||
+        processEnv.APPLE_CLIENT_ID?.trim() ||
+        processEnv.VITE_APPLE_CLIENT_ID?.trim() ||
+        '';
+      if (!clientId) {
+        return c.json(
+          {
+            error:
+              'Apple Sign In is not configured. Set APPLE_CLIENT_ID (Services ID) on the server.',
+          },
+          503,
+        );
+      }
+      const identity = await verifyAppleIdentityToken(idToken, clientId);
+      const user = loginOrCreateFromIdentity(c.get('state'), {
+        email: identity.email,
+        name: body?.name?.trim() || identity.name,
+        provider: 'apple',
+      });
+      markDirty(c);
+      return c.json({
+        token: user.token,
+        user: publicUser(c.get('state'), user),
+      });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 401);
     }
   });
 
@@ -174,6 +266,7 @@ export function createApiApp() {
       return c.json(
         {
           boyfriend: publicUser(c.get('state'), bf),
+          partner: publicUser(c.get('state'), bf),
           loginHint: { email: bf.email, password: bf.password },
         },
         201,
@@ -183,7 +276,44 @@ export function createApiApp() {
     }
   });
 
+  app.delete('/api/partner', (c) => {
+    const wife = c.get('user');
+    if (!wife) return c.json({ error: 'Not signed in' }, 401);
+    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
+    try {
+      removePartner(c.get('state'), wife);
+      markDirty(c);
+      return c.json(publicUser(c.get('state'), wife));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
   app.post('/api/onboarding/friend', async (c) => {
+    const wife = c.get('user');
+    if (!wife) return c.json({ error: 'Not signed in' }, 401);
+    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
+    try {
+      const body = await c.req.json<{ name?: string; email?: string }>();
+      const friend = addFriend(c.get('state'), wife, {
+        name: String(body?.name ?? ''),
+        email: String(body?.email ?? ''),
+      });
+      markDirty(c);
+      return c.json(publicUser(c.get('state'), friend), 201);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.get('/api/friends', (c) => {
+    const wife = c.get('user');
+    if (!wife) return c.json({ error: 'Not signed in' }, 401);
+    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
+    return c.json(listFriends(c.get('state'), wife));
+  });
+
+  app.post('/api/friends', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
     if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
@@ -364,6 +494,22 @@ export function createApiApp() {
     }
   });
 
+  app.post('/api/submissions/:id/share', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const submission = shareSubmission(
+        c.get('state'),
+        user,
+        c.req.param('id'),
+      );
+      markDirty(c);
+      return c.json(submission);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
   app.get('/api/redemptions', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
@@ -400,6 +546,22 @@ export function createApiApp() {
       );
       markDirty(c);
       return c.json(redemption);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/redemptions/:id/share', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const result = shareRedemption(
+        c.get('state'),
+        user,
+        c.req.param('id'),
+      );
+      markDirty(c);
+      return c.json(result);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }

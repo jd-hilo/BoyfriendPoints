@@ -4,13 +4,15 @@
 
 BoyfriendPoints is a Venmo-style couples rewards app.
 
-- Frontend: React 18 + Vite (`src/`). Screens in `src/screens/`. Device-auth
-  context in `src/auth.tsx` (tap a persona — no email/password).
+- Frontend: React 18 + Vite (`src/`). Screens in `src/screens/`. Auth context in
+  `src/auth.tsx` (Neon email/password, Apple, and demo personas).
 - Backend: Express (`server/app.ts`) with pure domain logic in `server/domain.ts`.
 - Database: **Neon Postgres** via Drizzle (`server/db/schema.ts`, `server/store.ts`).
   Connection from `DATABASE_URL` in `.env` (gitignored).
-- Auth is device-based: `GET /api/personas` + `POST /api/auth/device` with a `userId`.
-  The client stores the returned token in `localStorage` (`bp_token`).
+- Auth: Neon Managed Better Auth for email/password (`VITE_NEON_AUTH_URL`), optional
+  Apple Sign In (`VITE_APPLE_CLIENT_ID` / `APPLE_CLIENT_ID`), plus demo persona picker.
+  After Neon/Apple identity verification the API issues an app token (`bp_token`) via
+  `POST /api/auth/neon` or `POST /api/auth/apple`. Demo still uses `POST /api/auth/device`.
 - Mock seed (`server/seed.ts`) creates Emma + Noah (primary household with pending
   requests, prizes, points) plus three community couples that fill the feed.
   `pnpm db:reset` wipes Neon and re-seeds.
@@ -18,6 +20,7 @@ BoyfriendPoints is a Venmo-style couples rewards app.
 ## Commands
 
 - `pnpm install` / `pnpm dev` / `pnpm test` / `pnpm lint` / `pnpm typecheck` / `pnpm build`
+- `pnpm mobile` / `pnpm mobile:ios` — Expo app in `mobile/` (Expo Go; API at `localhost:3001`)
 - `pnpm db:push` — push Drizzle schema to Neon (uses `DATABASE_URL_UNPOOLED` if set)
 - `pnpm db:reset` — truncate + re-seed mock data
 - `pnpm db:studio` — Drizzle Studio
@@ -25,10 +28,9 @@ BoyfriendPoints is a Venmo-style couples rewards app.
 ## Cursor Cloud specific instructions
 
 - Open the UI at http://localhost:5173 (not :3001). Vite proxies `/api` to Express.
-- Requires `DATABASE_URL` in `.env`. This workspace was bootstrapped with a
-  [claimable Neon DB](https://neon.new); claim URL is in `.env` as `NEON_CLAIM_URL`
-  (72h unless claimed). Prefer a permanent Neon project + `NEON_API_KEY` / saved
-  `DATABASE_URL` secret for durable Cloud Agent runs.
+- Requires `DATABASE_URL` and `VITE_NEON_AUTH_URL` / `NEON_AUTH_URL` in `.env`
+  (permanent Neon project **LoveReceipts**). Optional Apple: `VITE_APPLE_CLIENT_ID`,
+  `VITE_APPLE_REDIRECT_URI`, `APPLE_CLIENT_ID`.
 - **Cloudflare hosting:** `pnpm deploy` builds the SPA and deploys
   `worker/index.ts` (Hono API + static assets) via Wrangler. Needs
   `CLOUDFLARE_API_TOKEN` in the environment. Set the Worker secret with

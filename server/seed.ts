@@ -230,6 +230,7 @@ export function seedDemo(state: State): void {
       images: p.photos.map(stockPhoto),
       status: 'pending',
       revised: false,
+      shared: true,
       createdAt: ago(p.minutesAgo),
     };
     state.submissions.push(submission);
@@ -244,6 +245,7 @@ export function seedDemo(state: State): void {
     emoji: '🥞',
     cost: 150,
     status: 'pending',
+    shared: true,
     createdAt: ago(300),
   };
   state.redemptions.push(redemption);

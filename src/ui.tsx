@@ -1,6 +1,11 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import {
+  shareReceiptImage,
+  type ReceiptData,
+  type ReceiptKind,
+} from './receipt.ts';
 
-export function XpIcon({ size = 18 }: { size?: number }) {
+export function XpIcon({ size = 14 }: { size?: number }) {
   return (
     <span
       className="xp-icon"
@@ -13,12 +18,25 @@ export function XpIcon({ size = 18 }: { size?: number }) {
   );
 }
 
-/** Points value rendered with the 3D XP diamond. */
-export function Xp({ value, size = 16 }: { value: number; size?: number }) {
+/** Points value in the shared blue gradient XP banner. */
+export function Xp({
+  value,
+  size = 13,
+  sign,
+  large,
+}: {
+  value: number;
+  size?: number;
+  sign?: '+' | '-' | '−' | '';
+  large?: boolean;
+}) {
   return (
-    <span className="xp">
-      <XpIcon size={size} />
-      <span className="xp-value">{value}</span>
+    <span className={`xp${large ? ' xp-lg' : ''}`}>
+      <XpIcon size={large ? Math.max(size, 18) : size} />
+      <span className="xp-value">
+        {sign ?? ''}
+        {value}
+      </span>
     </span>
   );
 }
@@ -106,11 +124,163 @@ export function PointsPill({
   value: number;
   kind: 'earn' | 'redeem';
 }) {
+  return <Xp value={value} sign={kind === 'earn' ? '+' : '−'} />;
+}
+
+const RECEIPT_HEADLINE: Record<ReceiptKind, string> = {
+  request: 'Request sent',
+  earn: 'Points earned',
+  redeem: 'Prize redeemed',
+  fulfill: 'Prize given',
+  approve: 'You approved it',
+};
+
+/** Paper-receipt success sheet with native image share. */
+export function ReceiptModal({
+  kind,
+  subtitle,
+  emoji,
+  itemTitle,
+  meta,
+  points,
+  fromName,
+  toName,
+  note,
+  shareLabel = 'Share receipt',
+  skipLabel = 'Done',
+  feedLabel = 'Post to feed',
+  busy,
+  onShare,
+  onSkip,
+}: {
+  kind: ReceiptKind;
+  subtitle: string;
+  emoji: string;
+  itemTitle: string;
+  meta?: string;
+  points: number;
+  fromName: string;
+  toName: string;
+  note?: string;
+  shareLabel?: string;
+  skipLabel?: string;
+  feedLabel?: string;
+  busy?: boolean;
+  /** Called when the feed checkbox is checked on complete. */
+  onShare?: () => void | Promise<void>;
+  onSkip: () => void;
+}) {
+  const [sharing, setSharing] = useState(false);
+  const [postToFeed, setPostToFeed] = useState(true);
+  const canPostToFeed = Boolean(onShare);
+  const sign = kind === 'redeem' || kind === 'fulfill' ? '−' : '+';
+  const receipt: ReceiptData = {
+    kind,
+    emoji,
+    title: itemTitle,
+    points,
+    fromName,
+    toName,
+    meta,
+    note,
+  };
+
+  async function complete(withFeed: boolean) {
+    if (withFeed && onShare) await onShare();
+    else onSkip();
+  }
+
+  async function handleShare() {
+    setSharing(true);
+    try {
+      await shareReceiptImage(receipt);
+      await complete(canPostToFeed && postToFeed);
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      await complete(canPostToFeed && postToFeed);
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  const locked = busy || sharing;
+
   return (
-    <span className={`pill pill-${kind}`}>
-      {kind === 'earn' ? '+' : '−'}
-      {value} pts
-    </span>
+    <div className="modal-backdrop" role="presentation">
+      <div
+        className="modal receipt-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={RECEIPT_HEADLINE[kind]}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="receipt-kicker">{RECEIPT_HEADLINE[kind]}</p>
+        <p className="modal-sub receipt-sub">{subtitle}</p>
+
+        <div className="receipt-paper">
+          <div className="receipt-brand">
+            <span aria-hidden>💎</span> LoveReceipts
+          </div>
+          <div className="receipt-dash" />
+          <div className="receipt-party">
+            <span>FROM</span>
+            <strong>{fromName}</strong>
+          </div>
+          <div className="receipt-party">
+            <span>TO</span>
+            <strong>{toName}</strong>
+          </div>
+          <div className="receipt-dash" />
+          <div className="receipt-item">
+            <span className="receipt-emoji">{emoji}</span>
+            <span className="receipt-item-title">{itemTitle}</span>
+            {meta && <span className="receipt-meta">{meta}</span>}
+          </div>
+          <div className="receipt-xp">
+            <Xp value={points} sign={sign} size={14} />
+          </div>
+          <div className="receipt-dash" />
+          <p className="receipt-thanks">Thank you for the love 💕</p>
+          <div className="receipt-perforation" />
+        </div>
+
+        {note && <p className="modal-note">{note}</p>}
+
+        {canPostToFeed && (
+          <label className="receipt-feed-check">
+            <input
+              type="checkbox"
+              checked={postToFeed}
+              disabled={locked}
+              onChange={(e) => setPostToFeed(e.target.checked)}
+            />
+            <span className="receipt-feed-box" aria-hidden>
+              {postToFeed ? '✓' : ''}
+            </span>
+            <span>{feedLabel}</span>
+          </label>
+        )}
+
+        <div className="modal-actions">
+          <Button
+            block
+            className="receipt-share-btn"
+            disabled={locked}
+            onClick={() => void handleShare()}
+          >
+            {sharing ? 'Sharing…' : shareLabel}
+          </Button>
+          <Button
+            block
+            variant="ghost"
+            onClick={() => void complete(canPostToFeed && postToFeed)}
+            disabled={locked}
+          >
+            {skipLabel}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

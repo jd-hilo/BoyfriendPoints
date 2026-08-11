@@ -68,6 +68,7 @@ export const submissions = pgTable('submissions', {
   images: jsonb('images').$type<string[]>().notNull().default([]),
   status: text('status').notNull(), // pending | approved | denied
   revised: boolean('revised').notNull().default(false),
+  shared: boolean('shared').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),
@@ -86,6 +87,7 @@ export const redemptions = pgTable('redemptions', {
   emoji: text('emoji').notNull(),
   cost: integer('cost').notNull(),
   status: text('status').notNull(), // pending | fulfilled
+  shared: boolean('shared').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),

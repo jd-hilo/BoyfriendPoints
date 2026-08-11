@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Prize, PublicUser, Suggestion } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Button } from '../ui.tsx';
+import { Button, Xp } from '../ui.tsx';
 
 const STEPS = ['Prizes', 'Partner', 'Friends'] as const;
 
@@ -85,7 +85,7 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
     <div className="ob-step">
       <h1 className="ob-title">Create your prizes</h1>
       <p className="ob-sub">
-        These are the rewards your boyfriend can redeem with points. Tap a
+        These are the rewards your partner can redeem with points. Tap a
         suggestion or add your own.
       </p>
 
@@ -99,7 +99,9 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
           >
             <span className="chip-emoji">{s.emoji}</span>
             <span className="chip-title">{s.title}</span>
-            <span className="chip-points">{s.points}</span>
+            <span className="chip-points">
+              <Xp value={s.points} size={11} />
+            </span>
           </button>
         ))}
       </div>
@@ -178,9 +180,9 @@ function StepPartner({
 
   return (
     <div className="ob-step">
-      <h1 className="ob-title">Invite your boyfriend</h1>
+      <h1 className="ob-title">Invite your partner</h1>
       <p className="ob-sub">
-        He&apos;ll get his own login to submit chores and redeem prizes.
+        They&apos;ll get their own login to earn points and redeem prizes.
       </p>
 
       {partnerName || hint ? (
@@ -188,7 +190,7 @@ function StepPartner({
           <p className="success-title">🎉 {name || partnerName} is invited!</p>
           {hint && (
             <p className="muted small">
-              He can sign in with <b>{hint.email}</b> / <b>{hint.password}</b>
+              They can sign in with <b>{hint.email}</b> / <b>{hint.password}</b>
             </p>
           )}
         </div>
@@ -197,21 +199,21 @@ function StepPartner({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="His name"
-            aria-label="Boyfriend name"
+            placeholder="Partner’s name"
+            aria-label="Partner name"
           />
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="His email"
-            aria-label="Boyfriend email"
+            placeholder="Partner’s email"
+            aria-label="Partner email"
           />
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="A starter password"
-            aria-label="Boyfriend password"
+            aria-label="Partner password"
           />
           {error && <p className="error">{error}</p>}
           <Button type="submit" block disabled={!name || !email}>
@@ -253,8 +255,7 @@ function StepFriends({ onDone }: { onDone: () => Promise<void> }) {
     <div className="ob-step">
       <h1 className="ob-title">Add your friends</h1>
       <p className="ob-sub">
-        Follow your friends and other wives to see their boyfriends&apos; points
-        roll in on your feed.
+        Follow friends so their household wins show up on your Home feed.
       </p>
 
       <form className="card form" onSubmit={add}>
@@ -297,7 +298,7 @@ function StepFriends({ onDone }: { onDone: () => Promise<void> }) {
             await onDone();
           }}
         >
-          {busy ? 'Setting up…' : 'Enter BoyfriendPoints'}
+          {busy ? 'Setting up…' : 'Enter LoveReceipts'}
         </Button>
       </div>
     </div>

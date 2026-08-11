@@ -75,6 +75,7 @@ function asSubmission(row: typeof submissions.$inferSelect): Submission {
     images: row.images ?? [],
     status: row.status as SubmissionStatus,
     revised: row.revised,
+    shared: row.shared,
     createdAt: row.createdAt,
     resolvedAt: row.resolvedAt ?? undefined,
   };
@@ -89,6 +90,7 @@ function asRedemption(row: typeof redemptions.$inferSelect): Redemption {
     emoji: row.emoji,
     cost: row.cost,
     status: row.status as Redemption['status'],
+    shared: row.shared,
     createdAt: row.createdAt,
     resolvedAt: row.resolvedAt ?? undefined,
   };

@@ -21,7 +21,9 @@ import {
   listPersonas,
   fulfillRedemption,
   inviteBoyfriend,
+  listFriends,
   login,
+  loginOrCreateFromIdentity,
   logout,
   PRIZE_SUGGESTIONS,
   pendingRedemptionsForWife,
@@ -30,8 +32,11 @@ import {
   publicUser,
   reactToFeed,
   redeemPrize,
+  removePartner,
   removePrize,
   removeTask,
+  shareRedemption,
+  shareSubmission,
   signupWife,
   submissionsForBoyfriend,
   TASK_SUGGESTIONS,
@@ -39,6 +44,11 @@ import {
   toggleLike,
   type State,
 } from './domain.ts';
+import {
+  neonAuthEnv,
+  verifyAppleIdentityToken,
+  verifyNeonIdentityToken,
+} from './identity.ts';
 
 export interface CreateAppOptions {
   state: State;
@@ -139,6 +149,61 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     }
   });
 
+  app.post('/api/auth/neon', async (req, res) => {
+    try {
+      const idToken = String(req.body?.idToken ?? '');
+      if (!idToken) {
+        res.status(400).json({ error: 'Missing Neon id token' });
+        return;
+      }
+      const cfg = neonAuthEnv(process.env);
+      const identity = await verifyNeonIdentityToken(idToken, {
+        jwksUrl: cfg.jwksUrl,
+        issuer: cfg.issuer,
+      });
+      const user = loginOrCreateFromIdentity(state, {
+        email: identity.email,
+        name: identity.name,
+        provider: 'neon',
+      });
+      persist();
+      res.json({ token: user.token, user: publicUser(state, user) });
+    } catch (err) {
+      res.status(401).json({ error: (err as Error).message });
+    }
+  });
+
+  app.post('/api/auth/apple', async (req, res) => {
+    try {
+      const idToken = String(req.body?.idToken ?? '');
+      if (!idToken) {
+        res.status(400).json({ error: 'Missing Apple id token' });
+        return;
+      }
+      const clientId =
+        process.env.APPLE_CLIENT_ID?.trim() ||
+        process.env.VITE_APPLE_CLIENT_ID?.trim() ||
+        '';
+      if (!clientId) {
+        res.status(503).json({
+          error:
+            'Apple Sign In is not configured. Set APPLE_CLIENT_ID (Services ID).',
+        });
+        return;
+      }
+      const identity = await verifyAppleIdentityToken(idToken, clientId);
+      const user = loginOrCreateFromIdentity(state, {
+        email: identity.email,
+        name: String(req.body?.name ?? '').trim() || identity.name,
+        provider: 'apple',
+      });
+      persist();
+      res.json({ token: user.token, user: publicUser(state, user) });
+    } catch (err) {
+      res.status(401).json({ error: (err as Error).message });
+    }
+  });
+
   app.post('/api/auth/logout', (req: AuthedRequest, res) => {
     if (req.user) {
       logout(req.user);
@@ -166,6 +231,7 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
       persist();
       res.status(201).json({
         boyfriend: publicUser(state, bf),
+        partner: publicUser(state, bf),
         loginHint: { email: bf.email, password: bf.password },
       });
     } catch (err) {
@@ -173,7 +239,40 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     }
   });
 
+  app.delete('/api/partner', (req: AuthedRequest, res) => {
+    const wife = requireWife(req, res);
+    if (!wife) return;
+    try {
+      removePartner(state, wife);
+      persist();
+      res.json(publicUser(state, wife));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   app.post('/api/onboarding/friend', (req: AuthedRequest, res) => {
+    const wife = requireWife(req, res);
+    if (!wife) return;
+    try {
+      const friend = addFriend(state, wife, {
+        name: String(req.body?.name ?? ''),
+        email: String(req.body?.email ?? ''),
+      });
+      persist();
+      res.status(201).json(publicUser(state, friend));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.get('/api/friends', (req: AuthedRequest, res) => {
+    const wife = requireWife(req, res);
+    if (!wife) return;
+    res.json(listFriends(state, wife));
+  });
+
+  app.post('/api/friends', (req: AuthedRequest, res) => {
     const wife = requireWife(req, res);
     if (!wife) return;
     try {
@@ -321,6 +420,18 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     }
   });
 
+  app.post('/api/submissions/:id/share', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const submission = shareSubmission(state, user, req.params.id);
+      persist();
+      res.json(submission);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   // --- Redemptions --------------------------------------------------------
   app.get('/api/redemptions', (req: AuthedRequest, res) => {
     const wife = requireWife(req, res);
@@ -347,6 +458,18 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
       const redemption = fulfillRedemption(state, wife, req.params.id);
       persist();
       res.json(redemption);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/redemptions/:id/share', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const result = shareRedemption(state, user, req.params.id);
+      persist();
+      res.json(result);
     } catch (err) {
       fail(res, err);
     }

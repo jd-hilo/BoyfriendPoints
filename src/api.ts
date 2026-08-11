@@ -57,6 +57,16 @@ export const api = {
       method: 'POST',
       body: { userId },
     }),
+  neonSession: (idToken: string) =>
+    request<AuthResult>('/auth/neon', {
+      method: 'POST',
+      body: { idToken },
+    }),
+  appleSession: (idToken: string, name?: string) =>
+    request<AuthResult>('/auth/apple', {
+      method: 'POST',
+      body: { idToken, name },
+    }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<PublicUser>('/me'),
 
@@ -64,15 +74,22 @@ export const api = {
     request<{ prizes: Suggestion[]; tasks: Suggestion[] }>('/suggestions'),
 
   inviteBoyfriend: (name: string, email: string, password: string) =>
-    request<{ boyfriend: PublicUser; loginHint: { email: string; password: string } }>(
-      '/onboarding/boyfriend',
-      { method: 'POST', body: { name, email, password } },
-    ),
+    request<{
+      boyfriend: PublicUser;
+      partner: PublicUser;
+      loginHint: { email: string; password: string };
+    }>('/onboarding/boyfriend', {
+      method: 'POST',
+      body: { name, email, password },
+    }),
+  removePartner: () =>
+    request<PublicUser>('/partner', { method: 'DELETE' }),
   addFriend: (name: string, email: string) =>
-    request<PublicUser>('/onboarding/friend', {
+    request<PublicUser>('/friends', {
       method: 'POST',
       body: { name, email },
     }),
+  friends: () => request<PublicUser[]>('/friends'),
   completeOnboarding: () =>
     request<PublicUser>('/onboarding/complete', { method: 'POST' }),
 
@@ -110,12 +127,18 @@ export const api = {
     }),
   deny: (id: string) =>
     request<Submission>(`/submissions/${id}/deny`, { method: 'POST' }),
+  shareSubmission: (id: string) =>
+    request<Submission>(`/submissions/${id}/share`, { method: 'POST' }),
 
   redemptions: () => request<Redemption[]>('/redemptions'),
   redeem: (prizeId: string) =>
     request<{ redemption: Redemption }>('/redemptions', {
       method: 'POST',
       body: { prizeId },
+    }),
+  shareRedemption: (id: string) =>
+    request<{ redemption: Redemption }>(`/redemptions/${id}/share`, {
+      method: 'POST',
     }),
   fulfill: (id: string) =>
     request<Redemption>(`/redemptions/${id}/fulfill`, { method: 'POST' }),

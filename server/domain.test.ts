@@ -10,7 +10,11 @@ import {
   feedForUser,
   inviteBoyfriend,
   redeemPrize,
+  removePartner,
+  shareRedemption,
+  shareSubmission,
   signupWife,
+  loginOrCreateFromIdentity,
   type State,
 } from './domain.ts';
 
@@ -44,6 +48,25 @@ describe('accounts', () => {
     expect(wife.partnerId).toBe(boyfriend.id);
     expect(state.users).toHaveLength(2);
   });
+
+  it('unlinks both sides when a partner is removed', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    removePartner(state, wife);
+    expect(wife.partnerId).toBeUndefined();
+    expect(boyfriend.partnerId).toBeUndefined();
+  });
+
+  it('allows inviting again after a partner is removed', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    removePartner(state, wife);
+    const next = inviteBoyfriend(state, wife, {
+      name: 'Alex',
+      email: 'alex@x.com',
+    });
+    expect(wife.partnerId).toBe(next.id);
+    expect(next.partnerId).toBe(wife.id);
+    expect(boyfriend.partnerId).toBeUndefined();
+  });
 });
 
 describe('earning points', () => {
@@ -56,9 +79,18 @@ describe('earning points', () => {
     const { state, wife, boyfriend } = ctx;
     createSubmission(state, boyfriend, { title: 'Mowed the lawn', points: 50 });
     const [submission] = state.submissions;
+    shareSubmission(state, boyfriend, submission.id);
     approveSubmission(state, wife, submission.id);
     expect(boyfriend.points).toBe(50);
     expect(state.feed.some((f) => f.type === 'earn')).toBe(true);
+  });
+
+  it('keeps private approvals off the feed when not shared', () => {
+    const { state, wife, boyfriend } = ctx;
+    createSubmission(state, boyfriend, { title: 'Quiet chore', points: 20 });
+    approveSubmission(state, wife, state.submissions[0].id);
+    expect(boyfriend.points).toBe(20);
+    expect(state.feed.some((f) => f.type === 'earn')).toBe(false);
   });
 
   it('lets the wife revise the awarded points', () => {
@@ -99,10 +131,13 @@ describe('redeeming prizes', () => {
     approveSubmission(state, wife, state.submissions[0].id);
     expect(boyfriend.points).toBe(150);
 
-    redeemPrize(state, boyfriend, prize.id);
+    const { redemption } = redeemPrize(state, boyfriend, prize.id);
     expect(boyfriend.points).toBe(50);
     expect(state.redemptions).toHaveLength(1);
     expect(state.redemptions[0].status).toBe('pending');
+    expect(state.feed.some((f) => f.type === 'redeem')).toBe(false);
+
+    shareRedemption(state, boyfriend, redemption.id);
     expect(state.feed.some((f) => f.type === 'redeem')).toBe(true);
   });
 
@@ -128,6 +163,7 @@ describe('the social feed', () => {
     });
     addTask(state, friend, { title: 'Cooked', points: 20 });
     createSubmission(state, friendBf, { title: 'Cooked', points: 20 });
+    shareSubmission(state, friendBf, state.submissions[0].id);
     approveSubmission(state, friend, state.submissions[0].id);
 
     const circle = circleWifeIds(state, wife);
@@ -153,5 +189,25 @@ describe('demo seeding via signup', () => {
       password: 'p',
     });
     expect(realWife.friendIds).toContain(demoWife.id);
+  });
+});
+
+describe('loginOrCreateFromIdentity', () => {
+  it('creates a wife on first identity login and reuses on second', () => {
+    const state = createEmptyState();
+    const first = loginOrCreateFromIdentity(state, {
+      email: 'new@example.com',
+      name: 'New',
+      provider: 'neon',
+    });
+    expect(first.role).toBe('wife');
+    expect(first.email).toBe('new@example.com');
+    const second = loginOrCreateFromIdentity(state, {
+      email: 'new@example.com',
+      name: 'New',
+      provider: 'neon',
+    });
+    expect(second.id).toBe(first.id);
+    expect(second.token).toBeTruthy();
   });
 });

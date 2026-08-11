@@ -2,17 +2,26 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Submission, Suggestion } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Button, XpIcon } from '../ui.tsx';
+import { Button, ReceiptModal, Xp } from '../ui.tsx';
 import { haptic } from '../utils.ts';
 
 interface SuccessInfo {
+  id: string;
   title: string;
   emoji: string;
   points: number;
   photos: number;
 }
 
-export default function Submit({ onDone }: { onDone: () => void }) {
+export default function Submit({
+  onDone,
+  coachOpen,
+  onCoachDismiss,
+}: {
+  onDone: () => void;
+  coachOpen?: boolean;
+  onCoachDismiss?: () => void;
+}) {
   const { user } = useAuth();
   const [options, setOptions] = useState<Suggestion[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
@@ -23,6 +32,7 @@ export default function Submit({ onDone }: { onDone: () => void }) {
   const [images, setImages] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
@@ -50,15 +60,23 @@ export default function Submit({ onDone }: { onDone: () => void }) {
     setEmoji(task.emoji);
     setPoints(String(task.points));
     setError(null);
+    onCoachDismiss?.();
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     try {
-      await api.submit(title, Number(points), emoji, note, images);
+      const submission = await api.submit(
+        title,
+        Number(points),
+        emoji,
+        note,
+        images,
+      );
       haptic([10, 40, 10]);
       setSuccess({
+        id: submission.id,
         title: title.trim(),
         emoji,
         points: Number(points),
@@ -70,11 +88,30 @@ export default function Submit({ onDone }: { onDone: () => void }) {
       setNote('');
       setImages([]);
       await load();
-      onDone();
+      onCoachDismiss?.();
     } catch (err) {
       setError((err as Error).message);
     }
   }
+
+  async function finish(share: boolean) {
+    if (!success) return;
+    setSharing(true);
+    try {
+      if (share) {
+        await api.shareSubmission(success.id);
+        haptic(12);
+      }
+      setSuccess(null);
+      onDone();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  const partner = user?.partnerName ?? 'your partner';
 
   return (
     <div className="screen">
@@ -85,6 +122,24 @@ export default function Submit({ onDone }: { onDone: () => void }) {
         </p>
       </div>
 
+      {coachOpen && (
+        <div className="coach-card">
+          <p className="coach-title">Land your first win 💎</p>
+          <p className="coach-body">
+            Tap something you already did. We&apos;ll send {partner} a point
+            request — and you&apos;ll get a shareable receipt.
+          </p>
+          {options[0] && (
+            <Button block onClick={() => pickTask(options[0])}>
+              Quick start: {options[0].emoji} {options[0].title}
+            </Button>
+          )}
+          <Button variant="ghost" block onClick={() => onCoachDismiss?.()}>
+            I&apos;ll look around first
+          </Button>
+        </div>
+      )}
+
       {options.length > 0 && (
         <>
           <p className="section-label">Quick submit</p>
@@ -93,7 +148,9 @@ export default function Submit({ onDone }: { onDone: () => void }) {
               <button key={t.title} className="chip" onClick={() => pickTask(t)}>
                 <span className="chip-emoji">{t.emoji}</span>
                 <span className="chip-title">{t.title}</span>
-                <span className="chip-points">+{t.points}</span>
+                <span className="chip-points">
+                  <Xp value={t.points} sign="+" size={11} />
+                </span>
               </button>
             ))}
           </div>
@@ -178,10 +235,15 @@ export default function Submit({ onDone }: { onDone: () => void }) {
                 <span>
                   {s.emoji} {s.title}
                 </span>
-                <span className={`status status-${s.status}`}>
-                  {s.status === 'approved'
-                    ? `+${s.points}${s.revised ? ' (revised)' : ''}`
-                    : s.status}
+                <span className={`status status-${s.status} row gap center-y`}>
+                  {s.status === 'approved' ? (
+                    <>
+                      <Xp value={s.points} sign="+" size={11} />
+                      {s.revised ? <span>revised</span> : null}
+                    </>
+                  ) : (
+                    s.status
+                  )}
                 </span>
               </div>
             ))}
@@ -189,79 +251,29 @@ export default function Submit({ onDone }: { onDone: () => void }) {
         </>
       )}
 
-      {success && (
-        <SuccessModal
-          info={success}
-          partnerName={user?.partnerName}
-          onClose={() => setSuccess(null)}
+      {success && user && (
+        <ReceiptModal
+          kind="request"
+          subtitle={`${partner} will review this next.`}
+          emoji={success.emoji}
+          itemTitle={success.title}
+          meta={
+            success.photos > 0
+              ? `${success.photos} photo${success.photos > 1 ? 's' : ''} attached`
+              : undefined
+          }
+          points={success.points}
+          fromName={user.name}
+          toName={user.partnerName ?? 'Partner'}
+          note="Uncheck below if you want this kept off the feed."
+          shareLabel="Share receipt"
+          skipLabel="Done"
+          feedLabel="Post to feed when approved"
+          busy={sharing}
+          onShare={() => finish(true)}
+          onSkip={() => void finish(false)}
         />
       )}
-    </div>
-  );
-}
-
-function SuccessModal({
-  info,
-  partnerName,
-  onClose,
-}: {
-  info: SuccessInfo;
-  partnerName?: string;
-  onClose: () => void;
-}) {
-  const partner = partnerName ?? 'your partner';
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Request sent"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-check">
-          <svg width="34" height="34" viewBox="0 0 24 24" aria-hidden>
-            <path
-              d="m5 12 5 5L19 7"
-              fill="none"
-              stroke="#fff"
-              strokeWidth="2.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </div>
-
-        <h3 className="modal-title">Request sent! 🎉</h3>
-        <p className="modal-sub">
-          {partner} will get a notification to review it.
-        </p>
-
-        <div className="modal-summary">
-          <span className="modal-summary-emoji">{info.emoji}</span>
-          <div className="modal-summary-text">
-            <span className="modal-summary-title">{info.title}</span>
-            {info.photos > 0 && (
-              <span className="modal-summary-meta">
-                {info.photos} photo{info.photos > 1 ? 's' : ''} attached
-              </span>
-            )}
-          </div>
-          <span className="modal-summary-points">
-            +{info.points}
-            <XpIcon size={16} />
-          </span>
-        </div>
-
-        <p className="modal-note">
-          Once {partner} approves, the points land in your balance and the win
-          shows up on the feed. They can also revise the amount before approving.
-        </p>
-
-        <Button block onClick={onClose}>
-          Got it
-        </Button>
-      </div>
     </div>
   );
 }

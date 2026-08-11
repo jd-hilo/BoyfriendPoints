@@ -9,4 +9,7 @@ not_found_handling = "single-page-application"
 run_worker_first = ["/api/*"]
 
 # Set via: pnpm exec wrangler secret put DATABASE_URL
-# [vars] left empty so secrets aren't committed.
+# Optional: pnpm exec wrangler secret put APPLE_CLIENT_ID
+[vars]
+NEON_AUTH_URL = "https://ep-odd-art-ay7mesoy.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth"
+NEON_JWKS_URL = "https://ep-odd-art-ay7mesoy.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth/.well-known/jwks.json"

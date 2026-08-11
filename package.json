@@ -19,14 +19,18 @@
     "db:reset": "tsx server/db/reset.ts",
     "deploy": "pnpm build && wrangler deploy",
     "cf:dev": "pnpm build && wrangler dev",
-    "cf:secret": "wrangler secret put DATABASE_URL"
+    "cf:secret": "wrangler secret put DATABASE_URL",
+    "mobile": "pnpm --dir mobile exec expo start --lan",
+    "mobile:ios": "pnpm --dir mobile exec expo start --ios --go --lan"
   },
   "dependencies": {
+    "@neondatabase/neon-js": "0.7.0-beta",
     "@neondatabase/serverless": "^1.1.0",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "express": "^4.21.1",
     "hono": "^4.13.1",
+    "jose": "^6.2.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

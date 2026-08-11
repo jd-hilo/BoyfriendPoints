@@ -27,6 +27,8 @@ export interface PublicUser {
   avatarUrl?: string;
   partnerId?: string;
   partnerName?: string;
+  partnerColor?: string;
+  partnerAvatar?: string;
   friendIds: string[];
   points: number;
   onboarded: boolean;
@@ -65,6 +67,8 @@ export interface Submission {
   images: string[];
   status: SubmissionStatus;
   revised: boolean;
+  /** When true, approval posts this win to the social feed (Venmo-style). */
+  shared: boolean;
   createdAt: string;
   resolvedAt?: string;
 }
@@ -79,6 +83,8 @@ export interface Redemption {
   emoji: string;
   cost: number;
   status: RedemptionStatus;
+  /** When true, this redemption appears on the social feed (Venmo-style). */
+  shared: boolean;
   createdAt: string;
   resolvedAt?: string;
 }
