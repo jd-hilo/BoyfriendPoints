@@ -35,6 +35,8 @@ export default function Submit({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [busyTitle, setBusyTitle] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
@@ -51,12 +53,26 @@ export default function Submit({
     void load();
   }, [load]);
 
-  function pickTask(task: Suggestion) {
-    setTitle(task.title);
-    setEmoji(task.emoji);
-    setPoints(String(task.points));
+  async function submitTask(task: Suggestion) {
     setError(null);
-    onCoachDismiss?.();
+    setBusyTitle(task.title);
+    try {
+      const submission = await api.submit(task.title, task.points, task.emoji, '', []);
+      haptic([10, 40, 10]);
+      setSuccess({
+        id: submission.id,
+        title: task.title,
+        emoji: task.emoji,
+        points: task.points,
+        photos: 0,
+      });
+      await load();
+      onCoachDismiss?.();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyTitle(null);
+    }
   }
 
   function addPlaceholderPhoto() {
@@ -83,6 +99,7 @@ export default function Submit({
       setPoints('');
       setNote('');
       setImages([]);
+      setCustomOpen(false);
       await load();
       onCoachDismiss?.();
     } catch (err) {
@@ -113,19 +130,21 @@ export default function Submit({
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
       <Text style={styles.screenTitle}>Submit</Text>
-      <Text style={styles.subtitle}>
-        Pick something you did or write your own. Your partner approves it.
-      </Text>
+      <Text style={styles.subtitle}>Tap a win. Your partner approves it.</Text>
 
       {coachOpen && (
         <View style={styles.coachCard}>
-          <Text style={styles.coachTitle}>Land your first win 💎</Text>
+          <Text style={styles.coachTitle}>Land your first win</Text>
           <Text style={styles.coachBody}>
             Tap something you already did. We&apos;ll send {partner} a point
             request — and you&apos;ll get a shareable receipt.
           </Text>
           {options[0] && (
-            <Button block onPress={() => pickTask(options[0])}>
+            <Button
+              block
+              disabled={!!busyTitle}
+              onPress={() => void submitTask(options[0])}
+            >
               Quick start: {options[0].emoji} {options[0].title}
             </Button>
           )}
@@ -135,76 +154,90 @@ export default function Submit({
         </View>
       )}
 
-      {options.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>Quick submit</Text>
-          <View style={styles.chipGrid}>
-            {options.map((t) => (
-              <Pressable key={t.title} style={styles.chip} onPress={() => pickTask(t)}>
-                <Text style={styles.chipEmoji}>{t.emoji}</Text>
-                <Text style={styles.chipTitle}>{t.title}</Text>
-                <Xp value={t.points} sign="+" size={11} />
-              </Pressable>
-            ))}
-          </View>
-        </>
-      )}
+      {error && <Text style={styles.error}>{error}</Text>}
 
-      <View style={styles.card}>
-        <Text style={styles.sectionLabel}>Or submit your own</Text>
-        <View style={styles.row}>
-          <TextInput
-            style={styles.emojiInput}
-            value={emoji}
-            onChangeText={setEmoji}
-            maxLength={2}
-          />
-          <TextInput
-            style={[styles.input, styles.grow]}
-            value={title}
-            onChangeText={setTitle}
-            placeholder="What did you do?"
-          />
-        </View>
-        <TextInput
-          style={styles.input}
-          value={points}
-          onChangeText={setPoints}
-          placeholder="Points requested"
-          keyboardType="number-pad"
-        />
-        <TextInput
-          style={styles.input}
-          value={note}
-          onChangeText={setNote}
-          placeholder="Add a note (optional)"
-        />
-
-        <View style={styles.photoAttach}>
-          {images.map((src) => (
-            <View key={src} style={styles.photoThumb}>
-              <Image source={{ uri: src }} style={styles.photoThumbImg} />
-              <Pressable
-                style={styles.photoRemove}
-                onPress={() => setImages((p) => p.filter((x) => x !== src))}
-              >
-                <Text style={styles.photoRemoveText}>✕</Text>
-              </Pressable>
-            </View>
-          ))}
-          {images.length < 4 && (
-            <Pressable style={styles.photoAdd} onPress={addPlaceholderPhoto}>
-              <Text style={styles.photoAddPlus}>＋</Text>
-              <Text style={styles.photoAddLabel}>Add photo</Text>
-            </Pressable>
-          )}
-        </View>
-
-        {error && <Text style={styles.error}>{error}</Text>}
-        <Button onPress={submit} disabled={!canSubmit}>
-          Request points
-        </Button>
+      <View style={styles.grid}>
+        {options.map((t) => (
+          <Pressable
+            key={t.title}
+            style={styles.tile}
+            disabled={!!busyTitle || !!success}
+            onPress={() => void submitTask(t)}
+          >
+            <Text style={styles.tileEmoji}>{t.emoji}</Text>
+            <Text style={styles.tileTitle} numberOfLines={2}>
+              {t.title}
+            </Text>
+            <Xp value={t.points} sign="+" size={12} />
+            {busyTitle === t.title && (
+              <Text style={styles.tileBusy}>Sending…</Text>
+            )}
+          </Pressable>
+        ))}
+        <Pressable
+          style={[styles.tile, styles.tileAdd]}
+          onPress={() => setCustomOpen((open) => !open)}
+        >
+          <Text style={styles.tileAddPlus}>+</Text>
+          <Text style={styles.tileAddLabel}>Something else</Text>
+        </Pressable>
       </View>
+
+      {customOpen && (
+        <View style={styles.card}>
+          <View style={styles.row}>
+            <TextInput
+              style={styles.emojiInput}
+              value={emoji}
+              onChangeText={setEmoji}
+              maxLength={2}
+            />
+            <TextInput
+              style={[styles.input, styles.grow]}
+              value={title}
+              onChangeText={setTitle}
+              placeholder="What did you do?"
+            />
+          </View>
+          <TextInput
+            style={styles.input}
+            value={points}
+            onChangeText={setPoints}
+            placeholder="Points requested"
+            keyboardType="number-pad"
+          />
+          <TextInput
+            style={styles.input}
+            value={note}
+            onChangeText={setNote}
+            placeholder="Add a note (optional)"
+          />
+
+          <View style={styles.photoAttach}>
+            {images.map((src) => (
+              <View key={src} style={styles.photoThumb}>
+                <Image source={{ uri: src }} style={styles.photoThumbImg} />
+                <Pressable
+                  style={styles.photoRemove}
+                  onPress={() => setImages((p) => p.filter((x) => x !== src))}
+                >
+                  <Text style={styles.photoRemoveText}>✕</Text>
+                </Pressable>
+              </View>
+            ))}
+            {images.length < 4 && (
+              <Pressable style={styles.photoAdd} onPress={addPlaceholderPhoto}>
+                <Text style={styles.photoAddPlus}>＋</Text>
+                <Text style={styles.photoAddLabel}>Add photo</Text>
+              </Pressable>
+            )}
+          </View>
+
+          <Button onPress={submit} disabled={!canSubmit}>
+            Request points
+          </Button>
+        </View>
+      )}
 
       {mine.length > 0 && (
         <>
@@ -278,17 +311,47 @@ const styles = StyleSheet.create({
   },
   coachTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
   coachBody: { fontSize: 14, color: colors.ink2, lineHeight: 19 },
-  chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  chip: {
-    width: '47%',
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  tile: {
+    width: '47.5%',
+    aspectRatio: 1,
     backgroundColor: colors.card,
-    borderRadius: 18,
-    padding: 14,
-    gap: 4,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
     ...shadow,
   },
-  chipEmoji: { fontSize: 22 },
-  chipTitle: { fontSize: 13, fontWeight: '700', color: colors.ink },
+  tileEmoji: { fontSize: 28 },
+  tileTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink,
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  tileBusy: { fontSize: 11, fontWeight: '700', color: colors.blue },
+  tileAdd: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  tileAddPlus: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: colors.inkMuted,
+    lineHeight: 32,
+  },
+  tileAddLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.inkMuted,
+    textAlign: 'center',
+  },
   card: { backgroundColor: colors.card, borderRadius: radius.card, padding: 16, gap: 10, ...shadow },
   row: { flexDirection: 'row', gap: 8 },
   grow: { flex: 1 },

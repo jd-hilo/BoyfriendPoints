@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { Prize, PublicUser } from '../types';
 import { api } from '../api';
-import { Button, ReceiptModal, Xp } from '../ui';
+import { ReceiptModal, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { haptic } from '../utils';
 
@@ -75,36 +76,51 @@ export default function Redeem({
       </View>
 
       <Text style={styles.screenTitle}>Redeem</Text>
+      <Text style={styles.subtitle}>Tap a prize you can afford.</Text>
       {error && <Text style={styles.error}>{error}</Text>}
 
       {prizes.length === 0 ? (
-        <Text style={styles.centerMuted}>
-          {user.partnerName ?? 'Your partner'} hasn&apos;t added prizes yet.
-        </Text>
+        <View style={styles.empty}>
+          <View style={[styles.tile, styles.tileLocked]}>
+            <Ionicons name="lock-closed" size={18} color={colors.inkMuted} />
+            <Text style={styles.tileEmoji}>🎁</Text>
+            <Text style={styles.tileTitle}>Movie night</Text>
+            <Xp value={40} size={12} />
+          </View>
+          <Text style={styles.emptyTitle}>No prizes yet</Text>
+          <Text style={styles.emptyBody}>
+            Ask {user.partnerName ?? 'your partner'} to add rewards you can cash points in for.
+          </Text>
+        </View>
       ) : (
         <View style={styles.grid}>
           {prizes.map((p) => {
             const affordable = user.points >= p.cost;
             return (
-              <View key={p.id} style={[styles.prize, !affordable && styles.prizeLocked]}>
-                <Text style={styles.prizeEmoji}>{p.emoji}</Text>
-                <Text style={styles.prizeTitle}>{p.title}</Text>
-                <View style={styles.prizeCost}>
-                  <Xp value={p.cost} size={12} />
-                </View>
-                <Button
-                  variant={affordable ? 'primary' : 'secondary'}
-                  block
-                  disabled={!affordable || busy === p.id || !!success}
-                  onPress={() => redeem(p)}
-                >
+              <Pressable
+                key={p.id}
+                style={[styles.tile, !affordable && styles.tileLocked]}
+                disabled={!affordable || busy === p.id || !!success}
+                onPress={() => void redeem(p)}
+              >
+                {!affordable && (
+                  <View style={styles.lockBadge}>
+                    <Ionicons name="lock-closed" size={12} color={colors.inkMuted} />
+                  </View>
+                )}
+                <Text style={styles.tileEmoji}>{p.emoji}</Text>
+                <Text style={styles.tileTitle} numberOfLines={2}>
+                  {p.title}
+                </Text>
+                <Xp value={p.cost} size={12} />
+                <Text style={styles.tileHint}>
                   {affordable
                     ? busy === p.id
                       ? 'Redeeming…'
-                      : 'Redeem'
+                      : 'Tap to redeem'
                     : `Need ${p.cost - user.points} more`}
-                </Button>
-              </View>
+                </Text>
+              </Pressable>
             );
           })}
         </View>
@@ -146,20 +162,54 @@ const styles = StyleSheet.create({
   balanceLabel: { fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
   balanceValue: { marginTop: 8, alignSelf: 'flex-start' },
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
+  subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: -8 },
   error: { color: colors.red, fontSize: 13 },
-  centerMuted: { textAlign: 'center', color: colors.inkMuted, padding: 16 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  prize: {
-    width: '47%',
+  empty: { alignItems: 'center', paddingTop: 12, gap: 8 },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+    marginTop: 12,
+  },
+  emptyBody: {
+    color: colors.inkMuted,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginHorizontal: 18,
+  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  tile: {
+    width: '47.5%',
+    aspectRatio: 1,
     backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: 16,
+    borderRadius: 16,
+    padding: 12,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 6,
     ...shadow,
   },
-  prizeLocked: { opacity: 0.72 },
-  prizeEmoji: { fontSize: 30 },
-  prizeTitle: { fontSize: 13, fontWeight: '700', textAlign: 'center', minHeight: 32 },
-  prizeCost: { marginBottom: 6 },
+  tileLocked: { opacity: 0.55 },
+  tileEmoji: { fontSize: 28 },
+  tileTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink,
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  tileHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    textAlign: 'center',
+  },
+  lockBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+  },
 });

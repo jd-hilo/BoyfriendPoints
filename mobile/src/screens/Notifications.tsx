@@ -1,5 +1,14 @@
-import { useEffect, useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Animated,
+  Easing,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NotificationItem } from '../types';
 import { api } from '../api';
@@ -29,27 +38,85 @@ function verbFor(kind: NotificationItem['kind']): string {
       return 'reacted';
     case 'comment':
       return 'commented';
+    case 'friend_request':
+      return 'sent a friend request';
+    case 'friend_accepted':
+      return 'accepted your friend request';
     default:
       return '';
   }
 }
 
-export default function Notifications({ onClose }: { onClose: () => void }) {
+export default function Notifications({
+  onClose,
+  onChanged,
+}: {
+  onClose: () => void;
+  onChanged?: () => void;
+}) {
+  const { width } = useWindowDimensions();
+  const slide = useRef(new Animated.Value(width)).current;
+  const closing = useRef(false);
   const [items, setItems] = useState<NotificationItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actingId, setActingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    void api
+  function load() {
+    return api
       .notifications()
       .then(setItems)
       .catch((err) => setError((err as Error).message));
+  }
+
+  useEffect(() => {
+    void load();
   }, []);
 
+  useEffect(() => {
+    Animated.timing(slide, {
+      toValue: 0,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [slide]);
+
+  function close() {
+    if (closing.current) return;
+    closing.current = true;
+    Animated.timing(slide, {
+      toValue: width,
+      duration: 240,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) onClose();
+      else closing.current = false;
+    });
+  }
+
+  async function resolveFriend(id: string, accept: boolean) {
+    setActingId(id);
+    setError(null);
+    try {
+      if (accept) await api.acceptFriendRequest(id);
+      else await api.declineFriendRequest(id);
+      await load();
+      onChanged?.();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setActingId(null);
+    }
+  }
+
   return (
-    <View style={styles.panel}>
+    <Animated.View
+      style={[styles.panel, { transform: [{ translateX: slide }] }]}
+    >
       <SafeAreaView style={styles.flex} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <Pressable style={styles.headerIconBtn} onPress={onClose}>
+          <Pressable style={styles.headerIconBtn} onPress={close}>
             <Text style={styles.backIcon}>‹</Text>
           </Pressable>
           <View style={styles.searchPill}>
@@ -105,6 +172,30 @@ export default function Notifications({ onClose }: { onClose: () => void }) {
                         {n.emoji} {n.body ?? ''}
                       </Text>
                     )}
+                    {n.friendRequestId ? (
+                      <View style={styles.friendActions}>
+                        <Pressable
+                          style={styles.acceptButton}
+                          disabled={actingId === n.friendRequestId}
+                          onPress={() =>
+                            void resolveFriend(n.friendRequestId!, true)
+                          }
+                        >
+                          <Text style={styles.acceptText}>
+                            {actingId === n.friendRequestId ? 'Working…' : 'Accept'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.declineButton}
+                          disabled={actingId === n.friendRequestId}
+                          onPress={() =>
+                            void resolveFriend(n.friendRequestId!, false)
+                          }
+                        >
+                          <Text style={styles.declineText}>Decline</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
                   </View>
                   {typeof n.points === 'number' && amount && (
                     <Xp value={n.points} sign={amount === 'earn' ? '+' : '−'} size={13} />
@@ -115,7 +206,7 @@ export default function Notifications({ onClose }: { onClose: () => void }) {
           }}
         />
       </SafeAreaView>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -191,4 +282,20 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', padding: 20, gap: 4 },
   emptyEmoji: { fontSize: 40 },
   emptyTitle: { fontWeight: '700', color: colors.ink },
+  friendActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  acceptButton: {
+    backgroundColor: colors.black,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  acceptText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  declineButton: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+  },
+  declineText: { color: colors.inkMuted, fontSize: 12, fontWeight: '700' },
 });

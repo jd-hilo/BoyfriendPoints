@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import type {
   EarnTask,
   FeedEvent,
+  FriendRequest,
   Prize,
   Redemption,
   Role,
@@ -12,6 +13,7 @@ import type {
 import { createEmptyState, type State } from '../domain.ts';
 import {
   feed,
+  friendRequests,
   prizes,
   redemptions,
   submissions,
@@ -31,12 +33,37 @@ function asUser(row: typeof users.$inferSelect): User {
     color: row.color,
     avatarUrl: row.avatarUrl ?? undefined,
     partnerId: row.partnerId ?? undefined,
+    inviteCode: row.inviteCode ?? undefined,
+    coupleCode: row.coupleCode ?? undefined,
+    coupleUsername: row.coupleUsername ?? undefined,
     friendIds: row.friendIds ?? [],
     points: row.points,
     token: row.token ?? undefined,
-    onboarded: row.onboarded,
+    onboarded: Boolean(row.onboarded),
     demo: row.demo,
     createdAt: row.createdAt,
+  };
+}
+
+function userValues(u: User) {
+  return {
+    id: u.id,
+    name: u.name,
+    email: u.email,
+    password: u.password,
+    role: u.role,
+    color: u.color,
+    avatarUrl: u.avatarUrl ?? null,
+    partnerId: u.partnerId ?? null,
+    inviteCode: u.inviteCode ?? null,
+    coupleCode: u.coupleCode ?? null,
+    coupleUsername: u.coupleUsername ?? null,
+    friendIds: u.friendIds,
+    points: u.points,
+    token: u.token ?? null,
+    onboarded: u.onboarded,
+    demo: !!u.demo,
+    createdAt: u.createdAt,
   };
 }
 
@@ -114,8 +141,21 @@ function asFeed(row: typeof feed.$inferSelect): FeedEvent {
   };
 }
 
+function asFriendRequest(
+  row: typeof friendRequests.$inferSelect,
+): FriendRequest {
+  return {
+    id: row.id,
+    fromWifeId: row.fromWifeId,
+    toWifeId: row.toWifeId,
+    status: row.status as FriendRequest['status'],
+    createdAt: row.createdAt,
+    resolvedAt: row.resolvedAt ?? undefined,
+  };
+}
+
 export async function loadState(db: Database): Promise<State> {
-  const [userRows, prizeRows, taskRows, subRows, redRows, feedRows] =
+  const [userRows, prizeRows, taskRows, subRows, redRows, feedRows, requestRows] =
     await Promise.all([
       db.select().from(users),
       db.select().from(prizes),
@@ -123,6 +163,7 @@ export async function loadState(db: Database): Promise<State> {
       db.select().from(submissions),
       db.select().from(redemptions),
       db.select().from(feed),
+      db.select().from(friendRequests),
     ]);
 
   if (userRows.length === 0) {
@@ -139,36 +180,46 @@ export async function loadState(db: Database): Promise<State> {
     submissions: subRows.map(asSubmission),
     redemptions: redRows.map(asRedemption),
     feed: feedRows.map(asFeed),
+    friendRequests: requestRows.map(asFriendRequest),
   };
 }
 
 export async function saveState(db: Database, state: State): Promise<void> {
+  // Never DELETE the users table. Cloudflare isolates load a snapshot per
+  // request; a wipe-and-rewrite races with other writes and can drop a brand
+  // new account (reload then looks signed out / back on onboarding).
+  await db.delete(friendRequests);
   await db.delete(feed);
   await db.delete(redemptions);
   await db.delete(submissions);
   await db.delete(tasks);
   await db.delete(prizes);
-  await db.delete(users);
 
   if (state.users.length > 0) {
-    await db.insert(users).values(
-      state.users.map((u) => ({
-        id: u.id,
-        name: u.name,
-        email: u.email,
-        password: u.password,
-        role: u.role,
-        color: u.color,
-        avatarUrl: u.avatarUrl ?? null,
-        partnerId: u.partnerId ?? null,
-        friendIds: u.friendIds,
-        points: u.points,
-        token: u.token ?? null,
-        onboarded: u.onboarded,
-        demo: !!u.demo,
-        createdAt: u.createdAt,
-      })),
-    );
+    await db
+      .insert(users)
+      .values(state.users.map(userValues))
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          name: sql`excluded.name`,
+          email: sql`excluded.email`,
+          password: sql`excluded.password`,
+          role: sql`excluded.role`,
+          color: sql`excluded.color`,
+          avatarUrl: sql`excluded.avatar_url`,
+          partnerId: sql`excluded.partner_id`,
+          inviteCode: sql`excluded.invite_code`,
+          coupleCode: sql`excluded.couple_code`,
+          coupleUsername: sql`excluded.couple_username`,
+          friendIds: sql`excluded.friend_ids`,
+          points: sql`excluded.points`,
+          token: sql`excluded.token`,
+          onboarded: sql`users.onboarded OR excluded.onboarded`,
+          demo: sql`excluded.demo`,
+          createdAt: sql`excluded.created_at`,
+        },
+      });
   }
   if (state.prizes.length > 0) {
     await db.insert(prizes).values(state.prizes);
@@ -195,10 +246,18 @@ export async function saveState(db: Database, state: State): Promise<void> {
   if (state.feed.length > 0) {
     await db.insert(feed).values(state.feed);
   }
+  if (state.friendRequests.length > 0) {
+    await db.insert(friendRequests).values(
+      state.friendRequests.map((request) => ({
+        ...request,
+        resolvedAt: request.resolvedAt ?? null,
+      })),
+    );
+  }
 }
 
 export async function resetDatabase(db: Database): Promise<void> {
   await db.execute(
-    sql`TRUNCATE TABLE feed, redemptions, submissions, tasks, prizes, users CASCADE`,
+    sql`TRUNCATE TABLE friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
   );
 }

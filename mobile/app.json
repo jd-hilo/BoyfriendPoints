@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "LoveReceipts",
-    "slug": "lovereceipts",
+    "slug": "boyfriendpoints",
     "scheme": "lovereceipts",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -13,10 +13,13 @@
       "backgroundColor": "#f2f3f5"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "app.lovereceipts.mobile",
       "usesAppleSignIn": true,
       "infoPlist": {
+        "CFBundleDisplayName": "LoveReceipts",
+        "CFBundleName": "LoveReceipts",
+        "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
@@ -40,7 +43,11 @@
       "expo-apple-authentication"
     ],
     "extra": {
-      "apiUrl": "http://127.0.0.1:3001/api"
-    }
+      "apiUrl": "https://api-production-bae8.up.railway.app/api",
+      "eas": {
+        "projectId": "5c1c3f45-bf37-454b-819b-1f8ee7217cf2"
+      }
+    },
+    "owner": "jd-hilo"
   }
 }

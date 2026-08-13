@@ -26,6 +26,6 @@ const app = createApp({
   onChange: persist,
 });
 
-app.listen(PORT, () => {
-  console.log(`BoyfriendPoints API listening on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`LoveReceipts API listening on :${PORT}`);
 });

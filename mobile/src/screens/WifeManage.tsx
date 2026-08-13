@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import type { EarnTask, Prize, PublicUser } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, Button, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { haptic } from '../utils';
+import AddCouplesModal from '../AddCouplesModal';
 
 export default function WifeManage() {
   const { user, refresh } = useAuth();
@@ -14,12 +27,11 @@ export default function WifeManage() {
   const [friends, setFriends] = useState<PublicUser[]>([]);
   const [prizeForm, setPrizeForm] = useState({ emoji: '🎁', title: '', cost: '' });
   const [taskForm, setTaskForm] = useState({ emoji: '⭐', title: '', points: '' });
-  const [friendForm, setFriendForm] = useState({ name: '', email: '' });
+  const [addingPrize, setAddingPrize] = useState(false);
+  const [addingTask, setAddingTask] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [inviting, setInviting] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ name: '', email: '', password: 'points' });
-  const [inviteHint, setInviteHint] = useState<{ email: string; password: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [addCouplesOpen, setAddCouplesOpen] = useState(false);
 
   const hasPartner = Boolean(user?.partnerId && user.partnerName);
 
@@ -39,10 +51,16 @@ export default function WifeManage() {
     try {
       await api.addPrize(prizeForm.title, Number(prizeForm.cost), prizeForm.emoji);
       setPrizeForm({ emoji: '🎁', title: '', cost: '' });
+      setAddingPrize(false);
       await load();
     } catch (err) {
       setError((err as Error).message);
     }
+  }
+
+  function closePrizeModal() {
+    setAddingPrize(false);
+    setPrizeForm({ emoji: '🎁', title: '', cost: '' });
   }
 
   async function addTask() {
@@ -50,6 +68,7 @@ export default function WifeManage() {
     try {
       await api.addTask(taskForm.title, Number(taskForm.points), taskForm.emoji);
       setTaskForm({ emoji: '⭐', title: '', points: '' });
+      setAddingTask(false);
       await load();
     } catch (err) {
       setError((err as Error).message);
@@ -74,8 +93,6 @@ export default function WifeManage() {
     try {
       await api.removePartner();
       haptic(12);
-      setInviteHint(null);
-      setInviting(false);
       await refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -84,26 +101,25 @@ export default function WifeManage() {
     }
   }
 
-  async function invitePartner() {
-    setError(null);
-    setBusy(true);
-    try {
-      const res = await api.inviteBoyfriend(inviteForm.name, inviteForm.email, inviteForm.password);
-      haptic([10, 30, 10]);
-      setInviteHint(res.loginHint);
-      setInviteForm({ name: '', email: '', password: 'points' });
-      setInviting(false);
-      await refresh();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
+  async function sharePartnerInvite() {
+    const code = user?.inviteCode;
+    if (!code) {
+      setError('Invite code isn’t ready yet. Try again in a moment.');
+      return;
     }
+    const link = `lovereceipts://join/${code}`;
+    const who = user.name.trim() || 'Your partner';
+    await Share.share({
+      message:
+        `${who} invited you to LoveReceipts!\n\n` +
+        `Use code ${code} to link our household and start earning points.\n\n` +
+        `${link}`,
+      url: link,
+    });
   }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-      <Text style={styles.screenTitle}>Manage</Text>
       {error && <Text style={styles.error}>{error}</Text>}
 
       <Text style={styles.sectionLabel}>Partner</Text>
@@ -118,62 +134,20 @@ export default function WifeManage() {
             Remove
           </Button>
         </View>
-      ) : inviting ? (
-        <View style={styles.card}>
-          <Text style={styles.mutedSmall}>
-            They’ll get their own login to earn points and redeem prizes.
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={inviteForm.name}
-            onChangeText={(v) => setInviteForm({ ...inviteForm, name: v })}
-            placeholder="Partner’s name"
-          />
-          <TextInput
-            style={styles.input}
-            value={inviteForm.email}
-            onChangeText={(v) => setInviteForm({ ...inviteForm, email: v })}
-            placeholder="Partner’s email"
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-          <TextInput
-            style={styles.input}
-            value={inviteForm.password}
-            onChangeText={(v) => setInviteForm({ ...inviteForm, password: v })}
-            placeholder="Starter password"
-          />
-          <View style={styles.row}>
-            <Button variant="secondary" block disabled={busy} onPress={() => setInviting(false)}>
-              Cancel
-            </Button>
-            <Button
-              block
-              disabled={busy || !inviteForm.name || !inviteForm.email}
-              onPress={invitePartner}
-            >
-              Send invite
-            </Button>
-          </View>
-        </View>
       ) : (
         <View style={[styles.partnerCard, styles.partnerCardEmpty]}>
           <View style={styles.partnerCardText}>
             <Text style={styles.partnerCardName}>No partner linked</Text>
-            <Text style={styles.partnerCardMeta}>Invite someone to earn and redeem with you.</Text>
-            {inviteHint && (
-              <Text style={styles.mutedSmall}>
-                Last invite: <Text style={styles.bold}>{inviteHint.email}</Text> /{' '}
-                <Text style={styles.bold}>{inviteHint.password}</Text>
+            <Text style={styles.partnerCardMeta}>
+              Share your invite so they can join and start earning.
+            </Text>
+            {user?.inviteCode ? (
+              <Text style={styles.inviteCode} selectable>
+                {user.inviteCode}
               </Text>
-            )}
+            ) : null}
           </View>
-          <Button
-            onPress={() => {
-              setInviting(true);
-              setError(null);
-            }}
-          >
+          <Button disabled={!user?.inviteCode} onPress={() => void sharePartnerInvite()}>
             Invite partner
           </Button>
         </View>
@@ -191,143 +165,206 @@ export default function WifeManage() {
           </View>
         ))}
       </View>
-      <View style={styles.card}>
-        <Text style={styles.mutedSmall}>
-          Add friends so their household wins show up on your Home feed.
-        </Text>
-        <TextInput
-          style={styles.input}
-          value={friendForm.name}
-          onChangeText={(v) => setFriendForm({ ...friendForm, name: v })}
-          placeholder="Friend’s name"
-        />
-        <TextInput
-          style={styles.input}
-          value={friendForm.email}
-          onChangeText={(v) => setFriendForm({ ...friendForm, email: v })}
-          placeholder="Friend’s email"
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        <Button
-          disabled={!friendForm.email}
-          onPress={async () => {
-            setError(null);
-            try {
-              await api.addFriend(friendForm.name, friendForm.email);
-              setFriendForm({ name: '', email: '' });
-              haptic(10);
-              await load();
-            } catch (err) {
-              setError((err as Error).message);
-            }
-          }}
-        >
-          Add friend
-        </Button>
-      </View>
+      <Button block onPress={() => setAddCouplesOpen(true)}>
+        Add couples
+      </Button>
 
-      <Text style={styles.sectionLabel}>Prizes they can redeem</Text>
-      <View style={styles.list}>
-        {prizes.map((p) => (
-          <View key={p.id} style={styles.miniRow}>
-            <Text>
-              {p.emoji} {p.title}
-            </Text>
-            <View style={styles.rowGap}>
-              <Xp value={p.cost} size={12} />
-              <Pressable onPress={() => api.removePrize(p.id).then(load)}>
-                <Text style={styles.xBtn}>✕</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))}
-      </View>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <TextInput
-            style={styles.emojiInput}
-            value={prizeForm.emoji}
-            onChangeText={(v) => setPrizeForm({ ...prizeForm, emoji: v })}
-            maxLength={2}
-          />
-          <TextInput
-            style={[styles.input, styles.grow]}
-            value={prizeForm.title}
-            onChangeText={(v) => setPrizeForm({ ...prizeForm, title: v })}
-            placeholder="New prize"
+      <View style={styles.block}>
+        <Text style={styles.blockKicker}>EARN</Text>
+        <Text style={styles.blockTitle}>Ways they can earn</Text>
+        <Text style={styles.blockSub}>
+          Tasks your partner does to get points.
+        </Text>
+        <View style={styles.grid}>
+          {tasks.map((t) => (
+            <SquareTile
+              key={t.id}
+              emoji={t.emoji}
+              title={t.title}
+              points={t.points}
+              sign="+"
+              onRemove={() => api.removeTask(t.id).then(load)}
+            />
+          ))}
+          <AddTile
+            label="Add task"
+            onPress={() => {
+              setAddingTask(true);
+              setAddingPrize(false);
+            }}
           />
         </View>
-        <View style={styles.row}>
+        {addingTask && (
+          <View style={styles.card}>
+            <View style={styles.row}>
+              <TextInput
+                style={styles.emojiInput}
+                value={taskForm.emoji}
+                onChangeText={(v) => setTaskForm({ ...taskForm, emoji: v })}
+                maxLength={2}
+              />
+              <TextInput
+                style={[styles.input, styles.grow]}
+                value={taskForm.title}
+                onChangeText={(v) => setTaskForm({ ...taskForm, title: v })}
+                placeholder="New task"
+              />
+            </View>
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, styles.grow]}
+                value={taskForm.points}
+                onChangeText={(v) => setTaskForm({ ...taskForm, points: v })}
+                placeholder="Points they earn"
+                keyboardType="number-pad"
+              />
+              <Button disabled={!taskForm.title || !taskForm.points} onPress={addTask}>
+                Add
+              </Button>
+            </View>
+            <Pressable onPress={() => setAddingTask(false)}>
+              <Text style={styles.cancelAdd}>Cancel</Text>
+            </Pressable>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.block}>
+        <Text style={styles.blockKicker}>REDEEM</Text>
+        <Text style={styles.blockTitle}>Prizes they can get</Text>
+        <Text style={styles.blockSub}>
+          Rewards they cash points in for.
+        </Text>
+        <View style={styles.grid}>
+          {prizes.map((p) => (
+            <SquareTile
+              key={p.id}
+              emoji={p.emoji}
+              title={p.title}
+              points={p.cost}
+              sign="−"
+              onRemove={() => api.removePrize(p.id).then(load)}
+            />
+          ))}
+        </View>
+        <Button
+          block
+          onPress={() => {
+            setAddingPrize(true);
+            setAddingTask(false);
+            setError(null);
+          }}
+        >
+          New prize
+        </Button>
+      </View>
+      <AddCouplesModal
+        visible={addCouplesOpen}
+        onClose={() => setAddCouplesOpen(false)}
+        onChanged={() => void load()}
+      />
+      <Modal
+        visible={addingPrize}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closePrizeModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalSheet}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalTitle}>New prize</Text>
+              <Text style={styles.modalSub}>
+                Something they can cash points in for.
+              </Text>
+            </View>
+            <Pressable onPress={closePrizeModal} hitSlop={8}>
+              <Text style={styles.modalClose}>Cancel</Text>
+            </Pressable>
+          </View>
+          <View style={styles.row}>
+            <TextInput
+              style={styles.emojiInput}
+              value={prizeForm.emoji}
+              onChangeText={(v) => setPrizeForm({ ...prizeForm, emoji: v })}
+              maxLength={2}
+            />
+            <TextInput
+              style={[styles.input, styles.grow]}
+              value={prizeForm.title}
+              onChangeText={(v) => {
+                setPrizeForm({ ...prizeForm, title: v });
+                if (error) setError(null);
+              }}
+              placeholder="Prize name"
+              autoFocus
+            />
+          </View>
           <TextInput
-            style={[styles.input, styles.grow]}
+            style={styles.input}
             value={prizeForm.cost}
             onChangeText={(v) => setPrizeForm({ ...prizeForm, cost: v })}
             placeholder="Cost in points"
             keyboardType="number-pad"
           />
-          <Button disabled={!prizeForm.title || !prizeForm.cost} onPress={addPrize}>
-            Add
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Button
+            block
+            disabled={!prizeForm.title.trim() || !prizeForm.cost}
+            onPress={() => void addPrize()}
+          >
+            Add prize
           </Button>
-        </View>
-      </View>
-
-      <Text style={styles.sectionLabel}>Ways they can earn</Text>
-      <View style={styles.list}>
-        {tasks.map((t) => (
-          <View key={t.id} style={styles.miniRow}>
-            <Text>
-              {t.emoji} {t.title}
-            </Text>
-            <View style={styles.rowGap}>
-              <Xp value={t.points} sign="+" size={12} />
-              <Pressable onPress={() => api.removeTask(t.id).then(load)}>
-                <Text style={styles.xBtn}>✕</Text>
-              </Pressable>
-            </View>
-          </View>
-        ))}
-      </View>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <TextInput
-            style={styles.emojiInput}
-            value={taskForm.emoji}
-            onChangeText={(v) => setTaskForm({ ...taskForm, emoji: v })}
-            maxLength={2}
-          />
-          <TextInput
-            style={[styles.input, styles.grow]}
-            value={taskForm.title}
-            onChangeText={(v) => setTaskForm({ ...taskForm, title: v })}
-            placeholder="New task"
-          />
-        </View>
-        <View style={styles.row}>
-          <TextInput
-            style={[styles.input, styles.grow]}
-            value={taskForm.points}
-            onChangeText={(v) => setTaskForm({ ...taskForm, points: v })}
-            placeholder="Points"
-            keyboardType="number-pad"
-          />
-          <Button disabled={!taskForm.title || !taskForm.points} onPress={addTask}>
-            Add
-          </Button>
-        </View>
-      </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </ScrollView>
+  );
+}
+
+function SquareTile({
+  emoji,
+  title,
+  points,
+  sign,
+  onRemove,
+}: {
+  emoji: string;
+  title: string;
+  points: number;
+  sign: '+' | '−';
+  onRemove: () => void;
+}) {
+  return (
+    <View style={styles.tile}>
+      <Pressable style={styles.tileRemove} onPress={onRemove} hitSlop={8}>
+        <Text style={styles.xBtn}>✕</Text>
+      </Pressable>
+      <Text style={styles.tileEmoji}>{emoji}</Text>
+      <Text style={styles.tileTitle} numberOfLines={2}>
+        {title}
+      </Text>
+      <Xp value={points} sign={sign} size={12} />
+    </View>
+  );
+}
+
+function AddTile({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable style={[styles.tile, styles.tileAdd]} onPress={onPress}>
+      <Text style={styles.tileAddPlus}>+</Text>
+      <Text style={styles.tileAddLabel}>{label}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { gap: 12, paddingBottom: 32 },
-  screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
   error: { color: colors.red, fontSize: 13 },
   sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.inkMuted, marginTop: 8 },
   mutedSmall: { fontSize: 13, color: colors.inkMuted },
-  bold: { fontWeight: '700' },
   card: { backgroundColor: colors.card, borderRadius: radius.card, padding: 16, gap: 10, ...shadow },
   row: { flexDirection: 'row', gap: 8 },
   rowGap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -359,6 +396,117 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   xBtn: { color: colors.inkMuted, fontSize: 14 },
+  block: {
+    backgroundColor: colors.panel,
+    borderRadius: 18,
+    padding: 14,
+    gap: 8,
+    marginTop: 4,
+  },
+  blockKicker: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    color: colors.inkMuted,
+  },
+  blockTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: colors.ink,
+  },
+  blockSub: {
+    fontSize: 13,
+    color: colors.inkMuted,
+    marginBottom: 6,
+    lineHeight: 18,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  tile: {
+    width: '47.5%',
+    aspectRatio: 1,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    ...shadow,
+  },
+  tileRemove: {
+    position: 'absolute',
+    top: 8,
+    right: 10,
+    zIndex: 1,
+  },
+  tileEmoji: { fontSize: 28 },
+  tileTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink,
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  tileAdd: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  tileAddPlus: {
+    fontSize: 28,
+    fontWeight: '300',
+    color: colors.inkMuted,
+    lineHeight: 32,
+  },
+  tileAddLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.inkMuted,
+  },
+  cancelAdd: {
+    textAlign: 'center',
+    color: colors.inkMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingVertical: 4,
+  },
+  modalSheet: {
+    flex: 1,
+    backgroundColor: colors.bg,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    gap: 12,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    color: colors.ink,
+  },
+  modalSub: {
+    fontSize: 14,
+    color: colors.inkMuted,
+    marginTop: 4,
+  },
+  modalClose: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    paddingTop: 4,
+  },
   partnerCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -372,4 +520,11 @@ const styles = StyleSheet.create({
   partnerCardText: { flex: 1, gap: 2 },
   partnerCardName: { fontWeight: '800', fontSize: 16, letterSpacing: -0.2, color: colors.ink },
   partnerCardMeta: { fontSize: 13, color: colors.inkMuted },
+  inviteCode: {
+    marginTop: 6,
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 2,
+    color: colors.ink,
+  },
 });

@@ -17,7 +17,9 @@ export function haptic(pattern: number | number[] = 12): void {
 }
 
 export function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const normalized = iso.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00');
+  const then = Date.parse(normalized);
+  const diff = Date.now() - (Number.isNaN(then) ? Date.now() : then);
   const mins = Math.round(diff / 60000);
   if (mins < 1) return 'just now';
   if (mins < 60) return `${mins}m`;

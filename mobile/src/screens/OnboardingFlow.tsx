@@ -6,20 +6,24 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { Prize, Suggestion } from '../types';
+import type { Prize, Role, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
 import { Xp } from '../ui';
+import AddCouplesModal from '../AddCouplesModal';
 
 const SLIDE_MS = 5000;
-const TOTAL_STEPS = 6;
+/** Account setup + partner + prizes + friends (prizes skipped for redeemers). */
+const TOTAL_STEPS_WIFE = 8;
+const TOTAL_STEPS_BF = 6;
 
 type Phase = 'slides' | 'steps';
 
@@ -175,27 +179,104 @@ const SLIDES = [
   },
 ];
 
-export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) {
-  const { user, signUpWithPassword, refresh } = useAuth();
+/**
+ * Steps: 0=email 1=password 2=name 3=role 4=couple username
+ * 5=partner 6=prizes 7=friends. Redeemers skip 4 and 6.
+ */
+function resumeStepFor(user: {
+  role: Role;
+  partnerId?: string;
+} | null): number {
+  if (!user) return 0;
+  if (!user.partnerId) return 5;
+  return user.role === 'boyfriend' ? 7 : 6;
+}
 
-  // If the account already exists (wife, not onboarded), resume at partner step.
+export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) {
+  const { user, signUpWithPassword, refresh, applyUser } = useAuth();
+
+  // Resume mid-flow if they already have an account but aren't onboarded.
   const [phase, setPhase] = useState<Phase>(user ? 'steps' : 'slides');
-  const [step, setStep] = useState(user ? 3 : 0); // 0=email 1=password 2=name 3=partner 4=prizes 5=friends
+  const [step, setStep] = useState(() => resumeStepFor(user));
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [role, setRole] = useState<Role | null>(user?.role ?? null);
+  const [name, setName] = useState(user?.name ?? '');
+  const [coupleUsername, setCoupleUsername] = useState(
+    user?.coupleUsername ?? '',
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function createAccount() {
+  // Keep signed-in incomplete users on setup (never bounce to the slideshow).
+  // If this screen mounted before the session hydrated, resume the right step.
+  useEffect(() => {
+    if (!user || user.onboarded) return;
+    setPhase('steps');
+    setRole((r) => r ?? user.role);
+    setName((n) => n || user.name);
+    setCoupleUsername((current) => current || user.coupleUsername || '');
+    setStep((current) => (current < 5 ? resumeStepFor(user) : current));
+  }, [user]);
+
+  const effectiveRole: Role | null = user?.role ?? role;
+  const totalSteps =
+    effectiveRole === 'boyfriend' ? TOTAL_STEPS_BF : TOTAL_STEPS_WIFE;
+  const progressStep =
+    effectiveRole === 'boyfriend'
+      ? step <= 3
+        ? step
+        : step === 5
+          ? 4
+          : 5
+      : step;
+
+  async function continueFromEmail() {
     setError(null);
     setBusy(true);
     try {
-      await signUpWithPassword(name.trim() || email.split('@')[0], email, password);
-      setStep(3);
+      const { available } = await api.emailAvailable(email);
+      if (!available) {
+        setError('That email is already taken');
+        return;
+      }
+      setStep(1);
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Create the account only after name + role have been collected. */
+  async function createAccount() {
+    if (!role) {
+      setError('Choose what you’ll do first');
+      setStep(3);
+      return;
+    }
+    setError(null);
+    setBusy(true);
+    try {
+      await signUpWithPassword(
+        name.trim(),
+        email.trim(),
+        password,
+        role,
+        role === 'wife' ? coupleUsername : undefined,
+      );
+      // Verify that the token is live before allowing authenticated setup.
+      await api.me();
+      setStep(5);
+    } catch (err) {
+      const message = (err as Error).message;
+      if (/already taken/i.test(message)) {
+        setError(message);
+        setStep(/couple username/i.test(message) ? 4 : 0);
+      } else {
+        setError(message);
+      }
     } finally {
       setBusy(false);
     }
@@ -204,12 +285,19 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
   async function finish() {
     setBusy(true);
     try {
-      await api.completeOnboarding();
-      await refresh();
+      const me = await api.completeOnboarding();
+      await applyUser(me);
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
     }
+  }
+
+  function afterPartner() {
+    setError(null);
+    // Redeemers skip prize setup — that's the other partner's job.
+    if ((user?.role ?? role) === 'boyfriend') setStep(7);
+    else setStep(6);
   }
 
   if (phase === 'slides') {
@@ -228,13 +316,16 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <StepHeader
-          step={step}
+          step={progressStep}
+          totalSteps={totalSteps}
           onBack={
-            step > 0 && step < 3
-              ? () => setStep((s) => s - 1)
-              : step === 0
-                ? () => setPhase('slides')
-                : undefined
+            user
+              ? undefined
+              : step > 0 && step <= 3
+                ? () => setStep((s) => s - 1)
+                : step === 0
+                  ? () => setPhase('slides')
+                  : undefined
           }
         />
 
@@ -247,7 +338,10 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
             <TextInput
               style={styles.bigInput}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(t) => {
+                setEmail(t);
+                if (error) setError(null);
+              }}
               placeholder="you@email.com"
               placeholderTextColor="#b9b7b3"
               autoCapitalize="none"
@@ -256,12 +350,10 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               autoFocus
             />
             <PrimaryButton
-              label="Continue"
-              disabled={!email.includes('@')}
-              onPress={() => {
-                setError(null);
-                setStep(1);
-              }}
+              label={busy ? undefined : 'Continue'}
+              busy={busy}
+              disabled={!email.includes('@') || busy}
+              onPress={() => void continueFromEmail()}
             />
             {onSignIn && (
               <Text style={styles.switchText}>
@@ -283,7 +375,10 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
             <TextInput
               style={styles.bigInput}
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(t) => {
+                setPassword(t);
+                if (error) setError(null);
+              }}
               placeholder="••••••••"
               placeholderTextColor="#b9b7b3"
               secureTextEntry
@@ -318,37 +413,153 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               autoFocus
             />
             <PrimaryButton
-              label={busy ? undefined : 'Create my account'}
-              busy={busy}
-              disabled={!name.trim() || busy}
-              onPress={() => void createAccount()}
+              label="Continue"
+              disabled={!name.trim()}
+              onPress={() => {
+                setError(null);
+                setStep(3);
+              }}
             />
           </StepShell>
         )}
 
         {step === 3 && (
-          <StepPartner
-            onNext={() => {
-              setError(null);
-              setStep(4);
-            }}
-            refresh={refresh}
-            partnerName={user?.partnerName}
-          />
+          <StepShell
+            title="What will you do?"
+            sub="Pick your role in the household. You can always invite the other later."
+            error={error}
+          >
+            <RoleCard
+              emoji="🎁"
+              title="I'll set the prizes"
+              body="Approve receipts, invent rewards, and invite your partner with a code."
+              selected={role === 'wife'}
+              onPress={() => setRole('wife')}
+            />
+            <RoleCard
+              emoji="💪"
+              title="I'll redeem points"
+              body="Do the tasks, stack points, and cash them in for prizes."
+              selected={role === 'boyfriend'}
+              onPress={() => setRole('boyfriend')}
+            />
+            <PrimaryButton
+              label={
+                busy
+                  ? undefined
+                  : role === 'wife'
+                    ? 'Choose our username'
+                    : 'Create account & continue'
+              }
+              busy={busy}
+              disabled={!role || busy}
+              onPress={() => {
+                if (role === 'wife') {
+                  setError(null);
+                  setStep(4);
+                } else {
+                  void createAccount();
+                }
+              }}
+            />
+          </StepShell>
         )}
 
         {step === 4 && (
+          <StepShell
+            title="Choose your couple username"
+            sub="Friends will see this when you share your couple profile."
+            error={error}
+          >
+            <View style={styles.usernameInputWrap}>
+              <Text style={styles.usernameAt}>@</Text>
+              <TextInput
+                style={styles.usernameInput}
+                value={coupleUsername}
+                onChangeText={(value) => {
+                  setCoupleUsername(
+                    value.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24),
+                  );
+                  if (error) setError(null);
+                }}
+                placeholder="emmaandnoah"
+                placeholderTextColor="#b9b7b3"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoFocus
+                maxLength={24}
+              />
+            </View>
+            <Text style={styles.usernamePreview}>
+              lovereceipts://couple/{coupleUsername || 'yourname'}
+            </Text>
+            <PrimaryButton
+              label={busy ? undefined : 'Create our couple'}
+              busy={busy}
+              disabled={coupleUsername.length < 3 || busy}
+              onPress={() => void createAccount()}
+            />
+          </StepShell>
+        )}
+
+        {step === 5 &&
+          (user?.role === 'boyfriend' || role === 'boyfriend' ? (
+            <StepEnterCode
+              onNext={afterPartner}
+              refresh={refresh}
+              partnerName={user?.partnerName}
+            />
+          ) : (
+            <StepInvitePartner
+              onNext={afterPartner}
+              inviteCode={user?.inviteCode}
+              partnerName={user?.partnerName}
+              sharerName={user?.name ?? name}
+            />
+          ))}
+
+        {step === 6 && (
           <StepPrizes
             onNext={() => {
               setError(null);
-              setStep(5);
+              setStep(7);
             }}
           />
         )}
 
-        {step === 5 && <StepFriends busy={busy} onDone={() => void finish()} />}
+        {step === 7 && <StepFriends busy={busy} onDone={() => void finish()} />}
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+function RoleCard({
+  emoji,
+  title,
+  body,
+  selected,
+  onPress,
+}: {
+  emoji: string;
+  title: string;
+  body: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.roleCard, selected && styles.roleCardOn]}
+    >
+      <Text style={styles.roleEmoji}>{emoji}</Text>
+      <View style={styles.roleTextCol}>
+        <Text style={styles.roleTitle}>{title}</Text>
+        <Text style={styles.roleBody}>{body}</Text>
+      </View>
+      <View style={[styles.roleCheck, selected && styles.roleCheckOn]}>
+        {selected ? <Text style={styles.roleCheckMark}>✓</Text> : null}
+      </View>
+    </Pressable>
   );
 }
 
@@ -446,8 +657,16 @@ function Slideshow({
 
 /* ------------------------------------------------------------- chrome */
 
-function StepHeader({ step, onBack }: { step: number; onBack?: () => void }) {
-  const pct = ((step + 1) / TOTAL_STEPS) * 100;
+function StepHeader({
+  step,
+  totalSteps,
+  onBack,
+}: {
+  step: number;
+  totalSteps: number;
+  onBack?: () => void;
+}) {
+  const pct = ((step + 1) / totalSteps) * 100;
   return (
     <View style={styles.stepHeader}>
       <View style={styles.stepHeaderRow}>
@@ -459,7 +678,7 @@ function StepHeader({ step, onBack }: { step: number; onBack?: () => void }) {
           <View style={{ width: 24 }} />
         )}
         <Text style={styles.stepCount}>
-          Step {step + 1} of {TOTAL_STEPS}
+          Step {step + 1} of {totalSteps}
         </Text>
         <View style={{ width: 24 }} />
       </View>
@@ -534,7 +753,80 @@ function SkipLink({ label = "I'll do this later", onPress }: { label?: string; o
 
 /* -------------------------------------------------------- account steps */
 
-function StepPartner({
+function inviteShareMessage(code: string, sharerName: string): string {
+  const link = `lovereceipts://join/${code}`;
+  const who = sharerName.trim() || 'Your partner';
+  return (
+    `${who} invited you to LoveReceipts!\n\n` +
+    `Use code ${code} to link our household and start earning points.\n\n` +
+    `${link}`
+  );
+}
+
+/** Prize-setter shares a household invite code with a big Share CTA. */
+function StepInvitePartner({
+  onNext,
+  inviteCode,
+  partnerName,
+  sharerName,
+}: {
+  onNext: () => void;
+  inviteCode?: string;
+  partnerName?: string;
+  sharerName: string;
+}) {
+  const code = inviteCode ?? '······';
+
+  async function share() {
+    if (!inviteCode) return;
+    await Share.share({
+      message: inviteShareMessage(inviteCode, sharerName),
+      url: `lovereceipts://join/${inviteCode}`,
+    });
+  }
+
+  return (
+    <StepShell
+      title="Invite your partner"
+      sub="Share this code — they'll enter it after signing up to earn and redeem points."
+    >
+      <Pop>
+        <View style={styles.codeCard}>
+          <Text style={styles.codeLabel}>Your household code</Text>
+          <Text style={styles.codeValue} selectable>
+            {code}
+          </Text>
+          <Text style={styles.codeHint}>
+            They open LoveReceipts → pick “I'll redeem points” → enter this code.
+          </Text>
+        </View>
+      </Pop>
+
+      {partnerName ? (
+        <View style={styles.successCard}>
+          <Text style={styles.successTitle}>{partnerName} is linked 🎉</Text>
+          <Text style={styles.successBody}>
+            You're set — keep the code handy if they need to reinstall.
+          </Text>
+        </View>
+      ) : null}
+
+      <PrimaryButton
+        label="Share invite"
+        disabled={!inviteCode}
+        onPress={() => void share()}
+      />
+      {partnerName ? (
+        <PrimaryButton label="Continue" onPress={onNext} />
+      ) : (
+        <SkipLink label="Continue — I'll share later" onPress={onNext} />
+      )}
+    </StepShell>
+  );
+}
+
+/** Redeemer enters the prize-setter's invite code to link the household. */
+function StepEnterCode({
   onNext,
   refresh,
   partnerName,
@@ -543,21 +835,18 @@ function StepPartner({
   refresh: () => Promise<void>;
   partnerName?: string;
 }) {
-  const [pname, setPname] = useState('');
-  const [pemail, setPemail] = useState('');
-  const [hint, setHint] = useState<{ email: string; password: string } | null>(null);
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const linked = Boolean(partnerName);
 
-  const invited = Boolean(partnerName || hint);
-
-  async function invite() {
+  async function join() {
     setError(null);
     setBusy(true);
     try {
-      const res = await api.inviteBoyfriend(pname, pemail, 'points');
-      setHint(res.loginHint);
+      await api.joinWithCode(code);
       await refresh();
+      onNext();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -567,55 +856,42 @@ function StepPartner({
 
   return (
     <StepShell
-      title="Invite your partner"
-      sub="They earn the points — you approve the receipts. It takes two."
+      title="Enter their code"
+      sub="Your partner who sets the prizes shared a 6-character household code with you."
       error={error}
     >
-      {invited ? (
+      {linked ? (
         <View style={styles.successCard}>
-          <Text style={styles.successTitle}>
-            {pname || partnerName} is in 🎉
+          <Text style={styles.successTitle}>Linked with {partnerName} 🎉</Text>
+          <Text style={styles.successBody}>
+            You're in the same household — go earn some points.
           </Text>
-          {hint && (
-            <Text style={styles.successBody}>
-              They sign in with <Text style={styles.bold}>{hint.email}</Text> ·
-              password <Text style={styles.bold}>{hint.password}</Text>
-            </Text>
-          )}
         </View>
       ) : (
-        <>
-          <TextInput
-            style={styles.bigInput}
-            value={pname}
-            onChangeText={setPname}
-            placeholder="Partner's name"
-            placeholderTextColor="#b9b7b3"
-            autoCapitalize="words"
-          />
-          <TextInput
-            style={styles.bigInput}
-            value={pemail}
-            onChangeText={setPemail}
-            placeholder="Partner's email"
-            placeholderTextColor="#b9b7b3"
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-        </>
+        <TextInput
+          style={[styles.bigInput, styles.codeInput]}
+          value={code}
+          onChangeText={(t) => setCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))}
+          placeholder="ABC123"
+          placeholderTextColor="#b9b7b3"
+          autoCapitalize="characters"
+          autoCorrect={false}
+          maxLength={8}
+          autoFocus
+        />
       )}
 
-      {invited ? (
+      {linked ? (
         <PrimaryButton label="Continue" onPress={onNext} />
       ) : (
         <>
           <PrimaryButton
-            label={busy ? undefined : 'Send invite'}
+            label={busy ? undefined : 'Join household'}
             busy={busy}
-            disabled={!pname || !pemail.includes('@') || busy}
-            onPress={() => void invite()}
+            disabled={code.trim().length < 4 || busy}
+            onPress={() => void join()}
           />
-          <SkipLink onPress={onNext} />
+          <SkipLink label="I don't have a code yet" onPress={onNext} />
         </>
       )}
     </StepShell>
@@ -624,62 +900,185 @@ function StepPartner({
 
 function StepPrizes({ onNext }: { onNext: () => void }) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [prizes, setPrizes] = useState<Prize[]>([]);
+  // Titles already saved in the household (e.g. resuming onboarding).
+  const [existing, setExisting] = useState<Set<string>>(new Set());
+  // Selection is local + instant; prizes are created in one go on Continue.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [custom, setCustom] = useState<Suggestion[]>([]);
+  const [showComposer, setShowComposer] = useState(false);
+  const [cTitle, setCTitle] = useState('');
+  const [cPoints, setCPoints] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.suggestions().then((s) => setSuggestions(s.prizes)).catch(() => undefined);
-    void api.prizes().then(setPrizes).catch(() => undefined);
+    void api
+      .suggestions()
+      .then((s) => setSuggestions(s.prizes))
+      .catch(() => undefined);
+    void api
+      .prizes()
+      .then((p: Prize[]) => setExisting(new Set(p.map((x) => x.title))))
+      .catch(() => undefined);
   }, []);
 
-  async function quickAdd(s: Suggestion) {
-    try {
-      const prize = await api.addPrize(s.title, s.points, s.emoji);
-      setPrizes((p) => [...p, prize]);
-    } catch {
-      /* duplicate or network — ignore in onboarding */
-    }
+  function toggle(title: string) {
+    setError(null);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
   }
 
-  const chosen = new Set(prizes.map((p) => p.title));
+  const customPoints = Number(cPoints);
+  const customValid =
+    cTitle.trim().length > 0 && Number.isFinite(customPoints) && customPoints > 0;
+
+  function addCustom() {
+    if (!customValid) return;
+    setCustom((c) => [
+      ...c,
+      { title: cTitle.trim(), points: Math.round(customPoints), emoji: '🎁' },
+    ]);
+    setCTitle('');
+    setCPoints('');
+    setShowComposer(false);
+  }
+
+  const picked = [
+    ...suggestions.filter((s) => selected.has(s.title)),
+    ...custom,
+  ].filter((p) => !existing.has(p.title));
+  const count = picked.length;
+
+  async function saveAndContinue() {
+    if (count === 0) {
+      onNext();
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      // Confirm session before writing — never silently 401 on prize select.
+      await api.me();
+      for (const p of picked) {
+        await api.addPrize(p.title, p.points, p.emoji);
+      }
+      onNext();
+    } catch (err) {
+      const message = (err as Error).message;
+      setError(
+        /not signed in/i.test(message)
+          ? 'Session expired — go back and sign in with your email & password.'
+          : message,
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <StepShell
       title="Pick a few prizes"
-      sub="What can your partner cash points in for? Tap to add — you can edit later."
+      sub="What can your partner cash points in for? Tap to select — you can edit later."
+      error={error}
     >
       <View style={styles.chipGrid}>
         {suggestions.map((s) => {
-          const on = chosen.has(s.title);
+          const saved = existing.has(s.title);
+          const on = saved || selected.has(s.title);
           return (
             <Pressable
               key={s.title}
               style={[styles.chip, on && styles.chipOn]}
-              disabled={on}
-              onPress={() => void quickAdd(s)}
+              disabled={saved}
+              onPress={() => toggle(s.title)}
             >
-              <Text style={styles.chipEmoji}>{s.emoji}</Text>
-              <Text style={[styles.chipTitle, on && styles.chipTitleOn]}>
-                {s.title}
-              </Text>
+              <View style={styles.chipTopRow}>
+                <Text style={styles.chipEmoji}>{s.emoji}</Text>
+                <View style={[styles.chipCheck, on && styles.chipCheckOn]}>
+                  {on ? <Text style={styles.chipCheckMark}>✓</Text> : null}
+                </View>
+              </View>
+              <Text style={styles.chipTitle}>{s.title}</Text>
               <Text style={styles.chipPts}>
-                {on ? 'Added ✓' : `${s.points} pts`}
+                {saved ? 'Added ✓' : `${s.points} pts`}
               </Text>
             </Pressable>
           );
         })}
+        {custom.map((p, i) => (
+          <Pressable
+            key={`${p.title}-${i}`}
+            style={[styles.chip, styles.chipOn]}
+            onPress={() => setCustom((c) => c.filter((_, j) => j !== i))}
+          >
+            <View style={styles.chipTopRow}>
+              <Text style={styles.chipEmoji}>{p.emoji}</Text>
+              <View style={[styles.chipCheck, styles.chipCheckOn]}>
+                <Text style={styles.chipCheckMark}>✓</Text>
+              </View>
+            </View>
+            <Text style={styles.chipTitle}>{p.title}</Text>
+            <Text style={styles.chipPts}>{p.points} pts · tap to remove</Text>
+          </Pressable>
+        ))}
       </View>
 
-      {prizes.length > 0 && (
-        <Text style={styles.addedNote}>
-          {prizes.length} prize{prizes.length > 1 ? 's' : ''} ready
-        </Text>
+      {showComposer ? (
+        <View style={styles.composer}>
+          <TextInput
+            style={styles.bigInput}
+            value={cTitle}
+            onChangeText={setCTitle}
+            placeholder="Prize name — e.g. Breakfast in bed"
+            placeholderTextColor="#b9b7b3"
+            autoFocus
+          />
+          <View style={styles.composerRow}>
+            <TextInput
+              style={[styles.bigInput, styles.composerPoints]}
+              value={cPoints}
+              onChangeText={(t) => setCPoints(t.replace(/[^0-9]/g, ''))}
+              placeholder="Points"
+              placeholderTextColor="#b9b7b3"
+              keyboardType="number-pad"
+              maxLength={5}
+            />
+            <Pressable
+              style={[styles.composerAdd, !customValid && styles.btnMuted]}
+              disabled={!customValid}
+              onPress={addCustom}
+            >
+              <Text style={styles.composerAddText}>Add</Text>
+            </Pressable>
+          </View>
+          <SkipLink label="Cancel" onPress={() => setShowComposer(false)} />
+        </View>
+      ) : (
+        <Pressable
+          style={styles.customPrizeBtn}
+          onPress={() => setShowComposer(true)}
+        >
+          <Text style={styles.customPrizeText}>＋ Add a custom prize</Text>
+        </Pressable>
       )}
 
       <PrimaryButton
-        label={prizes.length > 0 ? 'Continue' : 'Continue without prizes'}
-        onPress={onNext}
+        label={
+          busy
+            ? undefined
+            : count > 0
+              ? `Add ${count} prize${count > 1 ? 's' : ''} & continue`
+              : 'Continue without prizes'
+        }
+        busy={busy}
+        disabled={busy}
+        onPress={() => void saveAndContinue()}
       />
-      {prizes.length === 0 && <SkipLink onPress={onNext} />}
+      {count === 0 && !busy && <SkipLink onPress={onNext} />}
     </StepShell>
   );
 }
@@ -691,73 +1090,50 @@ function StepFriends({
   onDone: () => void;
   busy: boolean;
 }) {
-  const [fname, setFname] = useState('');
-  const [femail, setFemail] = useState('');
-  const [added, setAdded] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  async function add() {
-    setError(null);
-    try {
-      const friend = await api.addFriend(fname, femail);
-      setAdded((a) => [...a, friend.name]);
-      setFname('');
-      setFemail('');
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
+  const [addCouplesOpen, setAddCouplesOpen] = useState(false);
 
   return (
-    <StepShell
-      title="Fill your feed"
-      sub="Add friends so their household wins show up on your Home feed."
-      error={error}
-    >
-      <TextInput
-        style={styles.bigInput}
-        value={fname}
-        onChangeText={setFname}
-        placeholder="Friend's name"
-        placeholderTextColor="#b9b7b3"
-        autoCapitalize="words"
-      />
-      <TextInput
-        style={styles.bigInput}
-        value={femail}
-        onChangeText={setFemail}
-        placeholder="Friend's email"
-        placeholderTextColor="#b9b7b3"
-        autoCapitalize="none"
-        keyboardType="email-address"
-      />
-      <Pressable
-        style={({ pressed }) => [
-          styles.secondaryBtn,
-          (!femail.includes('@') || pressed) && styles.btnMuted,
-        ]}
-        onPress={() => void add()}
-        disabled={!femail.includes('@')}
-      >
-        <Text style={styles.secondaryBtnText}>Add friend</Text>
-      </Pressable>
-
-      {added.length > 0 && (
-        <Text style={styles.addedNote}>
-          {added.join(', ')} added ✓
+    <View style={styles.friendsPage}>
+      <View style={styles.friendsCopy}>
+        <Text style={styles.stepTitle}>Add your friends</Text>
+        <Text style={styles.friendsSub}>
+          Search a couple username, or share yours so they can find you.
         </Text>
-      )}
+      </View>
 
-      <PrimaryButton
-        label={busy ? undefined : 'Enter LoveReceipts'}
-        busy={busy}
-        disabled={busy}
-        onPress={onDone}
+      <Pop>
+        <Pressable
+          style={styles.shareCard}
+          onPress={() => setAddCouplesOpen(true)}
+        >
+          <Text style={styles.shareCardEmoji}>👋</Text>
+          <View style={styles.flex}>
+            <Text style={styles.shareCardTitle}>Find your friends</Text>
+            <Text style={styles.shareCardBody}>
+              Search @coupleusernames or share your profile.
+            </Text>
+          </View>
+          <Text style={styles.shareCardArrow}>›</Text>
+        </Pressable>
+      </Pop>
+
+      <View style={styles.friendsSpacer} />
+
+      <View style={styles.friendsFooter}>
+        <PrimaryButton
+          label={busy ? undefined : 'Enter LoveReceipts'}
+          busy={busy}
+          disabled={busy}
+          onPress={onDone}
+        />
+        {!busy && <SkipLink label="Skip for now" onPress={onDone} />}
+      </View>
+
+      <AddCouplesModal
+        visible={addCouplesOpen}
+        onClose={() => setAddCouplesOpen(false)}
       />
-      {added.length === 0 && !busy && (
-        <SkipLink label="Skip for now" onPress={onDone} />
-      )}
-    </StepShell>
+    </View>
   );
 }
 
@@ -803,11 +1179,12 @@ const styles = StyleSheet.create({
   },
   slideDemo: {
     minHeight: 230,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 30,
   },
   demoReceipt: {
-    alignSelf: 'flex-start',
+    alignSelf: 'center',
     minWidth: 220,
     backgroundColor: '#fffcf7',
     borderWidth: 1,
@@ -960,6 +1337,29 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     color: colors.black,
   },
+  usernameInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e3e2e0',
+    borderRadius: 6,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 14,
+  },
+  usernameAt: { fontSize: 20, fontWeight: '700', color: '#787774' },
+  usernameInput: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingLeft: 4,
+    fontSize: 18,
+    fontWeight: '600',
+    color: colors.black,
+  },
+  usernamePreview: {
+    color: '#9b9a97',
+    fontSize: 12,
+    textAlign: 'center',
+  },
   primaryBtn: {
     marginTop: 6,
     backgroundColor: colors.black,
@@ -1029,16 +1429,178 @@ const styles = StyleSheet.create({
   },
   chipOn: {
     backgroundColor: '#f7f6f3',
-    borderColor: '#d3d1cb',
+    borderColor: colors.black,
   },
-  chipEmoji: { fontSize: 22, marginBottom: 2 },
+  chipTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
+  },
+  chipEmoji: { fontSize: 22 },
+  chipCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#d3d1cb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipCheckOn: {
+    backgroundColor: colors.black,
+    borderColor: colors.black,
+  },
+  chipCheckMark: { color: '#fff', fontSize: 11, fontWeight: '800' },
   chipTitle: { fontSize: 13, fontWeight: '600', color: colors.black },
-  chipTitleOn: { color: '#787774' },
   chipPts: { fontSize: 12, color: '#9b9a97', fontWeight: '500' },
   addedNote: {
     fontSize: 13,
     fontWeight: '600',
     color: colors.green,
+    textAlign: 'center',
+  },
+  customPrizeBtn: {
+    borderWidth: 1.5,
+    borderColor: '#d3d1cb',
+    borderStyle: 'dashed',
+    borderRadius: 6,
+    paddingVertical: 14,
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  customPrizeText: { fontSize: 14, fontWeight: '600', color: '#787774' },
+  composer: {
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#e3e2e0',
+    borderRadius: 10,
+    padding: 12,
+    backgroundColor: '#fbfbfa',
+  },
+  composerRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  composerPoints: { flex: 1 },
+  composerAdd: {
+    backgroundColor: colors.black,
+    borderRadius: 999,
+    paddingHorizontal: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  composerAddText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+
+  /* friends share */
+  friendsPage: {
+    flex: 1,
+    paddingHorizontal: 28,
+    paddingTop: 28,
+    paddingBottom: 8,
+  },
+  friendsCopy: { marginBottom: 24 },
+  friendsSub: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: '#787774',
+    marginTop: 8,
+  },
+  friendsSpacer: { flex: 1, minHeight: 24 },
+  friendsFooter: { gap: 4, paddingBottom: 8 },
+  shareCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    borderWidth: 1,
+    borderColor: colors.black,
+    borderRadius: 14,
+    padding: 18,
+    backgroundColor: colors.black,
+  },
+  shareCardEmoji: { fontSize: 26 },
+  shareCardTitle: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  shareCardBody: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 2,
+  },
+  shareCardArrow: { fontSize: 24, color: 'rgba(255,255,255,0.6)' },
+
+  /* role picker */
+  roleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#e3e2e0',
+    borderRadius: 14,
+    padding: 16,
+    backgroundColor: '#ffffff',
+  },
+  roleCardOn: {
+    borderColor: colors.black,
+    backgroundColor: '#f7f6f3',
+  },
+  roleEmoji: { fontSize: 28 },
+  roleTextCol: { flex: 1, gap: 3 },
+  roleTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.black,
+    letterSpacing: -0.2,
+  },
+  roleBody: { fontSize: 13, lineHeight: 18, color: '#787774' },
+  roleCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: '#d3d1cb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roleCheckOn: {
+    backgroundColor: colors.black,
+    borderColor: colors.black,
+  },
+  roleCheckMark: { color: '#fff', fontSize: 12, fontWeight: '800' },
+
+  /* invite code */
+  codeCard: {
+    borderWidth: 1,
+    borderColor: '#e3e2e0',
+    borderRadius: 14,
+    paddingVertical: 22,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    backgroundColor: '#f7f6f3',
+    gap: 8,
+  },
+  codeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#9b9a97',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  codeValue: {
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: 6,
+    color: colors.black,
+  },
+  codeHint: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#787774',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  codeInput: {
+    letterSpacing: 4,
+    fontWeight: '700',
+    fontSize: 22,
     textAlign: 'center',
   },
 });

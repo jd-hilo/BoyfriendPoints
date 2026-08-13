@@ -1,0 +1,8 @@
+mobile
+screenshots
+dist
+.wrangler
+src
+index.html
+vite.config.ts
+worker

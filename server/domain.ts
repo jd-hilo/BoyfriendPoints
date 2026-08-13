@@ -2,6 +2,9 @@ import type {
   EarnTask,
   FeedEvent,
   FeedEventView,
+  CoupleSearchResult,
+  FriendRequest,
+  FriendRequestView,
   NotificationItem,
   Prize,
   PublicUser,
@@ -18,6 +21,7 @@ export interface State {
   submissions: Submission[];
   redemptions: Redemption[];
   feed: FeedEvent[];
+  friendRequests: FriendRequest[];
 }
 
 export function createEmptyState(): State {
@@ -28,6 +32,7 @@ export function createEmptyState(): State {
     submissions: [],
     redemptions: [],
     feed: [],
+    friendRequests: [],
   };
 }
 
@@ -68,10 +73,98 @@ export function stockPhoto(seed: string): string {
   return `https://picsum.photos/seed/${encodeURIComponent(seed)}/720/480`;
 }
 
+/** Ambiguity-free alphabet for household invite codes. */
+const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function generateInviteCode(state: State): string {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    let code = '';
+    for (let i = 0; i < 6; i++) {
+      code += INVITE_ALPHABET[Math.floor(Math.random() * INVITE_ALPHABET.length)];
+    }
+    if (
+      !state.users.some(
+        (u) => u.inviteCode === code || u.coupleCode === code,
+      )
+    ) {
+      return code;
+    }
+  }
+  return id('C').slice(-6).toUpperCase();
+}
+
+/** Ensure a prize-setter has a shareable invite code (lazy for legacy users). */
+export function ensureInviteCode(state: State, user: User): string {
+  if (user.role !== 'wife') throw new Error('Only prize-setters get invite codes');
+  if (user.inviteCode) return user.inviteCode;
+  user.inviteCode = generateInviteCode(state);
+  return user.inviteCode;
+}
+
+export function ensureCoupleCode(state: State, wife: User): string {
+  if (wife.role !== 'wife') throw new Error('Only households have couple codes');
+  if (wife.coupleCode) return wife.coupleCode;
+  wife.coupleCode = generateInviteCode(state);
+  return wife.coupleCode;
+}
+
+export function normalizeCoupleUsername(value: string): string {
+  return value.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9_]/g, '');
+}
+
+function availableCoupleUsername(state: State, seed: string): string {
+  const normalized = normalizeCoupleUsername(seed);
+  const base = (normalized.length >= 3 ? normalized : `${normalized}couple`).slice(
+    0,
+    20,
+  );
+  let candidate = base;
+  let suffix = 2;
+  while (
+    state.users.some(
+      (user) => user.coupleUsername?.toLowerCase() === candidate.toLowerCase(),
+    )
+  ) {
+    candidate = `${base.slice(0, 20 - String(suffix).length)}${suffix++}`;
+  }
+  return candidate;
+}
+
+export function setCoupleUsername(
+  state: State,
+  wife: User,
+  rawUsername: string,
+): string {
+  if (wife.role !== 'wife') throw new Error('Only couple creators choose a couple username');
+  const username = normalizeCoupleUsername(rawUsername);
+  if (username.length < 3) throw new Error('Couple username must be at least 3 characters');
+  if (username.length > 24) throw new Error('Couple username must be 24 characters or less');
+  const taken = state.users.some(
+    (user) =>
+      user.id !== wife.id &&
+      user.coupleUsername?.toLowerCase() === username.toLowerCase(),
+  );
+  if (taken) throw new Error('That couple username is already taken');
+  wife.coupleUsername = username;
+  return username;
+}
+
 export function publicUser(state: State, user: User): PublicUser {
   const partner = user.partnerId
     ? state.users.find((u) => u.id === user.partnerId)
     : undefined;
+  if (user.role === 'wife' && !user.inviteCode) {
+    ensureInviteCode(state, user);
+  }
+  const householdWife =
+    user.role === 'wife'
+      ? user
+      : user.partnerId
+        ? state.users.find((candidate) => candidate.id === user.partnerId)
+        : undefined;
+  if (householdWife?.role === 'wife' && !householdWife.coupleCode) {
+    ensureCoupleCode(state, householdWife);
+  }
   return {
     id: user.id,
     name: user.name,
@@ -85,6 +178,9 @@ export function publicUser(state: State, user: User): PublicUser {
     partnerAvatar: partner
       ? (partner.avatarUrl ?? avatarFor(partner.name))
       : undefined,
+    inviteCode: user.role === 'wife' ? user.inviteCode : undefined,
+    coupleCode: householdWife?.coupleCode,
+    coupleUsername: householdWife?.coupleUsername,
     friendIds: user.friendIds,
     points: user.points,
     onboarded: user.onboarded,
@@ -126,49 +222,111 @@ export function findByEmail(state: State, email: string): User | undefined {
   return state.users.find((u) => u.email.toLowerCase() === normalized);
 }
 
-export function signupWife(
+export function signup(
   state: State,
-  input: { name: string; email: string; password: string },
+  input: {
+    name: string;
+    email: string;
+    password: string;
+    role?: 'wife' | 'boyfriend';
+    coupleUsername?: string;
+  },
 ): User {
   const name = input.name.trim();
   const email = input.email.trim();
+  const role = input.role === 'boyfriend' ? 'boyfriend' : 'wife';
   if (!name) throw new Error('Name is required');
   if (!email) throw new Error('Email is required');
   if (!input.password) throw new Error('Password is required');
   if (findByEmail(state, email)) throw new Error('That email is already taken');
+  const requestedCoupleUsername =
+    role === 'wife'
+      ? input.coupleUsername
+        ? normalizeCoupleUsername(input.coupleUsername)
+        : availableCoupleUsername(state, name)
+      : undefined;
+  if (requestedCoupleUsername && requestedCoupleUsername.length < 3) {
+    throw new Error('Couple username must be at least 3 characters');
+  }
+  if (requestedCoupleUsername && requestedCoupleUsername.length > 24) {
+    throw new Error('Couple username must be 24 characters or less');
+  }
+  if (
+    requestedCoupleUsername &&
+    state.users.some(
+      (candidate) =>
+        candidate.coupleUsername?.toLowerCase() === requestedCoupleUsername,
+    )
+  ) {
+    throw new Error('That couple username is already taken');
+  }
 
-  const wife: User = {
+  const user: User = {
     id: id('u_'),
     name,
     email,
     password: input.password,
-    role: 'wife',
+    role,
     color: pickColor(state),
+    avatarUrl: avatarFor(name),
+    inviteCode: role === 'wife' ? generateInviteCode(state) : undefined,
+    coupleCode: role === 'wife' ? generateInviteCode(state) : undefined,
+    coupleUsername: requestedCoupleUsername,
     friendIds: [],
     points: 0,
     token: token(),
     onboarded: false,
     createdAt: new Date().toISOString(),
   };
-  state.users.push(wife);
+  state.users.push(user);
 
-  // Give her a starter table of earn tasks the boyfriend can pick from.
-  for (const suggestion of TASK_SUGGESTIONS) {
-    state.tasks.push({
-      id: id('t_'),
-      wifeId: wife.id,
-      title: suggestion.title,
-      emoji: suggestion.emoji,
-      points: suggestion.points,
-      createdAt: new Date().toISOString(),
-    });
+  if (role === 'wife') {
+    // Starter earn tasks the partner can pick from.
+    for (const suggestion of TASK_SUGGESTIONS) {
+      state.tasks.push({
+        id: id('t_'),
+        wifeId: user.id,
+        title: suggestion.title,
+        emoji: suggestion.emoji,
+        points: suggestion.points,
+        createdAt: new Date().toISOString(),
+      });
+    }
   }
 
-  // Connect new sign-ups to the seeded demo community so the feed is alive.
-  for (const demoWife of state.users.filter((u) => u.demo && u.role === 'wife')) {
-    if (!wife.friendIds.includes(demoWife.id)) wife.friendIds.push(demoWife.id);
-    if (!demoWife.friendIds.includes(wife.id)) demoWife.friendIds.push(wife.id);
+  return user;
+}
+
+/** @deprecated Prefer signup(..., { role: 'wife' }). */
+export function signupWife(
+  state: State,
+  input: { name: string; email: string; password: string },
+): User {
+  return signup(state, { ...input, role: 'wife' });
+}
+
+/** Partner joins a household using the prize-setter's invite code. */
+export function joinWithInviteCode(
+  state: State,
+  boyfriend: User,
+  rawCode: string,
+): User {
+  if (boyfriend.role !== 'boyfriend') {
+    throw new Error('Only the partner earning points can enter an invite code');
   }
+  if (boyfriend.partnerId) throw new Error('You are already linked to a partner');
+
+  const code = rawCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (code.length < 4) throw new Error('Enter a valid invite code');
+
+  const wife = state.users.find(
+    (u) => u.role === 'wife' && u.inviteCode?.toUpperCase() === code,
+  );
+  if (!wife) throw new Error('Invite code not found');
+  if (wife.partnerId) throw new Error('That household already has a partner');
+
+  boyfriend.partnerId = wife.id;
+  wife.partnerId = boyfriend.id;
   return wife;
 }
 
@@ -177,7 +335,7 @@ export function login(state: State, email: string, password: string): User {
   if (!user || user.password !== password) {
     throw new Error('Invalid email or password');
   }
-  user.token = token();
+  if (!user.token) user.token = token();
   return user;
 }
 
@@ -190,7 +348,7 @@ export function loginOrCreateFromIdentity(
   if (!email) throw new Error('Email is required');
   const existing = findByEmail(state, email);
   if (existing) {
-    existing.token = token();
+    if (!existing.token) existing.token = token();
     if (input.name.trim() && existing.name !== input.name.trim()) {
       // Keep the household name they already chose; only fill blanks.
       if (!existing.name.trim()) existing.name = input.name.trim();
@@ -278,6 +436,165 @@ export function listFriends(state: State, wife: User): PublicUser[] {
     .map((u) => publicUser(state, u));
 }
 
+/** The couple household for social features — one person is enough. */
+export function requireHousehold(state: State, user: User): User {
+  const wifeId = ownerWifeId(user);
+  const wife = wifeId ? state.users.find((candidate) => candidate.id === wifeId) : undefined;
+  if (!wife || wife.role !== 'wife') {
+    throw new Error('Create your couple before connecting with other couples');
+  }
+  return wife;
+}
+
+/** A social household must have both partners linked to each other. */
+export function requireLinkedHousehold(state: State, user: User): User {
+  const wife = requireHousehold(state, user);
+  const partner = wife.partnerId
+    ? state.users.find((candidate) => candidate.id === wife.partnerId)
+    : undefined;
+  if (!partner || partner.partnerId !== wife.id) {
+    throw new Error('Link your partner before connecting with other couples');
+  }
+  return wife;
+}
+
+function friendRequestView(state: State, request: FriendRequest): FriendRequestView {
+  const { inviteCode: _fromInviteCode, ...from } = publicUser(
+    state,
+    requireUser(state, request.fromWifeId),
+  );
+  const { inviteCode: _toInviteCode, ...to } = publicUser(
+    state,
+    requireUser(state, request.toWifeId),
+  );
+  return {
+    ...request,
+    from,
+    to,
+  };
+}
+
+export function searchCouples(
+  state: State,
+  user: User,
+  rawQuery: string,
+): CoupleSearchResult[] {
+  const me = requireHousehold(state, user);
+  const query = normalizeCoupleUsername(rawQuery);
+  if (query.length < 2) return [];
+
+  return state.users
+    .filter(
+      (candidate) =>
+        candidate.role === 'wife' &&
+        candidate.id !== me.id &&
+        Boolean(candidate.coupleUsername?.includes(query)),
+    )
+    .slice(0, 20)
+    .map((candidate) => {
+      const partner = candidate.partnerId
+        ? state.users.find((person) => person.id === candidate.partnerId)
+        : undefined;
+      const pending = state.friendRequests.some(
+        (request) =>
+          request.status === 'pending' &&
+          ((request.fromWifeId === me.id &&
+            request.toWifeId === candidate.id) ||
+            (request.fromWifeId === candidate.id &&
+              request.toWifeId === me.id)),
+      );
+      return {
+        id: candidate.id,
+        coupleUsername: candidate.coupleUsername!,
+        name: candidate.name,
+        partnerName: partner?.name,
+        color: candidate.color,
+        avatarUrl: candidate.avatarUrl,
+        partnerColor: partner?.color,
+        partnerAvatar: partner?.avatarUrl,
+        relationship: me.friendIds.includes(candidate.id)
+          ? 'friends'
+          : pending
+            ? 'pending'
+            : 'none',
+      };
+    });
+}
+
+export function requestFriendByCode(
+  state: State,
+  user: User,
+  rawCode: string,
+): FriendRequestView {
+  const from = requireHousehold(state, user);
+  const username = normalizeCoupleUsername(rawCode);
+  const to = state.users.find(
+    (candidate) =>
+      candidate.role === 'wife' &&
+      candidate.coupleUsername?.toLowerCase() === username,
+  );
+  if (!to) throw new Error('Couple not found');
+  if (from.id === to.id) throw new Error('That is your own couple code');
+  if (from.friendIds.includes(to.id)) throw new Error('You are already friends');
+  const existing = state.friendRequests.find(
+    (request) =>
+      request.status === 'pending' &&
+      ((request.fromWifeId === from.id && request.toWifeId === to.id) ||
+        (request.fromWifeId === to.id && request.toWifeId === from.id)),
+  );
+  if (existing) {
+    if (existing.fromWifeId === to.id) {
+      existing.status = 'accepted';
+      existing.resolvedAt = new Date().toISOString();
+      from.friendIds.push(to.id);
+      to.friendIds.push(from.id);
+    }
+    return friendRequestView(state, existing);
+  }
+  const request: FriendRequest = {
+    id: id('fr_'),
+    fromWifeId: from.id,
+    toWifeId: to.id,
+    status: 'pending',
+    createdAt: new Date().toISOString(),
+  };
+  state.friendRequests.push(request);
+  return friendRequestView(state, request);
+}
+
+export function friendRequestsForUser(state: State, user: User): FriendRequestView[] {
+  const wife = requireHousehold(state, user);
+  return state.friendRequests
+    .filter(
+      (request) =>
+        request.status === 'pending' &&
+        (request.fromWifeId === wife.id || request.toWifeId === wife.id),
+    )
+    .map((request) => friendRequestView(state, request));
+}
+
+export function resolveFriendRequest(
+  state: State,
+  user: User,
+  requestId: string,
+  accept: boolean,
+): FriendRequestView {
+  const wife = requireHousehold(state, user);
+  const request = state.friendRequests.find(
+    (candidate) => candidate.id === requestId && candidate.status === 'pending',
+  );
+  if (!request) throw new Error('Friend request not found');
+  if (request.toWifeId !== wife.id) throw new Error('This request is not for your couple');
+  request.status = accept ? 'accepted' : 'declined';
+  request.resolvedAt = new Date().toISOString();
+  if (accept) {
+    const from = requireUser(state, request.fromWifeId);
+    if (!wife.friendIds.includes(from.id)) wife.friendIds.push(from.id);
+    if (!from.friendIds.includes(wife.id)) from.friendIds.push(wife.id);
+  }
+  return friendRequestView(state, request);
+}
+
 export function addFriend(
   state: State,
   wife: User,
@@ -311,6 +628,19 @@ export function addFriend(
 
 export function completeOnboarding(user: User): void {
   user.onboarded = true;
+}
+
+/** Update display name during / after onboarding. */
+export function updateProfile(
+  user: User,
+  input: { name?: string },
+): User {
+  const name = input.name?.trim();
+  if (name) {
+    user.name = name;
+    user.avatarUrl = avatarFor(name);
+  }
+  return user;
 }
 
 /** The wife who owns a given user's economy (self if wife, else partner). */
@@ -607,9 +937,26 @@ export function circleWifeIds(state: State, user: User): Set<string> {
 }
 
 export function feedForUser(state: State, user: User): FeedEventView[] {
-  const circle = circleWifeIds(state, user);
+  // A private household stays private until both partners have joined.
+  let circle: Set<string>;
+  try {
+    requireLinkedHousehold(state, user);
+    circle = circleWifeIds(state, user);
+  } catch {
+    return [];
+  }
   return state.feed
-    .filter((e) => circle.has(e.wifeId))
+    .filter((e) => {
+      if (!circle.has(e.wifeId)) return false;
+      const wife = state.users.find((u) => u.id === e.wifeId);
+      const boyfriend = state.users.find((u) => u.id === e.boyfriendId);
+      return Boolean(
+        wife &&
+          boyfriend &&
+          wife.partnerId === boyfriend.id &&
+          boyfriend.partnerId === wife.id,
+      );
+    })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map((e) => {
       const boyfriend = state.users.find((u) => u.id === e.boyfriendId);
@@ -622,6 +969,8 @@ export function feedForUser(state: State, user: User): FeedEventView[] {
           ? (boyfriend.avatarUrl ?? avatarFor(boyfriend.name))
           : undefined,
         wifeName: wife?.name ?? 'their partner',
+        wifeColor: wife?.color ?? '#7C5CFF',
+        wifeAvatar: wife ? (wife.avatarUrl ?? avatarFor(wife.name)) : undefined,
         likedByMe: e.likes.includes(user.id),
       };
     });
@@ -807,6 +1156,40 @@ export function buildNotifications(
         actorColor: bf.color,
         actorAvatar: bf.avatar,
         createdAt: r.createdAt,
+      });
+    }
+  }
+
+  const myHouseholdId = ownerWifeId(user);
+  if (myHouseholdId) {
+    for (const request of state.friendRequests) {
+      const incoming =
+        request.toWifeId === myHouseholdId && request.status === 'pending';
+      const accepted =
+        request.fromWifeId === myHouseholdId && request.status === 'accepted';
+      if (!incoming && !accepted) continue;
+      const otherId = incoming ? request.fromWifeId : request.toWifeId;
+      const other = state.users.find((candidate) => candidate.id === otherId);
+      if (!other) continue;
+      const partner = other.partnerId
+        ? state.users.find((candidate) => candidate.id === other.partnerId)
+        : undefined;
+      items.push({
+        id: `n_friend_${request.id}_${incoming ? 'in' : 'accepted'}`,
+        kind: incoming ? 'friend_request' : 'friend_accepted',
+        emoji: incoming ? '👋' : '✓',
+        title: incoming
+          ? `@${other.coupleUsername ?? other.name} sent a friend request`
+          : `@${other.coupleUsername ?? other.name} accepted your request`,
+        body: partner ? `${other.name} & ${partner.name}` : other.name,
+        actorName: `@${other.coupleUsername ?? other.name}`,
+        actorColor: other.color,
+        actorAvatar: other.avatarUrl,
+        friendRequestId: incoming ? request.id : undefined,
+        createdAt:
+          accepted && request.resolvedAt
+            ? request.resolvedAt
+            : request.createdAt,
       });
     }
   }

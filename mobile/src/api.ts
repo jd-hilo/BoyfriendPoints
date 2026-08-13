@@ -1,8 +1,10 @@
 import type {
   EarnTask,
+  CoupleSearchResult,
   FeedComment,
   FeedEventView,
   FeedReaction,
+  FriendRequestView,
   NotificationItem,
   Prize,
   PublicUser,
@@ -10,10 +12,28 @@ import type {
   Submission,
   Suggestion,
 } from './types';
+import Constants from 'expo-constants';
 import { getToken } from './storage';
 
+const LOCAL_API = 'http://127.0.0.1:3001/api';
 const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL?.trim() || 'http://127.0.0.1:3001/api';
+  process.env.EXPO_PUBLIC_API_URL?.trim() ||
+  (Constants.expoConfig?.extra?.apiUrl as string | undefined)?.trim() ||
+  LOCAL_API;
+
+export class ApiError extends Error {
+  status?: number;
+  unreachable?: boolean;
+  constructor(
+    message: string,
+    opts?: { status?: number; unreachable?: boolean },
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = opts?.status;
+    this.unreachable = opts?.unreachable;
+  }
+}
 
 async function request<T>(
   path: string,
@@ -32,14 +52,17 @@ async function request<T>(
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
     });
   } catch {
-    throw new Error(
-      `Could not reach API at ${API_BASE_URL}. Is pnpm dev:server running?`,
+    throw new ApiError(
+      `Could not reach API at ${API_BASE_URL}.`,
+      { unreachable: true },
     );
   }
 
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error ?? `Request failed (${res.status})`);
+    throw new ApiError(data.error ?? `Request failed (${res.status})`, {
+      status: res.status,
+    });
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -57,10 +80,20 @@ export const api = {
       method: 'POST',
       body: { userId },
     }),
-  signup: (name: string, email: string, password: string) =>
+  emailAvailable: (email: string) =>
+    request<{ available: boolean }>(
+      `/auth/email-available?email=${encodeURIComponent(email.trim())}`,
+    ),
+  signup: (
+    name: string,
+    email: string,
+    password: string,
+    role: 'wife' | 'boyfriend' = 'wife',
+    coupleUsername?: string,
+  ) =>
     request<AuthResult>('/auth/signup', {
       method: 'POST',
-      body: { name, email, password },
+      body: { name, email, password, role, coupleUsername },
     }),
   login: (email: string, password: string) =>
     request<AuthResult>('/auth/login', {
@@ -74,10 +107,20 @@ export const api = {
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<PublicUser>('/me'),
+  updateProfile: (name: string) =>
+    request<PublicUser>('/me', {
+      method: 'PATCH',
+      body: { name },
+    }),
 
   suggestions: () =>
     request<{ prizes: Suggestion[]; tasks: Suggestion[] }>('/suggestions'),
 
+  joinWithCode: (code: string) =>
+    request<{ user: PublicUser; partner: PublicUser }>('/onboarding/join', {
+      method: 'POST',
+      body: { code },
+    }),
   inviteBoyfriend: (name: string, email: string, password: string) =>
     request<{
       boyfriend: PublicUser;
@@ -94,6 +137,24 @@ export const api = {
       body: { name, email },
     }),
   friends: () => request<PublicUser[]>('/friends'),
+  searchCouples: (query: string) =>
+    request<CoupleSearchResult[]>(
+      `/couples/search?q=${encodeURIComponent(query.trim())}`,
+    ),
+  friendRequests: () => request<FriendRequestView[]>('/friend-requests'),
+  requestFriend: (code: string) =>
+    request<FriendRequestView>('/friend-requests', {
+      method: 'POST',
+      body: { code },
+    }),
+  acceptFriendRequest: (id: string) =>
+    request<FriendRequestView>(`/friend-requests/${id}/accept`, {
+      method: 'POST',
+    }),
+  declineFriendRequest: (id: string) =>
+    request<FriendRequestView>(`/friend-requests/${id}/decline`, {
+      method: 'POST',
+    }),
   completeOnboarding: () =>
     request<PublicUser>('/onboarding/complete', { method: 'POST' }),
 

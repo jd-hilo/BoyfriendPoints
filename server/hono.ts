@@ -13,6 +13,8 @@ import {
   denySubmission,
   deviceLogin,
   feedForUser,
+  friendRequestsForUser,
+  findByEmail,
   findByToken,
   fulfillRedemption,
   inviteBoyfriend,
@@ -26,6 +28,9 @@ import {
   pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
+  requestFriendByCode,
+  resolveFriendRequest,
+  searchCouples,
   reactToFeed,
   redeemPrize,
   removePartner,
@@ -33,7 +38,9 @@ import {
   removeTask,
   shareRedemption,
   shareSubmission,
-  signupWife,
+  signup,
+  joinWithInviteCode,
+  updateProfile,
   submissionsForBoyfriend,
   TASK_SUGGESTIONS,
   tasksForUser,
@@ -192,21 +199,36 @@ export function createApiApp() {
     }
   });
 
+  app.get('/api/auth/email-available', (c) => {
+    const email = String(c.req.query('email') ?? '').trim();
+    if (!email.includes('@')) {
+      return c.json({ error: 'Enter a valid email' }, 400);
+    }
+    return c.json({ available: !findByEmail(c.get('state'), email) });
+  });
+
   app.post('/api/auth/signup', async (c) => {
     try {
       const body = await c.req.json<{
         name?: string;
         email?: string;
         password?: string;
+        role?: string;
+        coupleUsername?: string;
       }>();
-      const wife = signupWife(c.get('state'), {
+      const role = body?.role === 'boyfriend' ? 'boyfriend' : 'wife';
+      const user = signup(c.get('state'), {
         name: String(body?.name ?? ''),
         email: String(body?.email ?? ''),
         password: String(body?.password ?? ''),
+        role,
+        coupleUsername: body?.coupleUsername
+          ? String(body.coupleUsername)
+          : undefined,
       });
       markDirty(c);
       return c.json(
-        { token: wife.token, user: publicUser(c.get('state'), wife) },
+        { token: user.token, user: publicUser(c.get('state'), user) },
         201,
       );
     } catch (err) {
@@ -245,6 +267,41 @@ export function createApiApp() {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     return c.json(publicUser(c.get('state'), user));
+  });
+
+  app.patch('/api/me', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ name?: string }>();
+      updateProfile(user, {
+        name: body?.name ? String(body.name) : undefined,
+      });
+      markDirty(c);
+      return c.json(publicUser(c.get('state'), user));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/onboarding/join', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ code?: string }>();
+      const wife = joinWithInviteCode(
+        c.get('state'),
+        user,
+        String(body?.code ?? ''),
+      );
+      markDirty(c);
+      return c.json({
+        user: publicUser(c.get('state'), user),
+        partner: publicUser(c.get('state'), wife),
+      });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
   });
 
   app.post('/api/onboarding/boyfriend', async (c) => {
@@ -311,6 +368,77 @@ export function createApiApp() {
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
     if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     return c.json(listFriends(c.get('state'), wife));
+  });
+
+  app.get('/api/friend-requests', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      return c.json(friendRequestsForUser(c.get('state'), user));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.get('/api/couples/search', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      return c.json(searchCouples(c.get('state'), user, c.req.query('q') ?? ''));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/friend-requests', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ code?: string }>();
+      const request = requestFriendByCode(
+        c.get('state'),
+        user,
+        String(body?.code ?? ''),
+      );
+      markDirty(c);
+      return c.json(request, 201);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/friend-requests/:id/accept', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const request = resolveFriendRequest(
+        c.get('state'),
+        user,
+        c.req.param('id'),
+        true,
+      );
+      markDirty(c);
+      return c.json(request);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/friend-requests/:id/decline', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const request = resolveFriendRequest(
+        c.get('state'),
+        user,
+        c.req.param('id'),
+        false,
+      );
+      markDirty(c);
+      return c.json(request);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
   });
 
   app.post('/api/friends', async (c) => {

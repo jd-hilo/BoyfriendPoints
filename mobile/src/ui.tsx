@@ -1,8 +1,11 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   Image,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -23,6 +26,72 @@ import {
 
 export function XpIcon({ size = 14 }: { size?: number }) {
   return <Text style={{ fontSize: size, lineHeight: size + 2 }}>💎</Text>;
+}
+
+/** Minimal receipt mark — the LoveReceipts brand icon. */
+export function ReceiptIcon({
+  size = 28,
+  color = colors.black,
+}: {
+  size?: number;
+  color?: string;
+}) {
+  const w = size * 0.72;
+  const h = size;
+  const lineW = w * 0.55;
+  const stroke = Math.max(1.4, size * 0.06);
+  return (
+    <View
+      style={{
+        width: w,
+        height: h,
+        borderRadius: 3,
+        borderWidth: stroke,
+        borderColor: color,
+        backgroundColor: 'transparent',
+        paddingTop: h * 0.18,
+        paddingHorizontal: w * 0.18,
+        gap: h * 0.08,
+      }}
+    >
+      <View
+        style={{
+          width: lineW,
+          height: stroke,
+          backgroundColor: color,
+          borderRadius: 1,
+        }}
+      />
+      <View
+        style={{
+          width: lineW * 0.72,
+          height: stroke,
+          backgroundColor: color,
+          borderRadius: 1,
+          opacity: 0.55,
+        }}
+      />
+      <View
+        style={{
+          width: lineW * 0.9,
+          height: stroke,
+          backgroundColor: color,
+          borderRadius: 1,
+          opacity: 0.35,
+        }}
+      />
+      <View
+        style={{
+          marginTop: 'auto',
+          marginBottom: h * 0.12,
+          width: lineW * 0.45,
+          height: stroke,
+          backgroundColor: color,
+          borderRadius: 1,
+        }}
+      />
+    </View>
+  );
 }
 
 /** Points value in the shared blue gradient XP banner. */
@@ -58,6 +127,30 @@ export function Xp({
   );
 }
 
+const XP_PER_LEVEL = 100;
+
+export function levelFor(points: number): number {
+  return Math.floor(Math.max(0, points) / XP_PER_LEVEL) + 1;
+}
+
+/** Compact level + XP bar for the in-app HUD. */
+export function LevelBar({ points }: { points: number }) {
+  const xp = Math.max(0, points);
+  const level = levelFor(xp);
+  const into = xp % XP_PER_LEVEL;
+  return (
+    <View style={styles.levelBar}>
+      <View style={styles.levelBadge}>
+        <Text style={styles.levelBadgeText}>Lv {level}</Text>
+      </View>
+      <View style={styles.levelTrack}>
+        <View style={[styles.levelFill, { width: `${into}%` }]} />
+      </View>
+      <Xp value={xp} size={11} />
+    </View>
+  );
+}
+
 export function PointsPill({
   value,
   kind,
@@ -76,7 +169,7 @@ export function Avatar({
 }: {
   name: string;
   color: string;
-  src?: string;
+  src?: string | number;
   size?: number;
 }) {
   const initials = name
@@ -89,7 +182,7 @@ export function Avatar({
   if (src) {
     return (
       <Image
-        source={{ uri: src }}
+        source={typeof src === 'number' ? src : { uri: src }}
         style={{
           width: size,
           height: size,
@@ -189,6 +282,50 @@ const RECEIPT_KIND_LABEL: Record<ReceiptKind, string> = {
   approve: 'POINTS APPROVED',
 };
 
+const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
+
+/** Deterministic pseudo-barcode bars from a seed string. */
+function Barcode({ seed }: { seed: string }) {
+  const bars = useMemo(() => {
+    let h = 7;
+    for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) % 100000;
+    const out: number[] = [];
+    for (let i = 0; i < 42; i++) {
+      h = (h * 1103515245 + 12345) % 2147483647;
+      out.push(1 + (h % 3));
+    }
+    return out;
+  }, [seed]);
+  return (
+    <View style={styles.barcodeRow}>
+      {bars.map((w, i) => (
+        <View key={i} style={[styles.barcodeBar, { width: w }]} />
+      ))}
+    </View>
+  );
+}
+
+/** Torn sawtooth bottom edge of the receipt paper. */
+function TornEdge() {
+  return (
+    <View style={styles.tornRow} pointerEvents="none">
+      {Array.from({ length: 16 }).map((_, i) => (
+        <View key={i} style={styles.tornTooth} />
+      ))}
+    </View>
+  );
+}
+
+function receiptStamp(): { order: string; date: string } {
+  const now = new Date();
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    order: `LR-${1000 + Math.floor(Math.random() * 9000)}`,
+    date: `${pad(now.getDate())} ${months[now.getMonth()]} ${now.getFullYear()} · ${pad(now.getHours())}:${pad(now.getMinutes())}`,
+  };
+}
+
 /** Paper-receipt success sheet with native image share (captured via view-shot). */
 export function ReceiptModal({
   kind,
@@ -229,6 +366,31 @@ export function ReceiptModal({
   const sign = signFor(kind);
   const paperRef = useRef<View>(null);
 
+  // Printing animation: paper slides out of the printer slot once measured.
+  const [paperH, setPaperH] = useState(0);
+  const print = useRef(new Animated.Value(0)).current;
+  const actionsIn = useRef(new Animated.Value(0)).current;
+  const stamp = useRef(receiptStamp()).current;
+
+  useEffect(() => {
+    if (paperH <= 0) return;
+    Animated.sequence([
+      Animated.delay(250),
+      Animated.timing(print, {
+        toValue: 1,
+        duration: Math.min(2600, Math.max(1500, paperH * 4)),
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(actionsIn, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [paperH, print, actionsIn]);
+
   const receipt: ReceiptData = {
     kind,
     emoji,
@@ -268,61 +430,158 @@ export function ReceiptModal({
   return (
     <Modal transparent animationType="fade" onRequestClose={onSkip}>
       <View style={styles.modalBackdrop}>
-        <View style={styles.receiptModal}>
-          <Text style={styles.receiptKicker}>{RECEIPT_HEADLINE[kind]}</Text>
-          <Text style={styles.receiptSub}>{subtitle}</Text>
+        <View style={styles.printerWrap}>
+          {/* Printer body */}
+          <View style={styles.printer}>
+            <View style={styles.printerTopRow}>
+              <View style={styles.printerLogo}>
+                <Text style={{ fontSize: 14 }}>🧾</Text>
+              </View>
+              <Text style={styles.printerBrand}>LoveReceipts</Text>
+            </View>
+            <View style={styles.printerSummaryRow}>
+              <View style={styles.printerSummaryLeft}>
+                <Text style={styles.printerTitle} numberOfLines={1}>
+                  {itemTitle}
+                </Text>
+                <Text style={styles.printerSub} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              </View>
+              <View style={styles.printerTotal}>
+                <Text style={styles.printerTotalLabel}>Total</Text>
+                <Text style={styles.printerTotalValue}>
+                  {sign}{points} 💎
+                </Text>
+              </View>
+            </View>
+            <View style={styles.printerStatusRow}>
+              <View style={styles.printerCheck}>
+                <Text style={styles.printerCheckMark}>✓</Text>
+              </View>
+              <Text style={styles.printerStatus}>{RECEIPT_HEADLINE[kind]}</Text>
+            </View>
+            <View style={styles.printerSlot} />
+          </View>
 
-          <View ref={paperRef} collapsable={false} style={styles.receiptPaper}>
-            <View style={styles.receiptBrand}>
-              <Text style={{ fontSize: 15 }}>🧾 </Text>
-              <Text style={styles.receiptBrandText}>LoveReceipts</Text>
-            </View>
-            <Text style={styles.receiptKindLabel}>
-              {RECEIPT_KIND_LABEL[kind]}
-            </Text>
-            <View style={styles.receiptDash} />
-            <View style={styles.receiptParty}>
-              <Text style={styles.receiptPartyLabel}>FROM</Text>
-              <Text style={styles.receiptPartyName}>{fromName}</Text>
-            </View>
-            <View style={styles.receiptParty}>
-              <Text style={styles.receiptPartyLabel}>TO</Text>
-              <Text style={styles.receiptPartyName}>{toName}</Text>
-            </View>
-            <View style={styles.receiptDash} />
-            <View style={styles.receiptItem}>
-              <Text style={styles.receiptEmoji}>{emoji}</Text>
-              <Text style={styles.receiptItemTitle}>{itemTitle}</Text>
-              {meta && <Text style={styles.receiptMeta}>{meta}</Text>}
-            </View>
-            <View style={styles.receiptXp}>
-              <Xp value={points} sign={sign} size={14} />
-            </View>
-            <View style={styles.receiptDash} />
-            <Text style={styles.receiptThanks}>Thank you for the love 💕</Text>
+          {/* Paper printing out of the slot */}
+          <View
+            style={[
+              styles.paperMask,
+              paperH > 0 ? { height: paperH + 10 } : null,
+            ]}
+          >
+            <Animated.View
+              onLayout={(e) => {
+                const h = Math.round(e.nativeEvent.layout.height);
+                if (h > 0 && h !== paperH) setPaperH(h);
+              }}
+              style={[
+                styles.paperShift,
+                paperH > 0
+                  ? {
+                      transform: [
+                        {
+                          translateY: print.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-paperH, 0],
+                          }),
+                        },
+                      ],
+                    }
+                  : { opacity: 0 },
+              ]}
+            >
+              <View ref={paperRef} collapsable={false} style={styles.receiptPaper}>
+                <View style={styles.receiptLogoBox}>
+                  <Text style={{ fontSize: 20 }}>🧾</Text>
+                </View>
+                <View style={styles.receiptDash} />
+
+                <View style={styles.receiptLineRow}>
+                  <Text style={styles.receiptLineKey}>
+                    {RECEIPT_KIND_LABEL[kind]}
+                  </Text>
+                  <Text style={styles.receiptLineVal}>
+                    {sign}{points} pts
+                  </Text>
+                </View>
+                <Text style={styles.receiptMutedLine} numberOfLines={2}>
+                  {emoji} {itemTitle}
+                  {meta ? ` · ${meta}` : ''}
+                </Text>
+
+                <View style={styles.receiptDash} />
+                <View style={styles.receiptLineRow}>
+                  <Text style={styles.receiptMutedKey}>From</Text>
+                  <Text style={styles.receiptLineVal}>{fromName}</Text>
+                </View>
+                <View style={styles.receiptLineRow}>
+                  <Text style={styles.receiptMutedKey}>To</Text>
+                  <Text style={styles.receiptLineVal}>{toName}</Text>
+                </View>
+
+                <View style={styles.receiptDash} />
+                <View style={styles.receiptLineRow}>
+                  <Text style={styles.receiptTotalKey}>TOTAL {sign === '+' ? 'EARNED' : 'SPENT'}</Text>
+                  <Text style={styles.receiptTotalVal}>
+                    {sign}{points}
+                  </Text>
+                </View>
+
+                <View style={styles.receiptDash} />
+                <View style={styles.receiptLineRow}>
+                  <Text style={styles.receiptMutedKey}>Order</Text>
+                  <Text style={styles.receiptLineVal}>{stamp.order}</Text>
+                </View>
+                <View style={styles.receiptLineRow}>
+                  <Text style={styles.receiptMutedKey}>Date</Text>
+                  <Text style={styles.receiptLineVal}>{stamp.date}</Text>
+                </View>
+                <Text style={styles.receiptThanks}>Thank you for the love 💕</Text>
+
+                <Barcode seed={`${itemTitle}${points}${fromName}`} />
+                <Text style={styles.barcodeCaption}>{stamp.order}</Text>
+              </View>
+              <TornEdge />
+            </Animated.View>
           </View>
 
           {note && <Text style={styles.modalNote}>{note}</Text>}
 
-          {canPostToFeed && (
-            <Pressable
-              onPress={() => setPostToFeed((v) => !v)}
-              disabled={locked}
-              style={styles.receiptFeedCheck}
-            >
-              <View
-                style={[
-                  styles.receiptFeedBox,
-                  !postToFeed && styles.receiptFeedBoxOff,
-                ]}
+          <Animated.View
+            style={[
+              styles.modalActions,
+              {
+                opacity: actionsIn,
+                transform: [
+                  {
+                    translateY: actionsIn.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [10, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            {canPostToFeed && (
+              <Pressable
+                onPress={() => setPostToFeed((v) => !v)}
+                disabled={locked}
+                style={styles.receiptFeedCheck}
               >
-                {postToFeed && <Text style={styles.receiptFeedCheckMark}>✓</Text>}
-              </View>
-              <Text style={styles.receiptFeedLabel}>{feedLabel}</Text>
-            </Pressable>
-          )}
-
-          <View style={styles.modalActions}>
+                <View
+                  style={[
+                    styles.receiptFeedBox,
+                    !postToFeed && styles.receiptFeedBoxOff,
+                  ]}
+                >
+                  {postToFeed && <Text style={styles.receiptFeedCheckMark}>✓</Text>}
+                </View>
+                <Text style={styles.receiptFeedLabel}>{feedLabel}</Text>
+              </Pressable>
+            )}
             <Button
               block
               disabled={locked}
@@ -345,7 +604,7 @@ export function ReceiptModal({
             >
               {skipLabel}
             </Button>
-          </View>
+          </Animated.View>
         </View>
       </View>
     </Modal>
@@ -371,6 +630,39 @@ const styles = StyleSheet.create({
   xpValue: {
     color: '#fff',
     fontWeight: '800',
+  },
+  levelBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
+  levelBadge: {
+    backgroundColor: colors.black,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  levelBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  levelTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: colors.panel,
+    overflow: 'hidden',
+    minWidth: 48,
+  },
+  levelFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: colors.blue,
   },
   btn: {
     borderRadius: radius.pill,
@@ -398,116 +690,234 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15,20,30,0.45)',
+    backgroundColor: 'rgba(18,18,16,0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
-  receiptModal: {
+  printerWrap: {
     width: '100%',
     maxWidth: 340,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 18,
-    paddingBottom: 16,
-    alignItems: 'center',
+  },
+  printer: {
+    width: '100%',
+    backgroundColor: '#232320',
+    borderRadius: 22,
+    padding: 16,
+    paddingBottom: 12,
+    zIndex: 2,
     ...shadow,
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  receiptKicker: {
-    fontSize: 20,
+  printerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 14,
+  },
+  printerLogo: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  printerBrand: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 13,
     fontWeight: '700',
-    color: colors.ink,
-    marginBottom: 4,
-    letterSpacing: -0.4,
+    letterSpacing: 0.2,
   },
-  receiptSub: {
-    color: colors.ink2,
+  printerSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  printerSummaryLeft: {
+    flex: 1,
+  },
+  printerTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  printerSub: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  printerTotal: {
+    alignItems: 'flex-end',
+  },
+  printerTotalLabel: {
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 13,
+  },
+  printerTotalValue: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  printerStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 16,
+  },
+  printerCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#2f9e63',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  printerCheckMark: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  printerStatus: {
+    color: 'rgba(255,255,255,0.85)',
     fontSize: 14,
-    marginBottom: 12,
-    textAlign: 'center',
+    fontWeight: '600',
+  },
+  printerSlot: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#121210',
+    marginTop: 14,
+    marginHorizontal: 2,
+  },
+  paperMask: {
+    width: '86%',
+    alignSelf: 'center',
+    overflow: 'hidden',
+    marginTop: -10,
+    zIndex: 1,
+    paddingTop: 10,
+  },
+  paperShift: {
+    width: '100%',
   },
   receiptPaper: {
     width: '100%',
-    backgroundColor: '#fffcf7',
-    borderWidth: 1,
-    borderColor: '#ebe4d8',
-    borderRadius: 10,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
-    marginBottom: 12,
+    backgroundColor: '#fff',
+    paddingTop: 20,
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    gap: 7,
+  },
+  receiptLogoBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#191918',
     alignItems: 'center',
-    gap: 8,
-  },
-  receiptBrand: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  receiptBrandText: {
-    fontWeight: '800',
-    fontSize: 15,
-    color: colors.ink,
-  },
-  receiptKindLabel: {
-    fontWeight: '600',
-    fontSize: 12,
-    color: colors.inkMuted,
-    letterSpacing: 0.5,
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 6,
   },
   receiptDash: {
     width: '100%',
-    borderTopWidth: 1.5,
-    borderColor: '#d5d0c6',
+    borderTopWidth: 1,
+    borderColor: '#d9d5cc',
     borderStyle: 'dashed',
-    marginVertical: 4,
+    marginVertical: 6,
   },
-  receiptParty: {
-    width: '100%',
-    alignItems: 'center',
-    gap: 2,
+  receiptLineRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: 10,
   },
-  receiptPartyLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    letterSpacing: 1,
-    color: colors.inkMuted,
-    textTransform: 'uppercase',
-  },
-  receiptPartyName: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: colors.blueName,
-  },
-  receiptItem: {
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 4,
-  },
-  receiptEmoji: {
-    fontSize: 28,
-  },
-  receiptItemTitle: {
-    fontWeight: '800',
-    fontSize: 16,
-    color: colors.ink,
-    textAlign: 'center',
-  },
-  receiptMeta: {
+  receiptLineKey: {
+    fontFamily: MONO,
     fontSize: 12,
-    color: colors.inkMuted,
+    fontWeight: '700',
+    letterSpacing: 1,
+    color: '#191918',
   },
-  receiptXp: {
-    marginVertical: 2,
+  receiptLineVal: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#191918',
+  },
+  receiptMutedKey: {
+    fontFamily: MONO,
+    fontSize: 12,
+    color: '#9b988f',
+  },
+  receiptMutedLine: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: '#9b988f',
+    marginTop: -2,
+  },
+  receiptTotalKey: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: '#191918',
+  },
+  receiptTotalVal: {
+    fontFamily: MONO,
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#191918',
   },
   receiptThanks: {
-    fontSize: 12,
-    color: colors.ink2,
-    fontWeight: '600',
+    fontFamily: MONO,
+    fontSize: 11,
+    color: '#9b988f',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  barcodeRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    marginTop: 10,
+    height: 34,
+  },
+  barcodeBar: {
+    height: 34,
+    backgroundColor: '#191918',
+    marginRight: 1.5,
+  },
+  barcodeCaption: {
+    fontFamily: MONO,
+    fontSize: 10,
+    letterSpacing: 3,
+    color: '#9b988f',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  tornRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    height: 8,
+    overflow: 'hidden',
+  },
+  tornTooth: {
+    width: 14,
+    height: 14,
+    backgroundColor: '#fff',
+    transform: [{ rotate: '45deg' }],
+    marginHorizontal: 1,
+    marginTop: -9,
   },
   modalNote: {
     fontSize: 13,
-    color: colors.inkMuted,
+    color: 'rgba(255,255,255,0.75)',
     lineHeight: 18,
-    marginBottom: 12,
+    marginTop: 14,
     textAlign: 'center',
   },
   receiptFeedCheck: {
@@ -538,11 +948,12 @@ const styles = StyleSheet.create({
   receiptFeedLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: colors.ink2,
+    color: 'rgba(255,255,255,0.85)',
   },
   modalActions: {
     width: '100%',
     gap: 8,
+    marginTop: 16,
   },
   receiptShareBtn: {
     minHeight: 52,

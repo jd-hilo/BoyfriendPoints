@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { getCoachSeen, setCoachSeen } from '../storage';
 import { colors } from '../theme';
-import { Avatar, Xp } from '../ui';
+import { Avatar, ReceiptIcon, Xp } from '../ui';
 import { haptic } from '../utils';
 import Feed from './Feed';
 import Submit from './Submit';
@@ -14,13 +15,23 @@ import WifeRequests from './WifeRequests';
 import WifeManage from './WifeManage';
 import Notifications from './Notifications';
 
-type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
+export type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
 
-export default function MainApp() {
+export default function MainApp({
+  initialTab,
+  openFirstReact,
+  openReceipt,
+}: {
+  initialTab?: Tab;
+  openFirstReact?: boolean;
+  openReceipt?: boolean;
+} = {}) {
+  const insets = useSafeAreaInsets();
   const { user, logout, refresh } = useAuth();
   const [tab, setTab] = useState<Tab>('feed');
   const [tick, setTick] = useState(0);
   const [pending, setPending] = useState(0);
+  const [friendPending, setFriendPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [booted, setBooted] = useState(false);
@@ -33,17 +44,26 @@ export default function MainApp() {
   }, [refresh]);
 
   const loadPending = useCallback(async () => {
-    if (!isWife) return;
     try {
-      const [subs, redemptions] = await Promise.all([
-        api.submissions(),
-        api.redemptions(),
-      ]);
-      setPending(subs.length + redemptions.length);
+      const requests = await api.friendRequests();
+      const householdId = user?.role === 'wife' ? user.id : user?.partnerId;
+      setFriendPending(
+        requests.filter(
+          (request) =>
+            request.status === 'pending' && request.to.id === householdId,
+        ).length,
+      );
+      if (isWife) {
+        const [subs, redemptions] = await Promise.all([
+          api.submissions(),
+          api.redemptions(),
+        ]);
+        setPending(subs.length + redemptions.length);
+      }
     } catch {
       /* ignore — e.g. brief auth race */
     }
-  }, [isWife]);
+  }, [isWife, user?.id, user?.partnerId, user?.role]);
 
   useEffect(() => {
     void loadPending();
@@ -52,6 +72,11 @@ export default function MainApp() {
 
   useEffect(() => {
     if (!user || booted) return;
+    if (initialTab) {
+      setTab(initialTab);
+      setBooted(true);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       if (user.role === 'wife') {
@@ -76,7 +101,7 @@ export default function MainApp() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, booted]);
+  }, [user, booted, initialTab]);
 
   async function dismissCoach() {
     if (!user) return;
@@ -101,7 +126,7 @@ export default function MainApp() {
     <SafeAreaView style={styles.app} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <View style={styles.brandLockup}>
-          <Text style={styles.brandGem}>🧾</Text>
+          <ReceiptIcon size={18} color={colors.ink} />
           <Text style={styles.wordmarkSm}>LoveReceipts</Text>
         </View>
         <View style={styles.headerRight}>
@@ -114,10 +139,10 @@ export default function MainApp() {
             }}
             hitSlop={6}
           >
-            <Text style={styles.bellIcon}>🔔</Text>
-            {isWife && pending > 0 && (
+            <Ionicons name="notifications-sharp" size={20} color={colors.ink} />
+            {pending + friendPending > 0 && (
               <View style={styles.iconBadge}>
-                <Text style={styles.iconBadgeText}>{pending}</Text>
+                <Text style={styles.iconBadgeText}>{pending + friendPending}</Text>
               </View>
             )}
           </Pressable>
@@ -128,7 +153,9 @@ export default function MainApp() {
       </View>
 
       <View style={styles.main}>
-        {tab === 'feed' && <Feed key={`feed-${tick}`} />}
+        {tab === 'feed' && (
+          <Feed key={`feed-${tick}`} openFirstReact={openFirstReact} />
+        )}
         {tab === 'submit' && (
           <Submit
             key={`submit-${tick}`}
@@ -138,63 +165,96 @@ export default function MainApp() {
           />
         )}
         {tab === 'redeem' && <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />}
-        {tab === 'requests' && <WifeRequests onChange={bump} />}
+        {tab === 'requests' && (
+          <WifeRequests
+            onChange={bump}
+            onAddPrizes={() => go('manage')}
+            openReceipt={openReceipt}
+          />
+        )}
         {tab === 'manage' && <WifeManage key={`man-${tick}`} />}
       </View>
 
-      <View style={styles.tabBar}>
+      <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 12) + 6 }]}>
         <TabItem
-          glyph="⌂"
+          icon="home-sharp"
           label="Home"
           active={tab === 'feed'}
           onPress={() => go('feed')}
         />
         <TabItem
-          glyph={isWife ? '✓' : '＋'}
+          icon={isWife ? undefined : 'add-sharp'}
+          iconNode={
+            isWife ? <ReceiptIcon size={22} color="#fff" /> : undefined
+          }
           label={midLabel}
           active={tab === midTab}
           badge={isWife && pending > 0 ? pending : undefined}
+          primary
           onPress={() => go(midTab)}
         />
         <TabItem
-          glyph="🎁"
+          icon={isWife ? 'grid-sharp' : 'gift-sharp'}
           label={rightLabel}
           active={tab === rightTab}
           onPress={() => go(rightTab)}
         />
       </View>
 
-      {notifOpen && <Notifications onClose={() => setNotifOpen(false)} />}
+      {notifOpen && (
+        <Notifications
+          onClose={() => {
+            setNotifOpen(false);
+            void loadPending();
+          }}
+          onChanged={() => void loadPending()}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 function TabItem({
-  glyph,
+  icon,
+  iconNode,
   label,
   active,
   badge,
+  primary,
   onPress,
 }: {
-  glyph: string;
+  icon?: ComponentProps<typeof Ionicons>['name'];
+  iconNode?: ReactNode;
   label: string;
   active: boolean;
   badge?: number;
+  primary?: boolean;
   onPress: () => void;
 }) {
+  const color = primary
+    ? '#fff'
+    : active
+      ? colors.ink
+      : colors.inkMuted;
   return (
     <Pressable style={styles.tab} onPress={onPress}>
-      <View style={[styles.tabIconWrap, active && styles.tabIconWrapActive]}>
-        <Text style={[styles.tabIcon, active && styles.tabIconActive]}>
-          {glyph}
-        </Text>
+      <View
+        style={[
+          styles.tabIconWrap,
+          active && styles.tabIconWrapActive,
+          primary && styles.tabPrimaryIconWrap,
+        ]}
+      >
+        {iconNode ?? (
+          <Ionicons name={icon ?? 'ellipse'} size={primary ? 28 : 24} color={color} />
+        )}
         {badge !== undefined && (
           <View style={styles.iconBadge}>
             <Text style={styles.iconBadgeText}>{badge}</Text>
           </View>
         )}
       </View>
-      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+      <Text style={[styles.tabLabel, active && styles.tabLabelActive, primary && styles.tabPrimaryLabel]}>
         {label}
       </Text>
     </Pressable>
@@ -215,7 +275,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   brandLockup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  brandGem: { fontSize: 17 },
   wordmarkSm: {
     fontSize: 16,
     fontWeight: '700',
@@ -227,7 +286,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  bellIcon: { fontSize: 18 },
   iconBadge: {
     position: 'absolute',
     top: -6,
@@ -250,7 +308,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     paddingTop: 8,
-    paddingBottom: 10,
     paddingHorizontal: 16,
   },
   tab: {
@@ -268,8 +325,23 @@ const styles = StyleSheet.create({
   tabIconWrapActive: {
     backgroundColor: colors.panel,
   },
-  tabIcon: { fontSize: 20, color: colors.inkMuted },
-  tabIconActive: { color: colors.ink },
+  tabPrimaryIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.black,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: -26,
+    borderWidth: 4,
+    borderColor: colors.bg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  tabPrimaryLabel: { marginTop: 2 },
   tabLabel: { fontSize: 11, fontWeight: '500', color: colors.inkMuted },
   tabLabelActive: { color: colors.ink, fontWeight: '600' },
 });

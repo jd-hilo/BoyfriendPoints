@@ -16,6 +16,9 @@ export const users = pgTable('users', {
   color: text('color').notNull(),
   avatarUrl: text('avatar_url'),
   partnerId: text('partner_id'),
+  inviteCode: text('invite_code'),
+  coupleCode: text('couple_code'),
+  coupleUsername: text('couple_username').unique(),
   friendIds: jsonb('friend_ids').$type<string[]>().notNull().default([]),
   points: integer('points').notNull().default(0),
   token: text('token'),
@@ -37,6 +40,21 @@ export const prizes = pgTable('prizes', {
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),
+});
+
+export const friendRequests = pgTable('friend_requests', {
+  id: text('id').primaryKey(),
+  fromWifeId: text('from_wife_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  toWifeId: text('to_wife_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  status: text('status').notNull(), // pending | accepted | declined
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+    .notNull()
+    .defaultNow(),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true, mode: 'string' }),
 });
 
 export const tasks = pgTable('tasks', {

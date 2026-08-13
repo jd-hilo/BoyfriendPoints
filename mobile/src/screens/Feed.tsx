@@ -1,6 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
+  Animated,
   Dimensions,
+  Easing,
   FlatList,
   Image,
   Modal,
@@ -11,12 +14,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { FeedComment, FeedEventView } from '../types';
+import type { FeedComment, FeedEventView, FriendRequestView } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors, radius, shadow } from '../theme';
 import { Avatar, Xp } from '../ui';
 import { haptic, timeAgo } from '../utils';
+import AddCouplesModal from '../AddCouplesModal';
+import { Ionicons } from '@expo/vector-icons';
 
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -58,17 +63,30 @@ function PhotoCarousel({ images }: { images: string[] }) {
   );
 }
 
-export default function Feed() {
+export default function Feed({
+  openFirstReact,
+}: {
+  openFirstReact?: boolean;
+} = {}) {
   const { user } = useAuth();
   const [events, setEvents] = useState<FeedEventView[]>([]);
+  const [friendRequests, setFriendRequests] = useState<FriendRequestView[]>([]);
   const [loading, setLoading] = useState(true);
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [popped, setPopped] = useState<string | null>(null);
+  const [addCouplesOpen, setAddCouplesOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setEvents(await api.feed());
+      const [feed, requests] = await Promise.all([
+        api.feed(),
+        api.friendRequests().catch(() => [] as FriendRequestView[]),
+      ]);
+      setEvents(feed);
+      setFriendRequests(requests);
+    } catch {
+      setEvents([]);
     } finally {
       setLoading(false);
     }
@@ -77,6 +95,11 @@ export default function Feed() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!openFirstReact || events.length === 0 || pickerFor) return;
+    setPickerFor(events[0].id);
+  }, [openFirstReact, events, pickerFor]);
 
   async function like(id: string) {
     haptic(12);
@@ -119,9 +142,72 @@ export default function Feed() {
     );
   }
 
+  async function resolveFriendRequest(id: string, accept: boolean) {
+    try {
+      if (accept) await api.acceptFriendRequest(id);
+      else await api.declineFriendRequest(id);
+      setFriendRequests((requests) => requests.filter((request) => request.id !== id));
+      if (accept) await load();
+    } catch (err) {
+      Alert.alert('Couldn’t update request', (err as Error).message);
+    }
+  }
+
+  const incomingRequests = friendRequests.filter(
+    (request) =>
+      request.to.id ===
+      (user?.role === 'wife' ? user.id : user?.partnerId),
+  );
+
   if (loading) {
     return (
       <Text style={styles.centerMuted}>Loading feed…</Text>
+    );
+  }
+
+  const requestBanner = incomingRequests.length ? (
+    <View style={styles.requestList}>
+      {incomingRequests.map((request) => (
+        <View key={request.id} style={styles.requestCard}>
+          <CoupleAvatars
+            boyfriendName={request.from.partnerName ?? 'Partner'}
+            boyfriendColor={request.from.partnerColor ?? colors.blue}
+            boyfriendAvatar={request.from.partnerAvatar}
+            wifeName={request.from.name}
+            wifeColor={request.from.color}
+            wifeAvatar={request.from.avatarUrl}
+          />
+          <View style={styles.requestText}>
+            <Text style={styles.requestTitle}>
+              {request.from.name} & {request.from.partnerName ?? 'partner'}
+            </Text>
+            <Text style={styles.requestBody}>want to connect couples</Text>
+          </View>
+          <Pressable
+            style={styles.requestAccept}
+            onPress={() => void resolveFriendRequest(request.id, true)}
+          >
+            <Text style={styles.requestAcceptText}>Accept</Text>
+          </Pressable>
+          <Pressable onPress={() => void resolveFriendRequest(request.id, false)}>
+            <Text style={styles.requestDecline}>✕</Text>
+          </Pressable>
+        </View>
+      ))}
+    </View>
+  ) : null;
+
+  if (events.length === 0) {
+    return (
+      <View style={styles.flex}>
+        {requestBanner}
+        <EmptyHome onAddCouples={() => setAddCouplesOpen(true)} />
+        <AddCouplesModal
+          visible={addCouplesOpen}
+          onClose={() => setAddCouplesOpen(false)}
+          onChanged={() => void load()}
+        />
+      </View>
     );
   }
 
@@ -131,13 +217,7 @@ export default function Feed() {
         data={events}
         keyExtractor={(e) => e.id}
         contentContainerStyle={styles.feedList}
-        ListEmptyComponent={
-          <View style={styles.feedCard}>
-            <Text style={[styles.centerMuted, { margin: 12 }]}>
-              No activity yet. Invite friends to fill up your feed!
-            </Text>
-          </View>
-        }
+        ListHeaderComponent={requestBanner}
         renderItem={({ item: e }) => (
           <View style={styles.feedCard}>
             <View style={styles.feedCardTop}>
@@ -145,7 +225,14 @@ export default function Feed() {
             </View>
 
             <View style={styles.feedStory}>
-              <Avatar name={e.boyfriendName} color={e.boyfriendColor} src={e.boyfriendAvatar} size={40} />
+              <CoupleAvatars
+                boyfriendName={e.boyfriendName}
+                boyfriendColor={e.boyfriendColor}
+                boyfriendAvatar={e.boyfriendAvatar}
+                wifeName={e.wifeName}
+                wifeColor={e.wifeColor}
+                wifeAvatar={e.wifeAvatar}
+              />
               <View style={styles.feedStoryText}>
                 <Text style={styles.feedLine}>
                   <Text style={styles.name}>{e.boyfriendName}</Text>
@@ -181,7 +268,7 @@ export default function Feed() {
                   setCommentsFor(e.id);
                 }}
               >
-                <Text>💬</Text>
+                <Ionicons name="chatbubble" size={16} color={colors.inkMuted} />
                 {e.comments.length > 0 && (
                   <Text style={styles.actionCount}>{e.comments.length}</Text>
                 )}
@@ -190,30 +277,30 @@ export default function Feed() {
                 style={[styles.actionCircle, e.likedByMe && styles.actionCircleLiked]}
                 onPress={() => like(e.id)}
               >
-                <Text style={e.likedByMe ? styles.likedText : undefined}>
-                  {e.likedByMe ? '♥' : '♡'}
-                </Text>
+                <Ionicons
+                  name={e.likedByMe ? 'heart' : 'heart-outline'}
+                  size={18}
+                  color={e.likedByMe ? '#ff5a8a' : colors.inkMuted}
+                />
                 {e.likes.length > 0 && (
                   <Text style={styles.actionCount}>{e.likes.length}</Text>
                 )}
               </Pressable>
-              <View>
-                <Pressable
-                  style={styles.actionCircle}
-                  onPress={() => {
-                    haptic(10);
-                    setPickerFor(pickerFor === e.id ? null : e.id);
-                  }}
-                >
-                  <Text>☺</Text>
-                </Pressable>
-                {pickerFor === e.id && (
-                  <EmojiPicker
-                    onPick={(emoji) => react(e.id, emoji)}
-                    onClose={() => setPickerFor(null)}
-                  />
-                )}
-              </View>
+              <Pressable
+                style={styles.actionCircle}
+                onPress={() => {
+                  haptic(10);
+                  setPickerFor(pickerFor === e.id ? null : e.id);
+                }}
+              >
+                <Ionicons name="happy" size={18} color={colors.inkMuted} />
+              </Pressable>
+              {pickerFor === e.id && (
+                <EmojiPicker
+                  onPick={(emoji) => react(e.id, emoji)}
+                  onClose={() => setPickerFor(null)}
+                />
+              )}
             </View>
           </View>
         )}
@@ -226,7 +313,206 @@ export default function Feed() {
           onSubmitComment={(text) => addComment(activeCommentEvent.id, text)}
         />
       )}
+      <AddCouplesModal
+        visible={addCouplesOpen}
+        onClose={() => setAddCouplesOpen(false)}
+        onChanged={() => void load()}
+      />
     </View>
+  );
+}
+
+function CoupleAvatars({
+  boyfriendName,
+  boyfriendColor,
+  boyfriendAvatar,
+  wifeName,
+  wifeColor,
+  wifeAvatar,
+}: {
+  boyfriendName: string;
+  boyfriendColor: string;
+  boyfriendAvatar?: string | number;
+  wifeName: string;
+  wifeColor: string;
+  wifeAvatar?: string | number;
+}) {
+  return (
+    <View style={styles.coupleAvatars}>
+      <Avatar
+        name={boyfriendName}
+        color={boyfriendColor}
+        src={boyfriendAvatar}
+        size={35}
+      />
+      <View style={styles.coupleSecondAvatar}>
+        <Avatar name={wifeName} color={wifeColor} src={wifeAvatar} size={35} />
+      </View>
+    </View>
+  );
+}
+
+function EmptyHome({ onAddCouples }: { onAddCouples: () => void }) {
+  return (
+    <View style={styles.emptyHome}>
+      <DemoPost />
+      <Text style={styles.emptyTitle}>See what other couples are up to</Text>
+      <Pressable style={styles.addFriendButton} onPress={onAddCouples}>
+        <Text style={styles.addFriendText}>Add couples</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const DEMO_BURST = [
+  { emoji: '❤️', x: 28 },
+  { emoji: '🔥', x: 72 },
+  { emoji: '😂', x: 116 },
+  { emoji: '👏', x: 52 },
+] as const;
+
+function DemoPost() {
+  const heart = useRef(new Animated.Value(0)).current;
+  const fire = useRef(new Animated.Value(0)).current;
+  const clap = useRef(new Animated.Value(0)).current;
+  const burst = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const pop = (v: Animated.Value) =>
+      Animated.spring(v, {
+        toValue: 1,
+        friction: 5,
+        tension: 140,
+        useNativeDriver: true,
+      });
+
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(350),
+        pop(heart),
+        Animated.delay(160),
+        pop(fire),
+        Animated.delay(140),
+        pop(clap),
+        Animated.delay(120),
+        Animated.timing(burst, {
+          toValue: 1,
+          duration: 1100,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.delay(900),
+        Animated.parallel([
+          Animated.timing(heart, { toValue: 0, duration: 180, useNativeDriver: true }),
+          Animated.timing(fire, { toValue: 0, duration: 180, useNativeDriver: true }),
+          Animated.timing(clap, { toValue: 0, duration: 180, useNativeDriver: true }),
+          Animated.timing(burst, { toValue: 0, duration: 180, useNativeDriver: true }),
+        ]),
+        Animated.delay(500),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [burst, clap, fire, heart]);
+
+  return (
+    <View style={styles.demoWrap}>
+      <View style={styles.demoCard}>
+        <View style={styles.feedStory}>
+          <CoupleAvatars
+            boyfriendName="Alex"
+            boyfriendColor="#2383e2"
+            boyfriendAvatar={require('../../assets/demo-alex.png')}
+            wifeName="Maya"
+            wifeColor="#d9730d"
+            wifeAvatar={require('../../assets/demo-maya.png')}
+          />
+          <View style={styles.feedStoryText}>
+            <Text style={styles.feedLine}>
+              <Text style={styles.name}>Alex</Text>
+              <Text style={styles.verb}> earned from </Text>
+              <Text style={styles.name}>Maya</Text>
+            </Text>
+            <Text style={styles.feedNote}>🌿 Mowed the lawn</Text>
+          </View>
+          <View style={styles.feedAmount}>
+            <Xp value={15} sign="+" size={13} />
+          </View>
+        </View>
+
+        <View style={styles.demoReactions}>
+          <DemoPill emoji="❤️" count="3" progress={heart} />
+          <DemoPill emoji="🔥" count="2" progress={fire} />
+          <DemoPill emoji="👏" count="1" progress={clap} />
+        </View>
+      </View>
+
+      {DEMO_BURST.map((item) => (
+        <Animated.Text
+          key={item.emoji + item.x}
+          pointerEvents="none"
+          style={[
+            styles.demoBurst,
+            {
+              left: item.x,
+              opacity: burst.interpolate({
+                inputRange: [0, 0.15, 1],
+                outputRange: [0, 1, 0],
+              }),
+              transform: [
+                {
+                  translateY: burst.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [8, -46],
+                  }),
+                },
+                {
+                  scale: burst.interpolate({
+                    inputRange: [0, 0.25, 1],
+                    outputRange: [0.5, 1.2, 1],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {item.emoji}
+        </Animated.Text>
+      ))}
+    </View>
+  );
+}
+
+function DemoPill({
+  emoji,
+  count,
+  progress,
+}: {
+  emoji: string;
+  count: string;
+  progress: Animated.Value;
+}) {
+  return (
+    <Animated.View
+      style={[
+        styles.reactionPill,
+        styles.reactionPillMine,
+        {
+          opacity: progress,
+          transform: [
+            {
+              scale: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.6, 1],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      <Text style={styles.reactionEmoji}>{emoji}</Text>
+      <Text style={styles.reactionCount}>{count}</Text>
+    </Animated.View>
   );
 }
 
@@ -375,23 +661,107 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   centerMuted: { textAlign: 'center', color: colors.inkMuted, padding: 16 },
   feedList: { gap: 12, paddingTop: 4, paddingBottom: 24 },
+  requestList: { gap: 8, marginBottom: 8 },
+  requestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#f7f6f3',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 14,
+    padding: 10,
+  },
+  requestText: { flex: 1 },
+  requestTitle: { color: colors.ink, fontSize: 13, fontWeight: '700' },
+  requestBody: { color: colors.inkMuted, fontSize: 12, marginTop: 2 },
+  requestAccept: {
+    backgroundColor: colors.black,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  requestAcceptText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  requestDecline: { color: colors.inkMuted, fontSize: 17, paddingHorizontal: 3 },
   feedCard: {
     backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: 16,
     paddingBottom: 12,
     marginBottom: 12,
+    overflow: 'visible',
     ...shadow,
   },
   feedCardTop: { marginBottom: 12 },
   feedTime: { fontSize: 13, color: colors.inkMuted, fontWeight: '500' },
   feedStory: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  coupleAvatars: {
+    width: 58,
+    height: 42,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  coupleSecondAvatar: {
+    marginLeft: -12,
+    borderWidth: 2,
+    borderColor: colors.card,
+    borderRadius: 20,
+  },
   feedStoryText: { flex: 1 },
   feedLine: { fontSize: 15, lineHeight: 20, color: colors.ink },
   name: { color: colors.blueName, fontWeight: '700' },
   verb: { color: colors.ink },
   feedNote: { marginTop: 6, color: colors.ink, fontSize: 15, lineHeight: 20 },
   feedAmount: { paddingTop: 1 },
+  emptyHome: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingBottom: 28,
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+    marginTop: 22,
+    marginHorizontal: 12,
+    lineHeight: 28,
+  },
+  addFriendButton: {
+    backgroundColor: colors.black,
+    borderRadius: 999,
+    alignItems: 'center',
+    paddingVertical: 14,
+    marginTop: 18,
+    marginHorizontal: 24,
+  },
+  addFriendText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  demoWrap: {
+    marginHorizontal: 4,
+    paddingTop: 28,
+    overflow: 'visible',
+  },
+  demoCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    paddingBottom: 14,
+    ...shadow,
+  },
+  demoReactions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 14,
+    minHeight: 28,
+  },
+  demoBurst: {
+    position: 'absolute',
+    bottom: 36,
+    fontSize: 22,
+  },
   carousel: { marginTop: 12, marginBottom: 4 },
   carouselImg: {
     width: CARD_WIDTH,
@@ -418,7 +788,14 @@ const styles = StyleSheet.create({
   reactionPop: { transform: [{ scale: 1.08 }] },
   reactionEmoji: { fontSize: 14 },
   reactionCount: { fontWeight: '700', color: colors.ink2, fontSize: 12 },
-  feedActions: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 14 },
+  feedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 14,
+    overflow: 'visible',
+    zIndex: 2,
+  },
   actionCircle: {
     width: 36,
     height: 36,
@@ -436,22 +813,20 @@ const styles = StyleSheet.create({
   pickerBackdrop: { position: 'absolute', top: -1000, left: -1000, right: -1000, bottom: -1000 },
   emojiPicker: {
     position: 'absolute',
-    bottom: 46,
-    right: 0,
+    bottom: 44,
+    left: 0,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    width: 176,
-    gap: 4,
+    alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 8,
+    borderRadius: 999,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
     ...shadow,
     zIndex: 10,
   },
   emojiChoice: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
+    width: 34,
+    height: 34,
     alignItems: 'center',
     justifyContent: 'center',
   },

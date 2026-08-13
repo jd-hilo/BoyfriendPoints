@@ -16,68 +16,9 @@ import { api } from '../api';
 import { isAppleSignInAvailable, signInWithApple } from '../appleAuth';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
-import { Avatar, Xp } from '../ui';
+import { Avatar, Xp, ReceiptIcon } from '../ui';
 
 type Mode = 'signin' | 'signup';
-
-/** Minimal receipt mark — Notion-clean, no emoji gem. */
-function ReceiptIcon({ size = 28 }: { size?: number }) {
-  const w = size * 0.72;
-  const h = size;
-  const lineW = w * 0.55;
-  return (
-    <View
-      style={{
-        width: w,
-        height: h,
-        borderRadius: 3,
-        borderWidth: 1.5,
-        borderColor: colors.black,
-        backgroundColor: colors.white,
-        paddingTop: h * 0.18,
-        paddingHorizontal: w * 0.18,
-        gap: h * 0.08,
-      }}
-    >
-      <View
-        style={{
-          width: lineW,
-          height: 1.5,
-          backgroundColor: colors.black,
-          borderRadius: 1,
-        }}
-      />
-      <View
-        style={{
-          width: lineW * 0.72,
-          height: 1.5,
-          backgroundColor: colors.black,
-          borderRadius: 1,
-          opacity: 0.55,
-        }}
-      />
-      <View
-        style={{
-          width: lineW * 0.9,
-          height: 1.5,
-          backgroundColor: colors.black,
-          borderRadius: 1,
-          opacity: 0.35,
-        }}
-      />
-      <View
-        style={{
-          marginTop: 'auto',
-          marginBottom: h * 0.12,
-          width: lineW * 0.45,
-          height: 1.5,
-          backgroundColor: colors.black,
-          borderRadius: 1,
-        }}
-      />
-    </View>
-  );
-}
 
 export default function AuthScreen({
   onCreateAccount,

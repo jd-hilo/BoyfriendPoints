@@ -9,6 +9,9 @@ export interface User {
   color: string;
   avatarUrl?: string;
   partnerId?: string;
+  inviteCode?: string;
+  coupleCode?: string;
+  coupleUsername?: string;
   friendIds: string[];
   points: number;
   token?: string;
@@ -29,10 +32,39 @@ export interface PublicUser {
   partnerName?: string;
   partnerColor?: string;
   partnerAvatar?: string;
+  inviteCode?: string;
+  coupleCode?: string;
+  coupleUsername?: string;
   friendIds: string[];
   points: number;
   onboarded: boolean;
   demo?: boolean;
+}
+
+export interface FriendRequest {
+  id: string;
+  fromWifeId: string;
+  toWifeId: string;
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface FriendRequestView extends FriendRequest {
+  from: PublicUser;
+  to: PublicUser;
+}
+
+export interface CoupleSearchResult {
+  id: string;
+  coupleUsername: string;
+  name: string;
+  partnerName?: string;
+  color: string;
+  avatarUrl?: string;
+  partnerColor?: string;
+  partnerAvatar?: string;
+  relationship: 'none' | 'pending' | 'friends';
 }
 
 export interface Prize {
@@ -127,6 +159,8 @@ export interface FeedEventView extends FeedEvent {
   boyfriendColor: string;
   boyfriendAvatar?: string;
   wifeName: string;
+  wifeColor: string;
+  wifeAvatar?: string;
   likedByMe: boolean;
 }
 
@@ -143,7 +177,9 @@ export type NotificationKind =
   | 'redeem'
   | 'reaction'
   | 'comment'
-  | 'prize';
+  | 'prize'
+  | 'friend_request'
+  | 'friend_accepted';
 
 export interface NotificationItem {
   id: string;
@@ -155,5 +191,6 @@ export interface NotificationItem {
   actorName?: string;
   actorColor?: string;
   actorAvatar?: string;
+  friendRequestId?: string;
   createdAt: string;
 }

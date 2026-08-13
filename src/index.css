@@ -301,10 +301,6 @@ input:focus {
   }
 }
 
-.react-anchor {
-  position: relative;
-  display: inline-flex;
-}
 .picker-backdrop {
   position: fixed;
   inset: 0;
@@ -312,16 +308,16 @@ input:focus {
 }
 .emoji-picker {
   position: absolute;
-  bottom: 46px;
-  right: 0;
+  bottom: 44px;
+  left: 0;
   z-index: 41;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
   background: #fff;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 8px;
+  border-radius: 999px;
+  padding: 4px 6px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
   animation: picker-in 0.16s ease-out;
 }
@@ -336,12 +332,12 @@ input:focus {
   }
 }
 .emoji-choice {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border: none;
   background: transparent;
   border-radius: 12px;
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
 }
 .emoji-choice:active {
@@ -1258,6 +1254,7 @@ input:focus {
   padding-top: 1px;
 }
 .feed-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;

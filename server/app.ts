@@ -17,6 +17,8 @@ import {
   denySubmission,
   deviceLogin,
   feedForUser,
+  friendRequestsForUser,
+  findByEmail,
   findByToken,
   listPersonas,
   fulfillRedemption,
@@ -30,6 +32,9 @@ import {
   pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
+  requestFriendByCode,
+  resolveFriendRequest,
+  searchCouples,
   reactToFeed,
   redeemPrize,
   removePartner,
@@ -37,7 +42,9 @@ import {
   removeTask,
   shareRedemption,
   shareSubmission,
-  signupWife,
+  signup,
+  joinWithInviteCode,
+  updateProfile,
   submissionsForBoyfriend,
   TASK_SUGGESTIONS,
   tasksForUser,
@@ -61,7 +68,20 @@ interface AuthedRequest extends Request {
 
 export function createApp({ state, onChange }: CreateAppOptions): Express {
   const app = express();
-  app.use(express.json());
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader(
+      'Access-Control-Allow-Methods',
+      'GET,POST,PATCH,DELETE,OPTIONS',
+    );
+    if (req.method === 'OPTIONS') {
+      res.sendStatus(204);
+      return;
+    }
+    next();
+  });
+  app.use(express.json({ limit: '2mb' }));
 
   const persist = () => onChange?.(state);
 
@@ -107,15 +127,30 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
   });
 
   // --- Auth ---------------------------------------------------------------
+  app.get('/api/auth/email-available', (req, res) => {
+    const email = String(req.query.email ?? '').trim();
+    if (!email.includes('@')) {
+      res.status(400).json({ error: 'Enter a valid email' });
+      return;
+    }
+    res.json({ available: !findByEmail(state, email) });
+  });
+
   app.post('/api/auth/signup', (req, res) => {
     try {
-      const wife = signupWife(state, {
+      const roleRaw = String(req.body?.role ?? 'wife');
+      const role = roleRaw === 'boyfriend' ? 'boyfriend' : 'wife';
+      const user = signup(state, {
         name: String(req.body?.name ?? ''),
         email: String(req.body?.email ?? ''),
         password: String(req.body?.password ?? ''),
+        role,
+        coupleUsername: req.body?.coupleUsername
+          ? String(req.body.coupleUsername)
+          : undefined,
       });
       persist();
-      res.status(201).json({ token: wife.token, user: publicUser(state, wife) });
+      res.status(201).json({ token: user.token, user: publicUser(state, user) });
     } catch (err) {
       fail(res, err);
     }
@@ -218,7 +253,38 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     res.json(publicUser(state, user));
   });
 
+  app.patch('/api/me', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      updateProfile(user, { name: req.body?.name ? String(req.body.name) : undefined });
+      persist();
+      res.json(publicUser(state, user));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   // --- Onboarding ---------------------------------------------------------
+  app.post('/api/onboarding/join', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const wife = joinWithInviteCode(
+        state,
+        user,
+        String(req.body?.code ?? ''),
+      );
+      persist();
+      res.json({
+        user: publicUser(state, user),
+        partner: publicUser(state, wife),
+      });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   app.post('/api/onboarding/boyfriend', (req: AuthedRequest, res) => {
     const wife = requireWife(req, res);
     if (!wife) return;
@@ -270,6 +336,66 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     const wife = requireWife(req, res);
     if (!wife) return;
     res.json(listFriends(state, wife));
+  });
+
+  app.get('/api/friend-requests', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      res.json(friendRequestsForUser(state, user));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.get('/api/couples/search', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      res.json(searchCouples(state, user, String(req.query.q ?? '')));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/friend-requests', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const request = requestFriendByCode(
+        state,
+        user,
+        String(req.body?.code ?? ''),
+      );
+      persist();
+      res.status(201).json(request);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/friend-requests/:id/accept', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const request = resolveFriendRequest(state, user, req.params.id, true);
+      persist();
+      res.json(request);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/friend-requests/:id/decline', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const request = resolveFriendRequest(state, user, req.params.id, false);
+      persist();
+      res.json(request);
+    } catch (err) {
+      fail(res, err);
+    }
   });
 
   app.post('/api/friends', (req: AuthedRequest, res) => {

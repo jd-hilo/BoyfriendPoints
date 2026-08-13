@@ -11,6 +11,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production tsx server/index.ts",
+    "start:api": "tsx server/index.ts",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -21,7 +22,8 @@
     "cf:dev": "pnpm build && wrangler dev",
     "cf:secret": "wrangler secret put DATABASE_URL",
     "mobile": "pnpm --dir mobile exec expo start --lan",
-    "mobile:ios": "pnpm --dir mobile exec expo start --ios --go --lan"
+    "mobile:ios": "pnpm --dir mobile exec expo start --ios --go --lan",
+    "mobile:eas:ios": "pnpm --dir mobile run eas:ios"
   },
   "dependencies": {
     "@neondatabase/neon-js": "0.7.0-beta",
@@ -32,7 +34,8 @@
     "hono": "^4.13.1",
     "jose": "^6.2.8",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260810.1",
@@ -54,7 +57,6 @@
     "globals": "^15.11.0",
     "jsdom": "^25.0.1",
     "supertest": "^7.0.0",
-    "tsx": "^4.19.1",
     "typescript": "^5.6.3",
     "typescript-eslint": "^8.8.1",
     "vite": "^5.4.10",

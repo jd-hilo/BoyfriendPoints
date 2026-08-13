@@ -184,25 +184,23 @@ export default function Feed() {
                   <span className="action-count">{e.likes.length}</span>
                 )}
               </button>
-              <div className="react-anchor">
-                <button
-                  className="action-circle"
-                  aria-label="React"
-                  type="button"
-                  onClick={() => {
-                    haptic(10);
-                    setPickerFor(pickerFor === e.id ? null : e.id);
-                  }}
-                >
-                  ☺
-                </button>
-                {pickerFor === e.id && (
-                  <EmojiPicker
-                    onPick={(emoji) => react(e.id, emoji)}
-                    onClose={() => setPickerFor(null)}
-                  />
-                )}
-              </div>
+              <button
+                className="action-circle"
+                aria-label="React"
+                type="button"
+                onClick={() => {
+                  haptic(10);
+                  setPickerFor(pickerFor === e.id ? null : e.id);
+                }}
+              >
+                ☺
+              </button>
+              {pickerFor === e.id && (
+                <EmojiPicker
+                  onPick={(emoji) => react(e.id, emoji)}
+                  onClose={() => setPickerFor(null)}
+                />
+              )}
             </div>
           </article>
         ))
