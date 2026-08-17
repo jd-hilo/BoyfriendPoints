@@ -1,5 +1,8 @@
 import * as Haptics from 'expo-haptics';
 
+/** Public install link included in every native share. */
+export const APP_SHARE_URL = 'https://testflight.apple.com/join/aM6xgrsc';
+
 /** Best-effort haptic feedback (no-op if unavailable). Accepts a duration or pattern like the web version, but only uses it to pick an impact style. */
 export function haptic(pattern: number | number[] = 12): void {
   try {

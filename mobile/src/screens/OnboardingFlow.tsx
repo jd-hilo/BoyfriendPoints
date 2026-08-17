@@ -19,6 +19,7 @@ import { useAuth } from '../auth';
 import { colors } from '../theme';
 import { Xp } from '../ui';
 import AddCouplesModal from '../AddCouplesModal';
+import { APP_SHARE_URL } from '../utils';
 
 const SLIDE_MS = 5000;
 /** Account setup + partner + prizes + friends (prizes skipped for redeemers). */
@@ -490,9 +491,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
                 maxLength={24}
               />
             </View>
-            <Text style={styles.usernamePreview}>
-              lovereceipts://couple/{coupleUsername || 'yourname'}
-            </Text>
+            <Text style={styles.usernamePreview}>{APP_SHARE_URL}</Text>
             <PrimaryButton
               label={busy ? undefined : 'Create our couple'}
               busy={busy}
@@ -754,12 +753,11 @@ function SkipLink({ label = "I'll do this later", onPress }: { label?: string; o
 /* -------------------------------------------------------- account steps */
 
 function inviteShareMessage(code: string, sharerName: string): string {
-  const link = `lovereceipts://join/${code}`;
   const who = sharerName.trim() || 'Your partner';
   return (
     `${who} invited you to LoveReceipts!\n\n` +
     `Use code ${code} to link our household and start earning points.\n\n` +
-    `${link}`
+    `${APP_SHARE_URL}`
   );
 }
 
@@ -781,7 +779,7 @@ function StepInvitePartner({
     if (!inviteCode) return;
     await Share.share({
       message: inviteShareMessage(inviteCode, sharerName),
-      url: `lovereceipts://join/${inviteCode}`,
+      url: APP_SHARE_URL,
     });
   }
 

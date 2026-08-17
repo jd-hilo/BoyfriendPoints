@@ -15,7 +15,7 @@ import type {
 import Constants from 'expo-constants';
 import { getToken } from './storage';
 
-const LOCAL_API = 'http://127.0.0.1:3001/api';
+const LOCAL_API = 'https://api-production-bae8.up.railway.app/api';
 const API_BASE_URL =
   process.env.EXPO_PUBLIC_API_URL?.trim() ||
   (Constants.expoConfig?.extra?.apiUrl as string | undefined)?.trim() ||

@@ -243,7 +243,7 @@ export async function canvasToPngFile(
 export async function shareReceiptImage(data: ReceiptData): Promise<void> {
   const canvas = renderReceiptCanvas(data);
   const file = await canvasToPngFile(canvas);
-  const text = `${data.emoji} ${data.title} · ${signFor(data.kind)}${data.points} XP · LoveReceipts`;
+  const text = `${data.emoji} ${data.title} · ${signFor(data.kind)}${data.points} XP · LoveReceipts\nhttps://testflight.apple.com/join/aM6xgrsc`;
 
   const nav = navigator as Navigator & {
     canShare?: (data?: ShareData) => boolean;

@@ -1,18 +1,18 @@
 {
   "cli": {
-    "version": ">= 21.8.0",
+    "version": ">= 18.0.1",
     "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
-    },
-    "preview": {
-      "distribution": "store",
+      "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api-production-bae8.up.railway.app/api"
       }
+    },
+    "preview": {
+      "distribution": "internal"
     },
     "production": {
       "autoIncrement": true,

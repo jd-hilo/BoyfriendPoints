@@ -17,7 +17,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, Button, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
-import { haptic } from '../utils';
+import { APP_SHARE_URL, haptic } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
 
 export default function WifeManage() {
@@ -107,14 +107,13 @@ export default function WifeManage() {
       setError('Invite code isn’t ready yet. Try again in a moment.');
       return;
     }
-    const link = `lovereceipts://join/${code}`;
     const who = user.name.trim() || 'Your partner';
     await Share.share({
       message:
         `${who} invited you to LoveReceipts!\n\n` +
         `Use code ${code} to link our household and start earning points.\n\n` +
-        `${link}`,
-      url: link,
+        `${APP_SHARE_URL}`,
+      url: APP_SHARE_URL,
     });
   }
 

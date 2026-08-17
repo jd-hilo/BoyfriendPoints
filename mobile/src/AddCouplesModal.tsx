@@ -18,6 +18,7 @@ import { useAuth } from './auth';
 import type { CoupleSearchResult } from './types';
 import { Avatar } from './ui';
 import { colors } from './theme';
+import { APP_SHARE_URL } from './utils';
 
 export default function AddCouplesModal({
   visible,
@@ -111,12 +112,11 @@ export default function AddCouplesModal({
 
   async function shareProfile() {
     if (!user?.coupleUsername) return;
-    const link = `lovereceipts://couple/${user.coupleUsername}`;
     await Share.share({
       message:
         `Find us on LoveReceipts: @${user.coupleUsername} 🧾\n` +
-        `Follow our wins and share yours.\n\n${link}`,
-      url: link,
+        `Follow our wins and share yours.\n\n${APP_SHARE_URL}`,
+      url: APP_SHARE_URL,
     });
   }
 
