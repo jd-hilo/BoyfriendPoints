@@ -116,37 +116,61 @@ export default function Feed() {
       ) : (
         events.map((e) => (
           <article key={e.id} className="feed-card">
-            <div className="feed-card-top">
-              <span className="feed-time">{timeAgo(e.createdAt)} ago</span>
-            </div>
-
-            <div className="feed-story">
-              <Avatar
-                name={e.boyfriendName}
-                color={e.boyfriendColor}
-                src={e.boyfriendAvatar}
-                size={40}
-              />
-              <div className="feed-story-text">
-                <p className="feed-line">
-                  <span className="name">{e.boyfriendName}</span>
-                  <span className="verb">
-                    {e.type === 'earn' ? ' earned from ' : ' redeemed with '}
-                  </span>
-                  <span className="name">{e.wifeName}</span>
-                </p>
-                <p className="feed-note">
-                  {e.emoji} {e.title}
-                  {e.note ? ` — ${e.note}` : ''}
-                </p>
+            <div className="feed-receipt">
+              <div className="receipt-brand-row">
+                <span className="receipt-brand">🧾 LoveReceipts</span>
+                <span className="feed-time">{timeAgo(e.createdAt)} ago</span>
               </div>
-              <span className="feed-amount">
+              <div className="receipt-dash" />
+
+              <div className="receipt-line-row">
+                <span className="receipt-key">
+                  {e.type === 'earn' ? 'POINTS EARNED' : 'PRIZE REDEEMED'}
+                </span>
+                <span className="receipt-value">
+                  {e.type === 'earn' ? '+' : '−'}{e.points} pts
+                </span>
+              </div>
+              <div className="receipt-title">
+                {e.emoji} {e.title}
+              </div>
+              {e.note ? <div className="receipt-note">{e.note}</div> : null}
+
+              <div className="receipt-dash" />
+              <div className="receipt-line-row">
+                <span className="receipt-key">FROM</span>
+                <span className="receipt-person">
+                  <Avatar
+                    name={e.boyfriendName}
+                    color={e.boyfriendColor}
+                    src={e.boyfriendAvatar}
+                    size={24}
+                  />
+                  <strong>{e.boyfriendName}</strong>
+                </span>
+              </div>
+              <div className="receipt-line-row">
+                <span className="receipt-key">TO</span>
+                <span className="receipt-person">
+                  <Avatar
+                    name={e.wifeName}
+                    color={e.wifeColor}
+                    src={e.wifeAvatar}
+                    size={24}
+                  />
+                  <strong>{e.wifeName}</strong>
+                </span>
+              </div>
+
+              <div className="receipt-dash" />
+              <div className="receipt-total-row">
+                <span>TOTAL {e.type === 'earn' ? 'EARNED' : 'SPENT'}</span>
                 <Xp
                   value={e.points}
                   sign={e.type === 'earn' ? '+' : '−'}
                   size={13}
                 />
-              </span>
+              </div>
             </div>
 
             {e.images.length > 0 && <PhotoCarousel images={e.images} />}

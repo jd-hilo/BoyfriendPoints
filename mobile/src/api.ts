@@ -107,10 +107,25 @@ export const api = {
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<PublicUser>('/me'),
-  updateProfile: (name: string) =>
+  updateProfile: (input: { name?: string; avatarUrl?: string }) =>
     request<PublicUser>('/me', {
       method: 'PATCH',
-      body: { name },
+      body: input,
+    }),
+  setRole: (role: 'wife' | 'boyfriend') =>
+    request<PublicUser>('/me', {
+      method: 'PATCH',
+      body: { role },
+    }),
+  setPushToken: (token: string) =>
+    request<void>('/me/push-token', {
+      method: 'POST',
+      body: { token },
+    }),
+  uploadMedia: (contentType: string, data: string) =>
+    request<{ id: string; url: string }>('/media', {
+      method: 'POST',
+      body: { contentType, data },
     }),
 
   suggestions: () =>

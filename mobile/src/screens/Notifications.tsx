@@ -12,13 +12,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NotificationItem } from '../types';
 import { api } from '../api';
+import { useAuth } from '../auth';
+import { setSeenNotificationIds } from '../storage';
 import { colors, radius, shadow } from '../theme';
 import { Avatar, Xp } from '../ui';
 import { timeAgo } from '../utils';
 
-function amountKind(kind: NotificationItem['kind']): 'earn' | 'redeem' | null {
-  if (kind === 'approved' || kind === 'request') return 'earn';
-  if (kind === 'redeem' || kind === 'prize') return 'redeem';
+/** A new prize carries a price tag, not a debit — showing it signed reads as
+ *  if the balance was just charged for it. */
+function amountSign(kind: NotificationItem['kind']): '+' | '−' | '' | null {
+  if (kind === 'approved' || kind === 'request') return '+';
+  if (kind === 'redeem') return '−';
+  if (kind === 'prize') return '';
   return null;
 }
 
@@ -54,6 +59,7 @@ export default function Notifications({
   onClose: () => void;
   onChanged?: () => void;
 }) {
+  const { user } = useAuth();
   const { width } = useWindowDimensions();
   const slide = useRef(new Animated.Value(width)).current;
   const closing = useRef(false);
@@ -64,7 +70,10 @@ export default function Notifications({
   function load() {
     return api
       .notifications()
-      .then(setItems)
+      .then((next) => {
+        setItems(next);
+        if (user) void setSeenNotificationIds(user.id, next.map((n) => n.id));
+      })
       .catch((err) => setError((err as Error).message));
   }
 
@@ -126,7 +135,7 @@ export default function Notifications({
           <View style={[styles.headerIconBtn, styles.spacer]} />
         </View>
 
-        {error && <Text style={styles.error}>{error}</Text>}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         {items === null && !error && <Text style={styles.centerMuted}>Loading…</Text>}
 
         <FlatList
@@ -147,7 +156,7 @@ export default function Notifications({
             ) : null
           }
           renderItem={({ item: n }) => {
-            const amount = amountKind(n.kind);
+            const sign = amountSign(n.kind);
             const actor = n.actorName ?? 'Someone';
             return (
               <View style={styles.feedCard}>
@@ -167,11 +176,11 @@ export default function Notifications({
                       <Text style={styles.name}>{actor}</Text>
                       <Text> {verbFor(n.kind)}</Text>
                     </Text>
-                    {(n.body || n.emoji) && (
+                    {n.body || n.emoji ? (
                       <Text style={styles.feedNote}>
                         {n.emoji} {n.body ?? ''}
                       </Text>
-                    )}
+                    ) : null}
                     {n.friendRequestId ? (
                       <View style={styles.friendActions}>
                         <Pressable
@@ -197,8 +206,8 @@ export default function Notifications({
                       </View>
                     ) : null}
                   </View>
-                  {typeof n.points === 'number' && amount && (
-                    <Xp value={n.points} sign={amount === 'earn' ? '+' : '−'} size={13} />
+                  {typeof n.points === 'number' && sign !== null && (
+                    <Xp value={n.points} sign={sign} size={13} />
                   )}
                 </View>
               </View>

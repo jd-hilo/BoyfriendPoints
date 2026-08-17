@@ -4,9 +4,12 @@ import { api } from '../api.ts';
 import { Avatar, Xp } from '../ui.tsx';
 import { timeAgo } from '../utils.ts';
 
-function amountKind(kind: NotificationItem['kind']): 'earn' | 'redeem' | null {
-  if (kind === 'approved' || kind === 'request') return 'earn';
-  if (kind === 'redeem' || kind === 'prize') return 'redeem';
+/** A new prize carries a price tag, not a debit — showing it signed reads as
+ *  if the balance was just charged for it. */
+function amountSign(kind: NotificationItem['kind']): '+' | '−' | '' | null {
+  if (kind === 'approved' || kind === 'request') return '+';
+  if (kind === 'redeem') return '−';
+  if (kind === 'prize') return '';
   return null;
 }
 
@@ -79,7 +82,7 @@ export default function Notifications({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {items?.map((n) => {
-          const amount = amountKind(n.kind);
+          const sign = amountSign(n.kind);
           const actor = n.actorName ?? 'Someone';
           return (
             <article key={n.id} className="feed-card">
@@ -114,13 +117,9 @@ export default function Notifications({ onClose }: { onClose: () => void }) {
                     </p>
                   )}
                 </div>
-                {typeof n.points === 'number' && amount && (
+                {typeof n.points === 'number' && sign !== null && (
                   <span className="feed-amount">
-                    <Xp
-                      value={n.points}
-                      sign={amount === 'earn' ? '+' : '−'}
-                      size={13}
-                    />
+                    <Xp value={n.points} sign={sign} size={13} />
                   </span>
                 )}
               </div>

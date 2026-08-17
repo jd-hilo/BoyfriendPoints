@@ -18,6 +18,8 @@ export interface User {
   friendIds: string[];
   points: number;
   token?: string;
+  /** Expo push token for partner alerts. Never sent to clients. */
+  pushToken?: string;
   onboarded: boolean;
   demo?: boolean;
   createdAt: string;

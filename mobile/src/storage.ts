@@ -8,12 +8,15 @@ const USER_KEY = 'bp_user';
 let memoryToken: string | null | undefined;
 
 export async function getToken(): Promise<string | null> {
-  if (memoryToken !== undefined) return memoryToken;
+  // Only trust a positive memory hit. Fast Refresh can keep `null` around
+  // after a blip; always re-read storage in that case so a reload doesn't
+  // look signed out.
+  if (memoryToken) return memoryToken;
   try {
     memoryToken = await AsyncStorage.getItem(TOKEN_KEY);
     return memoryToken;
   } catch {
-    return null;
+    return memoryToken ?? null;
   }
 }
 
@@ -50,21 +53,51 @@ export async function setCachedUser(user: PublicUser | null): Promise<void> {
   }
 }
 
-function coachKey(userId: string): string {
-  return `lr_coach_${userId}`;
+function notifSeenKey(userId: string): string {
+  return `lr_notif_seen_${userId}`;
 }
 
-export async function getCoachSeen(userId: string): Promise<boolean> {
+export async function getSeenNotificationIds(userId: string): Promise<string[]> {
   try {
-    return (await AsyncStorage.getItem(coachKey(userId))) === '1';
+    const raw = await AsyncStorage.getItem(notifSeenKey(userId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
   } catch {
-    return false;
+    return [];
   }
 }
 
-export async function setCoachSeen(userId: string): Promise<void> {
+export async function setSeenNotificationIds(
+  userId: string,
+  ids: string[],
+): Promise<void> {
   try {
-    await AsyncStorage.setItem(coachKey(userId), '1');
+    await AsyncStorage.setItem(notifSeenKey(userId), JSON.stringify(ids));
+  } catch {
+    /* ignore */
+  }
+}
+
+function approvalSeenKey(userId: string): string {
+  return `lr_approval_seen_${userId}`;
+}
+
+/** null means this device has never checked — seed without replaying history. */
+export async function getSeenApprovals(userId: string): Promise<string[] | null> {
+  try {
+    const raw = await AsyncStorage.getItem(approvalSeenKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+  } catch {
+    return null;
+  }
+}
+
+export async function setSeenApprovals(userId: string, ids: string[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(approvalSeenKey(userId), JSON.stringify(ids));
   } catch {
     /* ignore */
   }

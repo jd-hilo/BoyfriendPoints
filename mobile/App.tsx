@@ -4,7 +4,7 @@ import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/auth';
 import { api } from './src/api';
-import { setCoachSeen } from './src/storage';
+import { getToken } from './src/storage';
 import { colors } from './src/theme';
 import AuthScreen from './src/screens/AuthScreen';
 import OnboardingFlow from './src/screens/OnboardingFlow';
@@ -47,13 +47,15 @@ function Router() {
     async function apply(url: string | null) {
       const parsed = parseDemoUrl(url);
       if (!parsed) return;
+      // A leftover screenshot/demo deep link must not replace a real session
+      // on reload.
+      if (await getToken()) return;
       const personas = await api.personas();
       const match = personas.find(
         (p) => p.name.toLowerCase() === parsed.name.toLowerCase(),
       );
       if (!match) return;
       await enterAs(match.id);
-      if (match.role !== 'wife') await setCoachSeen(match.id);
       // Set tab only after the session exists so Feed/Review don't 401.
       setShot({ tab: parsed.tab, react: parsed.react, receipt: parsed.receipt });
     }

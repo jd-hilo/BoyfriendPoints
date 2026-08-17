@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import type { Submission, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Button, ReceiptModal, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { haptic } from '../utils';
+import { pickAndUploadPhoto } from '../pickImage';
 
 interface SuccessInfo {
   id: string;
@@ -17,12 +29,8 @@ interface SuccessInfo {
 
 export default function Submit({
   onDone,
-  coachOpen,
-  onCoachDismiss,
 }: {
   onDone: () => void;
-  coachOpen?: boolean;
-  onCoachDismiss?: () => void;
 }) {
   const { user } = useAuth();
   const [options, setOptions] = useState<Suggestion[]>([]);
@@ -35,17 +43,15 @@ export default function Submit({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [sharing, setSharing] = useState(false);
-  const [customOpen, setCustomOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const [busyTitle, setBusyTitle] = useState<string | null>(null);
+  // The receipt is its own modal, so it can only be presented once the
+  // compose sheet has finished dismissing.
+  const queuedSuccess = useRef<SuccessInfo | null>(null);
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
-    if (t.length > 0) {
-      setOptions(t.map((task) => ({ title: task.title, emoji: task.emoji, points: task.points })));
-    } else {
-      const suggestions = await api.suggestions();
-      setOptions(suggestions.tasks);
-    }
+    setOptions(t.map((task) => ({ title: task.title, emoji: task.emoji, points: task.points })));
     setMine(s);
   }, []);
 
@@ -67,7 +73,6 @@ export default function Submit({
         photos: 0,
       });
       await load();
-      onCoachDismiss?.();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -75,11 +80,43 @@ export default function Submit({
     }
   }
 
-  function addPlaceholderPhoto() {
-    setImages((p) => [
-      ...p,
-      `https://picsum.photos/seed/lr-${Date.now()}-${p.length}/720/480`,
-    ]);
+  async function addPhoto() {
+    setError(null);
+    try {
+      const url = await pickAndUploadPhoto();
+      if (!url) return;
+      setImages((p) => (p.length >= 4 ? p : [...p, url]));
+      haptic(10);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  function resetCompose() {
+    setTitle('');
+    setEmoji('⭐');
+    setPoints('');
+    setNote('');
+    setImages([]);
+  }
+
+  function closeCompose() {
+    setComposeOpen(false);
+    resetCompose();
+  }
+
+  /** Show the queued receipt once the compose sheet is really gone. */
+  function flushQueuedSuccess() {
+    if (!queuedSuccess.current) return;
+    setSuccess(queuedSuccess.current);
+    queuedSuccess.current = null;
+  }
+
+  /** Also runs when the sheet is swiped away, so state can't drift open. */
+  function onComposeDismissed() {
+    setComposeOpen(false);
+    if (queuedSuccess.current) flushQueuedSuccess();
+    else resetCompose();
   }
 
   async function submit() {
@@ -87,21 +124,19 @@ export default function Submit({
     try {
       const submission = await api.submit(title, Number(points), emoji, note, images);
       haptic([10, 40, 10]);
-      setSuccess({
+      queuedSuccess.current = {
         id: submission.id,
         title: title.trim(),
         emoji,
         points: Number(points),
         photos: images.length,
-      });
-      setTitle('');
-      setEmoji('⭐');
-      setPoints('');
-      setNote('');
-      setImages([]);
-      setCustomOpen(false);
+      };
+      resetCompose();
+      setComposeOpen(false);
+      // onDismiss is iOS-only; everywhere else the sheet is already gone.
+      if (Platform.OS !== 'ios') flushQueuedSuccess();
+      else setTimeout(flushQueuedSuccess, 600);
       await load();
-      onCoachDismiss?.();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -125,119 +160,168 @@ export default function Submit({
   }
 
   const partner = user?.partnerName ?? 'your partner';
-  const canSubmit = Boolean(title) && Boolean(points);
+  const canSubmit = title.trim().length > 0 && Number(points) > 0;
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
       <Text style={styles.screenTitle}>Submit</Text>
       <Text style={styles.subtitle}>Tap a win. Your partner approves it.</Text>
 
-      {coachOpen && (
-        <View style={styles.coachCard}>
-          <Text style={styles.coachTitle}>Land your first win</Text>
-          <Text style={styles.coachBody}>
-            Tap something you already did. We&apos;ll send {partner} a point
-            request — and you&apos;ll get a shareable receipt.
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      {options.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>
+            {user?.partnerId
+              ? `${partner} hasn’t added any tasks yet`
+              : 'Add your partner first'}
           </Text>
-          {options[0] && (
+          <Text style={styles.emptyBody}>
+            {user?.partnerId
+              ? 'You can still send a custom request for points.'
+              : 'Once you’re linked, you can submit wins for points.'}
+          </Text>
+          {user?.partnerId ? (
             <Button
               block
-              disabled={!!busyTitle}
-              onPress={() => void submitTask(options[0])}
+              disabled={!!success}
+              onPress={() => {
+                haptic(10);
+                setError(null);
+                setComposeOpen(true);
+              }}
             >
-              Quick start: {options[0].emoji} {options[0].title}
+              Submit a task for points
             </Button>
-          )}
-          <Button variant="ghost" block onPress={() => onCoachDismiss?.()}>
-            I&apos;ll look around first
-          </Button>
+          ) : null}
         </View>
-      )}
-
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      <View style={styles.grid}>
-        {options.map((t) => (
+      ) : (
+        <View style={styles.grid}>
+          {options.map((t) => (
+            <Pressable
+              key={t.title}
+              style={styles.tile}
+              disabled={!!busyTitle || !!success}
+              onPress={() => void submitTask(t)}
+            >
+              <Text style={styles.tileEmoji}>{t.emoji}</Text>
+              <Text style={styles.tileTitle} numberOfLines={2}>
+                {t.title}
+              </Text>
+              <Xp value={t.points} sign="+" size={12} />
+              {busyTitle === t.title ? (
+                <Text style={styles.tileBusy}>Sending…</Text>
+              ) : null}
+            </Pressable>
+          ))}
           <Pressable
-            key={t.title}
-            style={styles.tile}
+            style={[styles.tile, styles.tileAdd]}
             disabled={!!busyTitle || !!success}
-            onPress={() => void submitTask(t)}
+            onPress={() => {
+              haptic(10);
+              setError(null);
+              setComposeOpen(true);
+            }}
           >
-            <Text style={styles.tileEmoji}>{t.emoji}</Text>
-            <Text style={styles.tileTitle} numberOfLines={2}>
-              {t.title}
-            </Text>
-            <Xp value={t.points} sign="+" size={12} />
-            {busyTitle === t.title && (
-              <Text style={styles.tileBusy}>Sending…</Text>
-            )}
+            <View style={styles.tileAddInner}>
+              <Text style={styles.tileAddPlus}>+</Text>
+              <Text style={styles.tileAddLabel}>Something else</Text>
+            </View>
           </Pressable>
-        ))}
-        <Pressable
-          style={[styles.tile, styles.tileAdd]}
-          onPress={() => setCustomOpen((open) => !open)}
-        >
-          <Text style={styles.tileAddPlus}>+</Text>
-          <Text style={styles.tileAddLabel}>Something else</Text>
-        </Pressable>
-      </View>
-
-      {customOpen && (
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <TextInput
-              style={styles.emojiInput}
-              value={emoji}
-              onChangeText={setEmoji}
-              maxLength={2}
-            />
-            <TextInput
-              style={[styles.input, styles.grow]}
-              value={title}
-              onChangeText={setTitle}
-              placeholder="What did you do?"
-            />
-          </View>
-          <TextInput
-            style={styles.input}
-            value={points}
-            onChangeText={setPoints}
-            placeholder="Points requested"
-            keyboardType="number-pad"
-          />
-          <TextInput
-            style={styles.input}
-            value={note}
-            onChangeText={setNote}
-            placeholder="Add a note (optional)"
-          />
-
-          <View style={styles.photoAttach}>
-            {images.map((src) => (
-              <View key={src} style={styles.photoThumb}>
-                <Image source={{ uri: src }} style={styles.photoThumbImg} />
-                <Pressable
-                  style={styles.photoRemove}
-                  onPress={() => setImages((p) => p.filter((x) => x !== src))}
-                >
-                  <Text style={styles.photoRemoveText}>✕</Text>
-                </Pressable>
-              </View>
-            ))}
-            {images.length < 4 && (
-              <Pressable style={styles.photoAdd} onPress={addPlaceholderPhoto}>
-                <Text style={styles.photoAddPlus}>＋</Text>
-                <Text style={styles.photoAddLabel}>Add photo</Text>
-              </Pressable>
-            )}
-          </View>
-
-          <Button onPress={submit} disabled={!canSubmit}>
-            Request points
-          </Button>
         </View>
       )}
+
+      <Modal
+        visible={composeOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closeCompose}
+        onDismiss={onComposeDismissed}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalSheet}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.grow}>
+                <Text style={styles.modalTitle}>
+                  {options.length === 0 ? 'Submit a task' : 'Something else'}
+                </Text>
+                <Text style={styles.modalSub}>
+                  {options.length === 0
+                    ? `Send ${partner} a point request.`
+                    : `Log a win ${partner} hasn’t listed yet.`}
+                </Text>
+              </View>
+              <Pressable onPress={closeCompose} hitSlop={8}>
+                <Text style={styles.modalClose}>Cancel</Text>
+              </Pressable>
+            </View>
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <View style={styles.row}>
+              <TextInput
+                style={styles.emojiInput}
+                value={emoji}
+                onChangeText={setEmoji}
+                maxLength={2}
+              />
+              <TextInput
+                style={[styles.input, styles.grow]}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="What did you do?"
+                placeholderTextColor={colors.inkMuted}
+                autoFocus
+              />
+            </View>
+            <TextInput
+              style={styles.input}
+              value={points}
+              onChangeText={(v) => setPoints(v.replace(/[^0-9]/g, ''))}
+              placeholder="Points requested"
+              placeholderTextColor={colors.inkMuted}
+              keyboardType="number-pad"
+            />
+            <TextInput
+              style={styles.input}
+              value={note}
+              onChangeText={setNote}
+              placeholder="Add a note (optional)"
+              placeholderTextColor={colors.inkMuted}
+            />
+
+            <View style={styles.photoAttach}>
+              {images.map((src) => (
+                <View key={src} style={styles.photoThumb}>
+                  <Image source={{ uri: src }} style={styles.photoThumbImg} />
+                  <Pressable
+                    style={styles.photoRemove}
+                    onPress={() => setImages((p) => p.filter((x) => x !== src))}
+                  >
+                    <Text style={styles.photoRemoveText}>✕</Text>
+                  </Pressable>
+                </View>
+              ))}
+              {images.length < 4 && (
+                <Pressable style={styles.photoAdd} onPress={() => void addPhoto()}>
+                  <Text style={styles.photoAddPlus}>＋</Text>
+                  <Text style={styles.photoAddLabel}>Add photo</Text>
+                </Pressable>
+              )}
+            </View>
+
+            <Button block onPress={submit} disabled={!canSubmit}>
+              Request points
+            </Button>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {mine.length > 0 && (
         <>
@@ -302,15 +386,27 @@ const styles = StyleSheet.create({
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
   subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: -8 },
   sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.inkMuted, marginTop: 4, marginBottom: 4 },
-  coachCard: {
-    padding: 16,
-    backgroundColor: '#eef7ff',
+  empty: {
+    padding: 20,
+    backgroundColor: colors.card,
     borderRadius: radius.card,
     gap: 10,
+    alignItems: 'stretch',
     ...shadow,
   },
-  coachTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3, color: colors.ink },
-  coachBody: { fontSize: 14, color: colors.ink2, lineHeight: 19 },
+  emptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    color: colors.ink,
+    textAlign: 'center',
+  },
+  emptyBody: {
+    fontSize: 14,
+    color: colors.ink2,
+    lineHeight: 19,
+    textAlign: 'center',
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {
     width: '47.5%',
@@ -339,20 +435,56 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     shadowOpacity: 0,
     elevation: 0,
+    padding: 16,
+  },
+  tileAddInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
   tileAddPlus: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '300',
     color: colors.inkMuted,
-    lineHeight: 32,
+    lineHeight: 34,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   tileAddLabel: {
     fontSize: 13,
     fontWeight: '700',
     color: colors.inkMuted,
     textAlign: 'center',
+    lineHeight: 17,
   },
-  card: { backgroundColor: colors.card, borderRadius: radius.card, padding: 16, gap: 10, ...shadow },
+  modalSheet: { flex: 1, backgroundColor: colors.bg },
+  modalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    gap: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    color: colors.ink,
+  },
+  modalSub: { fontSize: 14, color: colors.inkMuted, marginTop: 4 },
+  modalClose: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    paddingTop: 4,
+  },
   row: { flexDirection: 'row', gap: 8 },
   grow: { flex: 1 },
   emojiInput: {

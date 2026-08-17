@@ -7,8 +7,10 @@ import {
   Modal,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   type StyleProp,
   type ViewStyle,
@@ -218,6 +220,52 @@ export function Avatar({
   );
 }
 
+/** Two avatars overlapping — the couple lockup used on profile and redeem. */
+export function CoupleLockup({
+  leftName,
+  leftColor,
+  leftSrc,
+  rightName,
+  rightColor,
+  rightSrc,
+  size = 56,
+}: {
+  leftName: string;
+  leftColor: string;
+  leftSrc?: string;
+  rightName?: string;
+  rightColor?: string;
+  rightSrc?: string;
+  size?: number;
+}) {
+  const overlap = Math.round(size * 0.38);
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ zIndex: 2 }}>
+        <Avatar name={leftName} color={leftColor} src={leftSrc} size={size} />
+      </View>
+      {rightName ? (
+        <View style={{ marginLeft: -overlap, zIndex: 1 }}>
+          <View
+            style={{
+              borderRadius: size / 2,
+              borderWidth: 2,
+              borderColor: colors.bg,
+            }}
+          >
+            <Avatar
+              name={rightName}
+              color={rightColor ?? colors.blue}
+              src={rightSrc}
+              size={size}
+            />
+          </View>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 export function Button({
@@ -265,7 +313,10 @@ export function Button({
         style,
       ]}
     >
-      {typeof children === 'string' ? (
+      {typeof children === 'string' || typeof children === 'number' ? (
+        <Text style={[styles.btnText, { color: fg }]}>{children}</Text>
+      ) : Array.isArray(children) &&
+        children.some((child) => typeof child === 'string' || typeof child === 'number') ? (
         <Text style={[styles.btnText, { color: fg }]}>{children}</Text>
       ) : (
         children
@@ -371,20 +422,25 @@ export function ReceiptModal({
   const print = useRef(new Animated.Value(0)).current;
   const actionsIn = useRef(new Animated.Value(0)).current;
   const stamp = useRef(receiptStamp()).current;
+  const { height: windowH } = useWindowDimensions();
+
+  // The printer head and the buttons have to stay reachable, so the paper only
+  // gets the height that's left over and the mask crops the tail.
+  const maxPaperH = Math.max(170, windowH - 380);
 
   useEffect(() => {
     if (paperH <= 0) return;
     Animated.sequence([
-      Animated.delay(250),
+      Animated.delay(160),
       Animated.timing(print, {
         toValue: 1,
-        duration: Math.min(2600, Math.max(1500, paperH * 4)),
+        duration: Math.min(1400, Math.max(800, paperH * 2.2)),
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(actionsIn, {
         toValue: 1,
-        duration: 300,
+        duration: 240,
         easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
@@ -430,6 +486,11 @@ export function ReceiptModal({
   return (
     <Modal transparent animationType="fade" onRequestClose={onSkip}>
       <View style={styles.modalBackdrop}>
+        <ScrollView
+          contentContainerStyle={styles.printerScroll}
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+        >
         <View style={styles.printerWrap}>
           {/* Printer body */}
           <View style={styles.printer}>
@@ -468,7 +529,9 @@ export function ReceiptModal({
           <View
             style={[
               styles.paperMask,
-              paperH > 0 ? { height: paperH + 10 } : null,
+              paperH > 0
+                ? { height: Math.min(paperH + 10, maxPaperH) }
+                : null,
             ]}
           >
             <Animated.View
@@ -531,10 +594,6 @@ export function ReceiptModal({
 
                 <View style={styles.receiptDash} />
                 <View style={styles.receiptLineRow}>
-                  <Text style={styles.receiptMutedKey}>Order</Text>
-                  <Text style={styles.receiptLineVal}>{stamp.order}</Text>
-                </View>
-                <View style={styles.receiptLineRow}>
                   <Text style={styles.receiptMutedKey}>Date</Text>
                   <Text style={styles.receiptLineVal}>{stamp.date}</Text>
                 </View>
@@ -547,7 +606,7 @@ export function ReceiptModal({
             </Animated.View>
           </View>
 
-          {note && <Text style={styles.modalNote}>{note}</Text>}
+          {note ? <Text style={styles.modalNote}>{note}</Text> : null}
 
           <Animated.View
             style={[
@@ -606,6 +665,7 @@ export function ReceiptModal({
             </Button>
           </Animated.View>
         </View>
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -691,20 +751,24 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(18,18,16,0.72)',
-    alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+  },
+  printerScroll: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    padding: 16,
   },
   printerWrap: {
     width: '100%',
     maxWidth: 340,
+    alignSelf: 'center',
   },
   printer: {
     width: '100%',
     backgroundColor: '#232320',
     borderRadius: 22,
-    padding: 16,
-    paddingBottom: 12,
+    padding: 14,
+    paddingBottom: 10,
     zIndex: 2,
     ...shadow,
     borderColor: 'rgba(255,255,255,0.08)',
@@ -713,7 +777,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 10,
   },
   printerLogo: {
     width: 30,
@@ -766,7 +830,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 16,
+    marginTop: 10,
   },
   printerCheck: {
     width: 20,
@@ -790,7 +854,7 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#121210',
-    marginTop: 14,
+    marginTop: 10,
     marginHorizontal: 2,
   },
   paperMask: {
@@ -807,27 +871,27 @@ const styles = StyleSheet.create({
   receiptPaper: {
     width: '100%',
     backgroundColor: '#fff',
-    paddingTop: 20,
-    paddingBottom: 14,
+    paddingTop: 12,
+    paddingBottom: 10,
     paddingHorizontal: 16,
-    gap: 7,
+    gap: 4,
   },
   receiptLogoBox: {
-    width: 44,
-    height: 44,
+    width: 34,
+    height: 34,
     borderRadius: 8,
     backgroundColor: '#191918',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginBottom: 6,
+    marginBottom: 2,
   },
   receiptDash: {
     width: '100%',
     borderTopWidth: 1,
     borderColor: '#d9d5cc',
     borderStyle: 'dashed',
-    marginVertical: 6,
+    marginVertical: 3,
   },
   receiptLineRow: {
     flexDirection: 'row',
@@ -882,11 +946,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     justifyContent: 'center',
-    marginTop: 10,
-    height: 34,
+    marginTop: 6,
+    height: 26,
   },
   barcodeBar: {
-    height: 34,
+    height: 26,
     backgroundColor: '#191918',
     marginRight: 1.5,
   },
@@ -917,7 +981,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(255,255,255,0.75)',
     lineHeight: 18,
-    marginTop: 14,
+    marginTop: 10,
     textAlign: 'center',
   },
   receiptFeedCheck: {
@@ -953,10 +1017,10 @@ const styles = StyleSheet.create({
   modalActions: {
     width: '100%',
     gap: 8,
-    marginTop: 16,
+    marginTop: 12,
   },
   receiptShareBtn: {
-    minHeight: 52,
+    minHeight: 50,
     borderRadius: radius.pill,
   },
 });

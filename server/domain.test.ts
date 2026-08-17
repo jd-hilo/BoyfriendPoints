@@ -9,8 +9,13 @@ import {
   createEmptyState,
   createSubmission,
   feedForUser,
+  friendRequestsForUser,
+  avatarFor,
   inviteBoyfriend,
+  pendingRedemptionsForUser,
   redeemPrize,
+  setPushToken,
+  updateProfile,
   requestFriendByCode,
   removePartner,
   shareRedemption,
@@ -18,6 +23,8 @@ import {
   searchCouples,
   signupWife,
   signup,
+  switchRole,
+  tasksForUser,
   joinWithInviteCode,
   login,
   loginOrCreateFromIdentity,
@@ -124,6 +131,67 @@ describe('accounts', () => {
   });
 });
 
+describe('redeemers without a household', () => {
+  function loneRedeemer() {
+    const state = createEmptyState();
+    const bf = signup(state, {
+      name: 'Noah',
+      email: 'noah@x.com',
+      password: 'secret',
+      role: 'boyfriend',
+    });
+    return { state, bf };
+  }
+
+  it('cannot submit for points', () => {
+    const { state, bf } = loneRedeemer();
+    expect(() =>
+      createSubmission(state, bf, { title: 'Did the dishes', points: 10 }),
+    ).toThrow(/not linked to a partner/i);
+  });
+
+  it('has an empty feed and an empty friend request inbox', () => {
+    const { state, bf } = loneRedeemer();
+    expect(feedForUser(state, bf)).toEqual([]);
+    expect(friendRequestsForUser(state, bf)).toEqual([]);
+  });
+
+  it('is told to enter a code when reaching for other couples', () => {
+    const { state, bf } = loneRedeemer();
+    expect(() => searchCouples(state, bf, 'emma')).toThrow(/invite code/i);
+  });
+
+  it('can switch to setting prizes, which builds them a household', () => {
+    const { state, bf } = loneRedeemer();
+    switchRole(state, bf, 'wife');
+    expect(bf.role).toBe('wife');
+    expect(bf.inviteCode).toMatch(/^[A-Z0-9]{6}$/);
+    expect(bf.coupleUsername).toBeTruthy();
+    expect(tasksForUser(state, bf).length).toBeGreaterThan(0);
+  });
+
+  it('cannot switch roles once a partner is linked', () => {
+    const { state, wife } = bootstrap();
+    expect(() => switchRole(state, wife, 'boyfriend')).toThrow(/unlink/i);
+  });
+
+  it('drops household data when a prize-setter becomes a redeemer', () => {
+    const state = createEmptyState();
+    const wife = signupWife(state, {
+      name: 'Emma',
+      email: 'emma@x.com',
+      password: 'secret',
+    });
+    addPrize(state, wife, { title: 'Movie night', cost: 50 });
+    switchRole(state, wife, 'boyfriend');
+    expect(wife.role).toBe('boyfriend');
+    expect(wife.inviteCode).toBeUndefined();
+    expect(wife.coupleUsername).toBeUndefined();
+    expect(state.prizes).toEqual([]);
+    expect(state.tasks).toEqual([]);
+  });
+});
+
 describe('earning points', () => {
   let ctx: ReturnType<typeof bootstrap>;
   beforeEach(() => {
@@ -202,6 +270,59 @@ describe('redeeming prizes', () => {
     expect(() => redeemPrize(state, boyfriend, prize.id)).toThrow(
       /not enough points/i,
     );
+  });
+
+  it('lets the boyfriend see the redemption holding his points', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    const prize = addPrize(state, wife, { title: 'Movie night', cost: 100 });
+    createSubmission(state, boyfriend, { title: 'Chores', points: 150 });
+    approveSubmission(state, wife, state.submissions[0].id);
+    redeemPrize(state, boyfriend, prize.id);
+
+    const held = pendingRedemptionsForUser(state, boyfriend);
+    expect(held).toHaveLength(1);
+    expect(held[0].prizeTitle).toBe('Movie night');
+    expect(held[0].cost).toBe(100);
+    expect(pendingRedemptionsForUser(state, wife)).toHaveLength(1);
+  });
+
+  it('leaves the balance alone when the wife adds a prize', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    createSubmission(state, boyfriend, { title: 'Chores', points: 150 });
+    approveSubmission(state, wife, state.submissions[0].id);
+
+    addPrize(state, wife, { title: 'Night out', cost: 500 });
+    expect(boyfriend.points).toBe(150);
+
+    // The notification is a price tag, so it must not read as a debit.
+    const notif = buildNotifications(state, boyfriend).find(
+      (n) => n.kind === 'prize',
+    );
+    expect(notif?.points).toBe(500);
+  });
+});
+
+describe('profile', () => {
+  it('keeps a picked avatar when the name changes', () => {
+    const { boyfriend } = bootstrap();
+    const custom = 'https://api.dicebear.com/9.x/adventurer/png?seed=custom';
+    updateProfile(boyfriend, { avatarUrl: custom });
+    updateProfile(boyfriend, { name: 'Jordan' });
+    expect(boyfriend.name).toBe('Jordan');
+    expect(boyfriend.avatarUrl).toBe(custom);
+  });
+
+  it('refreshes the default avatar when the name changes', () => {
+    const { boyfriend } = bootstrap();
+    boyfriend.avatarUrl = avatarFor(boyfriend.name);
+    updateProfile(boyfriend, { name: 'Jordan' });
+    expect(boyfriend.avatarUrl).toBe(avatarFor('Jordan'));
+  });
+
+  it('stores a push token', () => {
+    const { boyfriend } = bootstrap();
+    setPushToken(boyfriend, 'ExponentPushToken[abc]');
+    expect(boyfriend.pushToken).toBe('ExponentPushToken[abc]');
   });
 });
 

@@ -22,6 +22,7 @@ export const users = pgTable('users', {
   friendIds: jsonb('friend_ids').$type<string[]>().notNull().default([]),
   points: integer('points').notNull().default(0),
   token: text('token'),
+  pushToken: text('push_token'),
   onboarded: boolean('onboarded').notNull().default(false),
   demo: boolean('demo').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
@@ -110,6 +111,19 @@ export const redemptions = pgTable('redemptions', {
     .notNull()
     .defaultNow(),
   resolvedAt: timestamp('resolved_at', { withTimezone: true, mode: 'string' }),
+});
+
+/** Uploaded photos. Kept out of the wipe-and-rewrite state snapshot. */
+export const media = pgTable('media', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  contentType: text('content_type').notNull(),
+  bytes: text('bytes').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+    .notNull()
+    .defaultNow(),
 });
 
 export const feed = pgTable('feed', {

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { Prize, PublicUser } from '../types';
+import type { Prize, PublicUser, Redemption } from '../types';
 import { api } from '../api';
-import { ReceiptModal, Xp } from '../ui';
+import { CoupleLockup, ReceiptModal, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { haptic } from '../utils';
 
@@ -22,6 +22,7 @@ export default function Redeem({
   onChange: () => void;
 }) {
   const [prizes, setPrizes] = useState<Prize[]>([]);
+  const [pending, setPending] = useState<Redemption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
@@ -29,6 +30,13 @@ export default function Redeem({
 
   const load = useCallback(async () => {
     setPrizes(await api.prizes());
+    try {
+      setPending(await api.redemptions());
+    } catch {
+      // Servers before this shipped only let the wife read the list. The hold
+      // hint is a nicety, so lose it rather than the whole screen.
+      setPending([]);
+    }
   }, []);
 
   useEffect(() => {
@@ -59,6 +67,7 @@ export default function Redeem({
       }
       setSuccess(null);
       onChange();
+      await load();
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -66,18 +75,46 @@ export default function Redeem({
     }
   }
 
+  const held = pending.reduce((sum, r) => sum + r.cost, 0);
+  const partner = user.partnerName ?? 'your partner';
+
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
       <View style={styles.balanceCard}>
-        <Text style={styles.balanceLabel}>Your balance</Text>
-        <View style={styles.balanceValue}>
-          <Xp value={user.points} size={18} large />
+        <View style={styles.balanceTop}>
+          <View>
+            <Text style={styles.balanceLabel}>Your balance</Text>
+            <View style={styles.balanceValue}>
+              <Xp value={user.points} size={18} large />
+            </View>
+          </View>
+          <CoupleLockup
+            leftName={user.name}
+            leftColor={user.color}
+            leftSrc={user.avatarUrl}
+            rightName={user.partnerName}
+            rightColor={user.partnerColor}
+            rightSrc={user.partnerAvatar}
+            size={44}
+          />
         </View>
+        {held > 0 && (
+          <View style={styles.holdRow}>
+            <Ionicons name="time-outline" size={13} color={colors.inkMuted} />
+            <Text style={styles.holdText}>
+              {held} 💎 already spent on{' '}
+              {pending.length === 1
+                ? `${pending[0].emoji} ${pending[0].prizeTitle}`
+                : `${pending.length} prizes`}
+              , waiting on {partner}.
+            </Text>
+          </View>
+        )}
       </View>
 
       <Text style={styles.screenTitle}>Redeem</Text>
       <Text style={styles.subtitle}>Tap a prize you can afford.</Text>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {prizes.length === 0 ? (
         <View style={styles.empty}>
@@ -95,15 +132,19 @@ export default function Redeem({
       ) : (
         <View style={styles.grid}>
           {prizes.map((p) => {
+            const heldPrize = pending.find(
+              (r) => r.prizeTitle === p.title && r.emoji === p.emoji,
+            );
             const affordable = user.points >= p.cost;
+            const locked = Boolean(heldPrize) || !affordable;
             return (
               <Pressable
                 key={p.id}
-                style={[styles.tile, !affordable && styles.tileLocked]}
-                disabled={!affordable || busy === p.id || !!success}
+                style={[styles.tile, locked && styles.tileLocked]}
+                disabled={locked || busy === p.id || !!success}
                 onPress={() => void redeem(p)}
               >
-                {!affordable && (
+                {locked && (
                   <View style={styles.lockBadge}>
                     <Ionicons name="lock-closed" size={12} color={colors.inkMuted} />
                   </View>
@@ -114,11 +155,13 @@ export default function Redeem({
                 </Text>
                 <Xp value={p.cost} size={12} />
                 <Text style={styles.tileHint}>
-                  {affordable
-                    ? busy === p.id
-                      ? 'Redeeming…'
-                      : 'Tap to redeem'
-                    : `Need ${p.cost - user.points} more`}
+                  {heldPrize
+                    ? `Waiting on ${partner}`
+                    : affordable
+                      ? busy === p.id
+                        ? 'Redeeming…'
+                        : 'Tap to redeem'
+                      : `Need ${p.cost - user.points} more`}
                 </Text>
               </Pressable>
             );
@@ -159,8 +202,27 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     ...shadow,
   },
+  balanceTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+  },
   balanceLabel: { fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
   balanceValue: { marginTop: 8, alignSelf: 'flex-start' },
+  holdRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 5,
+    marginTop: 10,
+  },
+  holdText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.inkMuted,
+    fontWeight: '600',
+  },
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
   subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: -8 },
   error: { color: colors.red, fontSize: 13 },

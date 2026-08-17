@@ -119,7 +119,7 @@ export default function WifeManage() {
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Text style={styles.sectionLabel}>Partner</Text>
       {hasPartner ? (

@@ -15,6 +15,7 @@ export interface User {
   friendIds: string[];
   points: number;
   token?: string;
+  pushToken?: string;
   onboarded: boolean;
   demo?: boolean;
   createdAt: string;

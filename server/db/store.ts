@@ -39,6 +39,7 @@ function asUser(row: typeof users.$inferSelect): User {
     friendIds: row.friendIds ?? [],
     points: row.points,
     token: row.token ?? undefined,
+    pushToken: row.pushToken ?? undefined,
     onboarded: Boolean(row.onboarded),
     demo: row.demo,
     createdAt: row.createdAt,
@@ -61,6 +62,7 @@ function userValues(u: User) {
     friendIds: u.friendIds,
     points: u.points,
     token: u.token ?? null,
+    pushToken: u.pushToken ?? null,
     onboarded: u.onboarded,
     demo: !!u.demo,
     createdAt: u.createdAt,
@@ -214,7 +216,14 @@ export async function saveState(db: Database, state: State): Promise<void> {
           coupleUsername: sql`excluded.couple_username`,
           friendIds: sql`excluded.friend_ids`,
           points: sql`excluded.points`,
-          token: sql`excluded.token`,
+          // Never let a stale in-memory snapshot wipe a live session token
+          // (Railway rolling deploys load/save overlapping processes).
+          token: sql`CASE
+            WHEN excluded.token = '' THEN NULL
+            WHEN excluded.token IS NULL THEN users.token
+            ELSE excluded.token
+          END`,
+          pushToken: sql`excluded.push_token`,
           onboarded: sql`users.onboarded OR excluded.onboarded`,
           demo: sql`excluded.demo`,
           createdAt: sql`excluded.created_at`,
@@ -258,6 +267,6 @@ export async function saveState(db: Database, state: State): Promise<void> {
 
 export async function resetDatabase(db: Database): Promise<void> {
   await db.execute(
-    sql`TRUNCATE TABLE friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
+    sql`TRUNCATE TABLE media, friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
   );
 }

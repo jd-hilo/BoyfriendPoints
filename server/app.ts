@@ -28,7 +28,7 @@ import {
   loginOrCreateFromIdentity,
   logout,
   PRIZE_SUGGESTIONS,
-  pendingRedemptionsForWife,
+  pendingRedemptionsForUser,
   pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
@@ -40,10 +40,12 @@ import {
   removePartner,
   removePrize,
   removeTask,
+  setPushToken,
   shareRedemption,
   shareSubmission,
   signup,
   joinWithInviteCode,
+  switchRole,
   updateProfile,
   submissionsForBoyfriend,
   TASK_SUGGESTIONS,
@@ -56,17 +58,21 @@ import {
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
+import { notifyUser, userById } from './push.ts';
+import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
+import type { Database } from './db/client.ts';
 
 export interface CreateAppOptions {
   state: State;
   onChange?: (state: State) => void;
+  db?: Database;
 }
 
 interface AuthedRequest extends Request {
   user?: User;
 }
 
-export function createApp({ state, onChange }: CreateAppOptions): Express {
+export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   const app = express();
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -81,7 +87,7 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     }
     next();
   });
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '3mb' }));
 
   const persist = () => onChange?.(state);
 
@@ -120,6 +126,50 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', users: state.users.length });
+  });
+
+  app.get('/api/media/:id', async (req, res) => {
+    if (!db) {
+      res.status(503).json({ error: 'Photo storage is not configured' });
+      return;
+    }
+    try {
+      const row = await readMedia(db, req.params.id);
+      if (!row) {
+        res.status(404).json({ error: 'Photo not found' });
+        return;
+      }
+      const body = mediaBytes(row);
+      res.setHeader('Content-Type', row.contentType);
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      res.send(Buffer.from(body));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/media', async (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    if (!db) {
+      res.status(503).json({ error: 'Photo storage is not configured' });
+      return;
+    }
+    try {
+      const row = await createMedia(
+        db,
+        user.id,
+        String(req.body?.contentType ?? 'image/jpeg'),
+        String(req.body?.data ?? ''),
+      );
+      const origin = publicOrigin({
+        proto: req.get('x-forwarded-proto') ?? req.protocol,
+        host: req.get('x-forwarded-host') ?? req.get('host'),
+      });
+      res.status(201).json({ id: row.id, url: mediaUrl(origin, row.id) });
+    } catch (err) {
+      fail(res, err);
+    }
   });
 
   app.get('/api/suggestions', (_req, res) => {
@@ -257,9 +307,28 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     const user = requireAuth(req, res);
     if (!user) return;
     try {
-      updateProfile(user, { name: req.body?.name ? String(req.body.name) : undefined });
+      const role = String(req.body?.role ?? '');
+      if (role === 'wife' || role === 'boyfriend') {
+        switchRole(state, user, role);
+      }
+      updateProfile(user, {
+        name: req.body?.name ? String(req.body.name) : undefined,
+        avatarUrl: req.body?.avatarUrl ? String(req.body.avatarUrl) : undefined,
+      });
       persist();
       res.json(publicUser(state, user));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/me/push-token', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      setPushToken(user, String(req.body?.token ?? ''));
+      persist();
+      res.status(204).end();
     } catch (err) {
       fail(res, err);
     }
@@ -368,6 +437,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
         String(req.body?.code ?? ''),
       );
       persist();
+      void notifyUser(
+        userById(state, request.to.id),
+        'New friend request',
+        `${user.name} wants to connect`,
+      );
       res.status(201).json(request);
     } catch (err) {
       fail(res, err);
@@ -380,6 +454,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     try {
       const request = resolveFriendRequest(state, user, req.params.id, true);
       persist();
+      void notifyUser(
+        userById(state, request.from.id),
+        'Friend request accepted',
+        `${user.name} accepted your request`,
+      );
       res.json(request);
     } catch (err) {
       fail(res, err);
@@ -438,6 +517,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
         cost: Number(req.body?.cost),
       });
       persist();
+      void notifyUser(
+        userById(state, wife.partnerId),
+        `${wife.name} added a prize`,
+        `${prize.emoji} ${prize.title} · ${prize.cost} 💎`,
+      );
       res.status(201).json(prize);
     } catch (err) {
       fail(res, err);
@@ -514,6 +598,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
           : undefined,
       });
       persist();
+      void notifyUser(
+        userById(state, user.partnerId),
+        `${user.name} requested points`,
+        `${submission.emoji} ${submission.title} · +${submission.requestedPoints} 💎`,
+      );
       res.status(201).json(submission);
     } catch (err) {
       fail(res, err);
@@ -528,6 +617,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
         req.body?.points === undefined ? undefined : Number(req.body.points);
       const result = approveSubmission(state, wife, req.params.id, revised);
       persist();
+      void notifyUser(
+        userById(state, result.submission.boyfriendId),
+        `${wife.name} approved your request`,
+        `${result.submission.emoji} ${result.submission.title} · +${result.submission.points} 💎`,
+      );
       res.json(result);
     } catch (err) {
       fail(res, err);
@@ -540,6 +634,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     try {
       const submission = denySubmission(state, wife, req.params.id);
       persist();
+      void notifyUser(
+        userById(state, submission.boyfriendId),
+        `${wife.name} passed on your request`,
+        `${submission.emoji} ${submission.title}`,
+      );
       res.json(submission);
     } catch (err) {
       fail(res, err);
@@ -560,9 +659,9 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
 
   // --- Redemptions --------------------------------------------------------
   app.get('/api/redemptions', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
-    if (!wife) return;
-    res.json(pendingRedemptionsForWife(state, wife));
+    const user = requireAuth(req, res);
+    if (!user) return;
+    res.json(pendingRedemptionsForUser(state, user));
   });
 
   app.post('/api/redemptions', (req: AuthedRequest, res) => {
@@ -571,6 +670,11 @@ export function createApp({ state, onChange }: CreateAppOptions): Express {
     try {
       const result = redeemPrize(state, user, String(req.body?.prizeId ?? ''));
       persist();
+      void notifyUser(
+        userById(state, user.partnerId),
+        `${user.name} redeemed a prize`,
+        `${result.redemption.emoji} ${result.redemption.prizeTitle} · −${result.redemption.cost} 💎`,
+      );
       res.status(201).json(result);
     } catch (err) {
       fail(res, err);

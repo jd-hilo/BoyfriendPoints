@@ -4,9 +4,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { getCoachSeen, setCoachSeen } from '../storage';
+import {
+  getSeenApprovals,
+  getSeenNotificationIds,
+  setSeenApprovals,
+} from '../storage';
 import { colors } from '../theme';
-import { Avatar, ReceiptIcon, Xp } from '../ui';
+import { Avatar, ReceiptIcon, ReceiptModal, Xp } from '../ui';
 import { haptic } from '../utils';
 import Feed from './Feed';
 import Submit from './Submit';
@@ -14,6 +18,9 @@ import Redeem from './Redeem';
 import WifeRequests from './WifeRequests';
 import WifeManage from './WifeManage';
 import Notifications from './Notifications';
+import LinkPartner from './LinkPartner';
+import Profile from './Profile';
+import type { Submission } from '../types';
 
 export type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
 
@@ -27,16 +34,21 @@ export default function MainApp({
   openReceipt?: boolean;
 } = {}) {
   const insets = useSafeAreaInsets();
-  const { user, logout, refresh } = useAuth();
+  const { user, refresh } = useAuth();
   const [tab, setTab] = useState<Tab>('feed');
   const [tick, setTick] = useState(0);
   const [pending, setPending] = useState(0);
-  const [friendPending, setFriendPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [coachOpen, setCoachOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [unreadNotifs, setUnreadNotifs] = useState(false);
+  const [approval, setApproval] = useState<Submission | null>(null);
   const [booted, setBooted] = useState(false);
 
   const isWife = user?.role === 'wife';
+  // A prize-setter owns a household on their own; a redeemer only has one
+  // once they've joined with an invite code.
+  const linked = Boolean(user?.partnerId);
+  const hasHousehold = isWife || linked;
 
   const bump = useCallback(() => {
     setTick((t) => t + 1);
@@ -44,26 +56,29 @@ export default function MainApp({
   }, [refresh]);
 
   const loadPending = useCallback(async () => {
+    if (!hasHousehold) {
+      setPending(0);
+      return;
+    }
     try {
-      const requests = await api.friendRequests();
-      const householdId = user?.role === 'wife' ? user.id : user?.partnerId;
-      setFriendPending(
-        requests.filter(
-          (request) =>
-            request.status === 'pending' && request.to.id === householdId,
-        ).length,
-      );
-      if (isWife) {
+      if (isWife && linked) {
         const [subs, redemptions] = await Promise.all([
           api.submissions(),
           api.redemptions(),
         ]);
         setPending(subs.length + redemptions.length);
+      } else {
+        setPending(0);
+      }
+      if (user) {
+        const items = await api.notifications();
+        const seen = await getSeenNotificationIds(user.id);
+        setUnreadNotifs(items.some((item) => !seen.includes(item.id)));
       }
     } catch {
       /* ignore — e.g. brief auth race */
     }
-  }, [isWife, user?.id, user?.partnerId, user?.role]);
+  }, [hasHousehold, isWife, linked, user, user?.id, user?.partnerId, user?.role]);
 
   useEffect(() => {
     void loadPending();
@@ -77,6 +92,9 @@ export default function MainApp({
       setBooted(true);
       return;
     }
+    // Nothing to route to before a household exists — stay un-booted so this
+    // runs for real the moment a partner links.
+    if (!user.partnerId) return;
     let cancelled = false;
     void (async () => {
       if (user.role === 'wife') {
@@ -88,12 +106,6 @@ export default function MainApp({
         const count = subs.length + redemptions.length;
         setPending(count);
         if (count > 0) setTab('requests');
-      } else {
-        const seen = await getCoachSeen(user.id);
-        if (!seen) {
-          setCoachOpen(true);
-          setTab('submit');
-        }
       }
       if (!cancelled) setBooted(true);
     })();
@@ -103,13 +115,78 @@ export default function MainApp({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, booted, initialTab]);
 
-  async function dismissCoach() {
-    if (!user) return;
-    await setCoachSeen(user.id);
-    setCoachOpen(false);
+  useEffect(() => {
+    if (!user || user.role !== 'boyfriend' || !user.partnerId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const subs = await api.submissions();
+        const approved = subs.filter((s) => s.status === 'approved');
+        const seen = await getSeenApprovals(user.id);
+        if (seen === null) {
+          await setSeenApprovals(
+            user.id,
+            approved.map((s) => s.id),
+          );
+          return;
+        }
+        const fresh = approved
+          .filter((s) => !seen.includes(s.id))
+          .sort((a, b) =>
+            (b.resolvedAt ?? b.createdAt).localeCompare(
+              a.resolvedAt ?? a.createdAt,
+            ),
+          );
+        if (!cancelled && fresh[0]) setApproval(fresh[0]);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, tick]);
+
+  async function dismissApproval() {
+    if (!user || !approval) {
+      setApproval(null);
+      return;
+    }
+    const seen = (await getSeenApprovals(user.id)) ?? [];
+    await setSeenApprovals(user.id, [...new Set([...seen, approval.id])]);
+    setApproval(null);
+    void refresh();
   }
 
   if (!user) return null;
+
+  // A redeemer with no household has no tasks, prizes, or feed to show —
+  // linking a partner is the only thing they can meaningfully do.
+  if (!linked && !isWife) {
+    return (
+      <SafeAreaView style={styles.app} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
+          <View style={styles.brandLockup}>
+            <ReceiptIcon size={18} color={colors.ink} />
+            <Text style={styles.wordmarkSm}>LoveReceipts</Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              haptic(10);
+              setProfileOpen(true);
+            }}
+            hitSlop={6}
+          >
+            <Avatar name={user.name} color={user.color} src={user.avatarUrl} size={28} />
+          </Pressable>
+        </View>
+        <View style={styles.main}>
+          <LinkPartner />
+        </View>
+        {profileOpen && <Profile onClose={() => setProfileOpen(false)} />}
+      </SafeAreaView>
+    );
+  }
 
   const midTab: Tab = isWife ? 'requests' : 'submit';
   const rightTab: Tab = isWife ? 'manage' : 'redeem';
@@ -120,6 +197,7 @@ export default function MainApp({
     haptic(10);
     setTab(next);
     setTick((n) => n + 1);
+    void refresh();
   }
 
   return (
@@ -140,13 +218,15 @@ export default function MainApp({
             hitSlop={6}
           >
             <Ionicons name="notifications-sharp" size={20} color={colors.ink} />
-            {pending + friendPending > 0 && (
-              <View style={styles.iconBadge}>
-                <Text style={styles.iconBadgeText}>{pending + friendPending}</Text>
-              </View>
-            )}
+            {unreadNotifs && <View style={styles.unreadDot} />}
           </Pressable>
-          <Pressable onPress={() => void logout()} hitSlop={6}>
+          <Pressable
+            onPress={() => {
+              haptic(10);
+              setProfileOpen(true);
+            }}
+            hitSlop={6}
+          >
             <Avatar name={user.name} color={user.color} src={user.avatarUrl} size={28} />
           </Pressable>
         </View>
@@ -154,15 +234,14 @@ export default function MainApp({
 
       <View style={styles.main}>
         {tab === 'feed' && (
-          <Feed key={`feed-${tick}`} openFirstReact={openFirstReact} />
+          <Feed
+            key={`feed-${tick}`}
+            openFirstReact={openFirstReact}
+            onInvitePartner={linked ? undefined : () => go('manage')}
+          />
         )}
         {tab === 'submit' && (
-          <Submit
-            key={`submit-${tick}`}
-            onDone={bump}
-            coachOpen={coachOpen}
-            onCoachDismiss={dismissCoach}
-          />
+          <Submit key={`submit-${tick}`} onDone={bump} />
         )}
         {tab === 'redeem' && <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />}
         {tab === 'requests' && (
@@ -205,9 +284,26 @@ export default function MainApp({
         <Notifications
           onClose={() => {
             setNotifOpen(false);
+            setUnreadNotifs(false);
             void loadPending();
           }}
           onChanged={() => void loadPending()}
+        />
+      )}
+      {profileOpen && <Profile onClose={() => setProfileOpen(false)} />}
+      {approval && user && (
+        <ReceiptModal
+          kind="approve"
+          subtitle={`${user.partnerName ?? 'Your partner'} just paid you +${approval.points} 💎.`}
+          emoji={approval.emoji}
+          itemTitle={approval.title}
+          points={approval.points}
+          fromName={user.partnerName ?? 'Partner'}
+          toName={user.name}
+          note="Your diamonds just landed."
+          shareLabel="Share receipt"
+          skipLabel="Done"
+          onSkip={() => void dismissApproval()}
         />
       )}
     </SafeAreaView>
@@ -246,7 +342,12 @@ function TabItem({
         ]}
       >
         {iconNode ?? (
-          <Ionicons name={icon ?? 'ellipse'} size={primary ? 28 : 24} color={color} />
+          <Ionicons
+            name={icon ?? 'ellipse'}
+            size={primary ? 28 : 24}
+            color={color}
+            style={primary ? styles.tabPrimaryIcon : undefined}
+          />
         )}
         {badge !== undefined && (
           <View style={styles.iconBadge}>
@@ -301,6 +402,17 @@ const styles = StyleSheet.create({
     borderColor: colors.bg,
   },
   iconBadgeText: { color: '#fff', fontSize: 10, fontWeight: '700' },
+  unreadDot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: colors.red,
+    borderWidth: 1.5,
+    borderColor: colors.bg,
+  },
   main: { flex: 1, paddingHorizontal: 14, paddingTop: 8 },
   tabBar: {
     flexDirection: 'row',
@@ -332,6 +444,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.black,
     alignItems: 'center',
     justifyContent: 'center',
+    // The base wrap's padding would shrink the content box to 28pt and shove
+    // the glyph off-centre inside the circle.
+    paddingHorizontal: 0,
+    paddingVertical: 0,
     marginTop: -26,
     borderWidth: 4,
     borderColor: colors.bg,
@@ -340,6 +456,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.16,
     shadowRadius: 8,
     elevation: 6,
+  },
+  // Default line height leaves descender space under the glyph, which reads as
+  // the icon sitting low in the circle.
+  tabPrimaryIcon: {
+    lineHeight: 28,
+    textAlign: 'center',
+    includeFontPadding: false,
   },
   tabPrimaryLabel: { marginTop: 2 },
   tabLabel: { fontSize: 11, fontWeight: '500', color: colors.inkMuted },

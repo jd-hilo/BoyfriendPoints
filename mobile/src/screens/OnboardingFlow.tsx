@@ -297,8 +297,32 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
   function afterPartner() {
     setError(null);
     // Redeemers skip prize setup — that's the other partner's job.
-    if ((user?.role ?? role) === 'boyfriend') setStep(7);
-    else setStep(6);
+    if ((user?.role ?? role) !== 'boyfriend') {
+      setStep(6);
+      return;
+    }
+    // Finding friends needs a household, so an unlinked redeemer goes straight
+    // into the app, where they're gated on entering a code.
+    if (!user?.partnerId) {
+      void finish();
+      return;
+    }
+    setStep(7);
+  }
+
+  /** Let people fix a mis-picked role while setup is still reversible. */
+  async function changeRole(next: Role) {
+    setError(null);
+    setBusy(true);
+    try {
+      const me = await api.setRole(next);
+      await applyUser(me);
+      setRole(next);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (phase === 'slides') {
@@ -507,6 +531,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               onNext={afterPartner}
               refresh={refresh}
               partnerName={user?.partnerName}
+              onSwitchRole={busy ? undefined : () => void changeRole('wife')}
             />
           ) : (
             <StepInvitePartner
@@ -514,6 +539,9 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               inviteCode={user?.inviteCode}
               partnerName={user?.partnerName}
               sharerName={user?.name ?? name}
+              onSwitchRole={
+                busy ? undefined : () => void changeRole('boyfriend')
+              }
             />
           ))}
 
@@ -767,11 +795,13 @@ function StepInvitePartner({
   inviteCode,
   partnerName,
   sharerName,
+  onSwitchRole,
 }: {
   onNext: () => void;
   inviteCode?: string;
   partnerName?: string;
   sharerName: string;
+  onSwitchRole?: () => void;
 }) {
   const code = inviteCode ?? '······';
 
@@ -817,7 +847,15 @@ function StepInvitePartner({
       {partnerName ? (
         <PrimaryButton label="Continue" onPress={onNext} />
       ) : (
-        <SkipLink label="Continue — I'll share later" onPress={onNext} />
+        <>
+          <SkipLink label="Continue — I'll share later" onPress={onNext} />
+          {onSwitchRole && (
+            <SkipLink
+              label="Actually, I'm the one earning points"
+              onPress={onSwitchRole}
+            />
+          )}
+        </>
       )}
     </StepShell>
   );
@@ -828,10 +866,12 @@ function StepEnterCode({
   onNext,
   refresh,
   partnerName,
+  onSwitchRole,
 }: {
   onNext: () => void;
   refresh: () => Promise<void>;
   partnerName?: string;
+  onSwitchRole?: () => void;
 }) {
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -890,6 +930,12 @@ function StepEnterCode({
             onPress={() => void join()}
           />
           <SkipLink label="I don't have a code yet" onPress={onNext} />
+          {onSwitchRole && (
+            <SkipLink
+              label="Actually, I'll set the prizes"
+              onPress={onSwitchRole}
+            />
+          )}
         </>
       )}
     </StepShell>

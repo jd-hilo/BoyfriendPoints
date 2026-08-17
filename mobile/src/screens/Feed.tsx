@@ -6,7 +6,9 @@ import {
   Easing,
   FlatList,
   Image,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,11 +16,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { FeedComment, FeedEventView, FriendRequestView } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { colors, radius, shadow } from '../theme';
-import { Avatar, Xp } from '../ui';
+import { colors, shadow } from '../theme';
+import { Avatar } from '../ui';
 import { haptic, timeAgo } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,12 +29,14 @@ import { Ionicons } from '@expo/vector-icons';
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_WIDTH = SCREEN_WIDTH - 28;
+const RECEIPT_CONTENT_WIDTH = CARD_WIDTH - 36;
+const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 function PhotoCarousel({ images }: { images: string[] }) {
   const [active, setActive] = useState(0);
 
   function onScroll(e: { nativeEvent: { contentOffset: { x: number } } }) {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
+    const idx = Math.round(e.nativeEvent.contentOffset.x / RECEIPT_CONTENT_WIDTH);
     setActive(Math.max(0, Math.min(images.length - 1, idx)));
   }
 
@@ -65,8 +70,10 @@ function PhotoCarousel({ images }: { images: string[] }) {
 
 export default function Feed({
   openFirstReact,
+  onInvitePartner,
 }: {
   openFirstReact?: boolean;
+  onInvitePartner?: () => void;
 } = {}) {
   const { user } = useAuth();
   const [events, setEvents] = useState<FeedEventView[]>([]);
@@ -201,7 +208,10 @@ export default function Feed({
     return (
       <View style={styles.flex}>
         {requestBanner}
-        <EmptyHome onAddCouples={() => setAddCouplesOpen(true)} />
+        <EmptyHome
+          onAddCouples={() => setAddCouplesOpen(true)}
+          onInvitePartner={onInvitePartner}
+        />
         <AddCouplesModal
           visible={addCouplesOpen}
           onClose={() => setAddCouplesOpen(false)}
@@ -220,36 +230,20 @@ export default function Feed({
         ListHeaderComponent={requestBanner}
         renderItem={({ item: e }) => (
           <View style={styles.feedCard}>
-            <View style={styles.feedCardTop}>
-              <Text style={styles.feedTime}>{timeAgo(e.createdAt)} ago</Text>
-            </View>
-
-            <View style={styles.feedStory}>
-              <CoupleAvatars
-                boyfriendName={e.boyfriendName}
-                boyfriendColor={e.boyfriendColor}
-                boyfriendAvatar={e.boyfriendAvatar}
-                wifeName={e.wifeName}
-                wifeColor={e.wifeColor}
-                wifeAvatar={e.wifeAvatar}
-              />
-              <View style={styles.feedStoryText}>
-                <Text style={styles.feedLine}>
-                  <Text style={styles.name}>{e.boyfriendName}</Text>
-                  <Text style={styles.verb}>
-                    {e.type === 'earn' ? ' earned from ' : ' redeemed with '}
-                  </Text>
-                  <Text style={styles.name}>{e.wifeName}</Text>
-                </Text>
-                <Text style={styles.feedNote}>
-                  {e.emoji} {e.title}
-                  {e.note ? ` — ${e.note}` : ''}
-                </Text>
-              </View>
-              <View style={styles.feedAmount}>
-                <Xp value={e.points} sign={e.type === 'earn' ? '+' : '−'} size={13} />
-              </View>
-            </View>
+            <FeedReceipt
+              type={e.type}
+              boyfriendName={e.boyfriendName}
+              boyfriendColor={e.boyfriendColor}
+              boyfriendAvatar={e.boyfriendAvatar}
+              wifeName={e.wifeName}
+              wifeColor={e.wifeColor}
+              wifeAvatar={e.wifeAvatar}
+              emoji={e.emoji}
+              title={e.title}
+              note={e.note}
+              points={e.points}
+              createdAt={e.createdAt}
+            />
 
             {e.images.length > 0 && <PhotoCarousel images={e.images} />}
 
@@ -268,7 +262,7 @@ export default function Feed({
                   setCommentsFor(e.id);
                 }}
               >
-                <Ionicons name="chatbubble" size={16} color={colors.inkMuted} />
+                <Ionicons name="chatbubble-outline" size={17} color={colors.ink} />
                 {e.comments.length > 0 && (
                   <Text style={styles.actionCount}>{e.comments.length}</Text>
                 )}
@@ -280,7 +274,7 @@ export default function Feed({
                 <Ionicons
                   name={e.likedByMe ? 'heart' : 'heart-outline'}
                   size={18}
-                  color={e.likedByMe ? '#ff5a8a' : colors.inkMuted}
+                  color={e.likedByMe ? '#ff5a8a' : colors.ink}
                 />
                 {e.likes.length > 0 && (
                   <Text style={styles.actionCount}>{e.likes.length}</Text>
@@ -293,7 +287,7 @@ export default function Feed({
                   setPickerFor(pickerFor === e.id ? null : e.id);
                 }}
               >
-                <Ionicons name="happy" size={18} color={colors.inkMuted} />
+                <Ionicons name="happy-outline" size={18} color={colors.ink} />
               </Pressable>
               {pickerFor === e.id && (
                 <EmojiPicker
@@ -302,6 +296,7 @@ export default function Feed({
                 />
               )}
             </View>
+            <ReceiptTear />
           </View>
         )}
       />
@@ -318,6 +313,99 @@ export default function Feed({
         onClose={() => setAddCouplesOpen(false)}
         onChanged={() => void load()}
       />
+    </View>
+  );
+}
+
+function FeedReceipt({
+  type,
+  boyfriendName,
+  boyfriendColor,
+  boyfriendAvatar,
+  wifeName,
+  wifeColor,
+  wifeAvatar,
+  emoji,
+  title,
+  note,
+  points,
+  createdAt,
+}: {
+  type: 'earn' | 'redeem';
+  boyfriendName: string;
+  boyfriendColor: string;
+  boyfriendAvatar?: string | number;
+  wifeName: string;
+  wifeColor: string;
+  wifeAvatar?: string | number;
+  emoji: string;
+  title: string;
+  note: string;
+  points: number;
+  createdAt: string;
+}) {
+  const sign = type === 'earn' ? '+' : '−';
+  return (
+    <View style={styles.receiptBody}>
+      <View style={styles.receiptBrandRow}>
+        <View style={styles.receiptBrand}>
+          <Text style={styles.receiptIcon}>🧾</Text>
+          <Text style={styles.receiptBrandText}>LoveReceipts</Text>
+        </View>
+        <Text style={styles.feedTime}>{timeAgo(createdAt)} ago</Text>
+      </View>
+
+      <View style={styles.receiptDash} />
+
+      <View style={styles.receiptItemRow}>
+        <Text style={styles.receiptItemLabel}>
+          {type === 'earn' ? 'POINTS EARNED' : 'PRIZE REDEEMED'}
+        </Text>
+        <Text style={styles.receiptItemPoints}>{sign}{points} pts</Text>
+      </View>
+      <Text style={styles.receiptTitle}>{emoji} {title}</Text>
+      {note ? <Text style={styles.receiptNote}>{note}</Text> : null}
+
+      <View style={styles.receiptDash} />
+
+      <View style={styles.receiptPeopleRow}>
+        <Text style={styles.receiptKey}>FROM</Text>
+        <View style={styles.receiptPerson}>
+          <Avatar
+            name={boyfriendName}
+            color={boyfriendColor}
+            src={boyfriendAvatar}
+            size={24}
+          />
+          <Text style={styles.receiptPersonName}>{boyfriendName}</Text>
+        </View>
+      </View>
+      <View style={styles.receiptPeopleRow}>
+        <Text style={styles.receiptKey}>TO</Text>
+        <View style={styles.receiptPerson}>
+          <Avatar name={wifeName} color={wifeColor} src={wifeAvatar} size={24} />
+          <Text style={styles.receiptPersonName}>{wifeName}</Text>
+        </View>
+      </View>
+
+      <View style={styles.receiptDash} />
+
+      <View style={styles.receiptTotalRow}>
+        <Text style={styles.receiptTotalLabel}>
+          TOTAL {type === 'earn' ? 'EARNED' : 'SPENT'}
+        </Text>
+        <Text style={styles.receiptTotalValue}>{sign}{points} 💎</Text>
+      </View>
+    </View>
+  );
+}
+
+function ReceiptTear() {
+  return (
+    <View pointerEvents="none" style={styles.receiptTear}>
+      {Array.from({ length: 24 }, (_, index) => (
+        <View key={index} style={styles.receiptTearCutout} />
+      ))}
     </View>
   );
 }
@@ -352,13 +440,31 @@ function CoupleAvatars({
   );
 }
 
-function EmptyHome({ onAddCouples }: { onAddCouples: () => void }) {
+function EmptyHome({
+  onAddCouples,
+  onInvitePartner,
+}: {
+  onAddCouples: () => void;
+  onInvitePartner?: () => void;
+}) {
+  // The feed stays empty until both partners are in, so say that instead of
+  // pointing at friends they can't see yet.
+  const unlinked = Boolean(onInvitePartner);
   return (
     <View style={styles.emptyHome}>
       <DemoPost />
-      <Text style={styles.emptyTitle}>See what other couples are up to</Text>
-      <Pressable style={styles.addFriendButton} onPress={onAddCouples}>
-        <Text style={styles.addFriendText}>Add couples</Text>
+      <Text style={styles.emptyTitle}>
+        {unlinked
+          ? 'Your feed starts when your partner joins'
+          : 'See what other couples are up to'}
+      </Text>
+      <Pressable
+        style={styles.addFriendButton}
+        onPress={onInvitePartner ?? onAddCouples}
+      >
+        <Text style={styles.addFriendText}>
+          {unlinked ? 'Invite partner' : 'Add couples'}
+        </Text>
       </Pressable>
     </View>
   );
@@ -418,33 +524,27 @@ function DemoPost() {
   return (
     <View style={styles.demoWrap}>
       <View style={styles.demoCard}>
-        <View style={styles.feedStory}>
-          <CoupleAvatars
-            boyfriendName="Alex"
-            boyfriendColor="#2383e2"
-            boyfriendAvatar={require('../../assets/demo-alex.png')}
-            wifeName="Maya"
-            wifeColor="#d9730d"
-            wifeAvatar={require('../../assets/demo-maya.png')}
-          />
-          <View style={styles.feedStoryText}>
-            <Text style={styles.feedLine}>
-              <Text style={styles.name}>Alex</Text>
-              <Text style={styles.verb}> earned from </Text>
-              <Text style={styles.name}>Maya</Text>
-            </Text>
-            <Text style={styles.feedNote}>🌿 Mowed the lawn</Text>
-          </View>
-          <View style={styles.feedAmount}>
-            <Xp value={15} sign="+" size={13} />
-          </View>
-        </View>
+        <FeedReceipt
+          type="earn"
+          boyfriendName="Alex"
+          boyfriendColor="#2383e2"
+          boyfriendAvatar={require('../../assets/demo-alex.png')}
+          wifeName="Maya"
+          wifeColor="#d9730d"
+          wifeAvatar={require('../../assets/demo-maya.png')}
+          emoji="🌿"
+          title="Mowed the lawn"
+          note=""
+          points={15}
+          createdAt={new Date().toISOString()}
+        />
 
         <View style={styles.demoReactions}>
           <DemoPill emoji="❤️" count="3" progress={heart} />
           <DemoPill emoji="🔥" count="2" progress={fire} />
           <DemoPill emoji="👏" count="1" progress={clap} />
         </View>
+        <ReceiptTear />
       </View>
 
       {DEMO_BURST.map((item) => (
@@ -590,8 +690,23 @@ function CommentSheet({
   onClose: () => void;
   onSubmitComment: (text: string) => void | Promise<void>;
 }) {
+  const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
+  const [keyboardH, setKeyboardH] = useState(0);
   const comments: FeedComment[] = event.comments;
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardH(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener(hideEvt, () => setKeyboardH(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   async function submit() {
     const value = text.trim();
@@ -600,9 +715,14 @@ function CommentSheet({
     await onSubmitComment(value);
   }
 
+  const lift = keyboardH > 0 ? keyboardH : Math.max(insets.bottom, 12);
+
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+      <Pressable
+        style={[styles.sheetBackdrop, { paddingBottom: lift }]}
+        onPress={onClose}
+      >
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.sheetHandle} />
           <View style={styles.sheetHead}>
@@ -616,6 +736,8 @@ function CommentSheet({
             data={comments}
             keyExtractor={(c) => c.id}
             style={styles.sheetBody}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             ListEmptyComponent={
               <Text style={[styles.centerMuted, { paddingVertical: 24 }]}>
                 No comments yet. Be the first 💬
@@ -642,10 +764,13 @@ function CommentSheet({
               onChangeText={setText}
               placeholder="Add a comment…"
               autoFocus
+              returnKeyType="send"
+              onSubmitEditing={() => void submit()}
+              blurOnSubmit={false}
             />
             <Pressable
               style={[styles.sheetSend, !text.trim() && styles.sheetSendDisabled]}
-              onPress={submit}
+              onPress={() => void submit()}
               disabled={!text.trim()}
             >
               <Text style={styles.sheetSendText}>Post</Text>
@@ -660,7 +785,7 @@ function CommentSheet({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centerMuted: { textAlign: 'center', color: colors.inkMuted, padding: 16 },
-  feedList: { gap: 12, paddingTop: 4, paddingBottom: 24 },
+  feedList: { paddingTop: 4, paddingBottom: 24 },
   requestList: { gap: 8, marginBottom: 8 },
   requestCard: {
     flexDirection: 'row',
@@ -684,16 +809,141 @@ const styles = StyleSheet.create({
   requestAcceptText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   requestDecline: { color: colors.inkMuted, fontSize: 17, paddingHorizontal: 3 },
   feedCard: {
-    backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: 16,
-    paddingBottom: 12,
-    marginBottom: 12,
+    backgroundColor: '#fffdf7',
+    borderRadius: 5,
+    padding: 18,
+    paddingBottom: 18,
+    marginBottom: 18,
     overflow: 'visible',
-    ...shadow,
+    shadowColor: '#463f2f',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.09,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  feedCardTop: { marginBottom: 12 },
-  feedTime: { fontSize: 13, color: colors.inkMuted, fontWeight: '500' },
+  receiptBody: { gap: 10 },
+  receiptBrandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  receiptBrand: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  receiptIcon: { fontSize: 18 },
+  receiptBrandText: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.ink,
+    letterSpacing: 0.3,
+  },
+  feedTime: {
+    fontFamily: MONO,
+    fontSize: 11,
+    color: colors.inkMuted,
+    fontWeight: '500',
+  },
+  receiptDash: {
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#c9c4b8',
+    height: 1,
+  },
+  receiptItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  receiptItemLabel: {
+    fontFamily: MONO,
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.inkMuted,
+    letterSpacing: 0.8,
+  },
+  receiptItemPoints: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink2,
+  },
+  receiptTitle: {
+    fontSize: 16,
+    lineHeight: 23,
+    color: colors.ink,
+    fontWeight: '800',
+  },
+  receiptNote: {
+    marginTop: -4,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.ink2,
+  },
+  receiptPeopleRow: {
+    minHeight: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  receiptKey: {
+    fontFamily: MONO,
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.inkMuted,
+    letterSpacing: 0.8,
+  },
+  receiptPerson: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    flexShrink: 1,
+  },
+  receiptPersonName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.ink,
+    flexShrink: 1,
+  },
+  receiptTotalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  receiptTotalLabel: {
+    fontFamily: MONO,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.ink,
+    letterSpacing: 0.6,
+  },
+  receiptTotalValue: {
+    fontFamily: MONO,
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.ink,
+  },
+  receiptTear: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: -7,
+    height: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    overflow: 'hidden',
+  },
+  receiptTearCutout: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    backgroundColor: colors.bg,
+  },
   feedStory: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   coupleAvatars: {
     width: 58,
@@ -708,9 +958,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   feedStoryText: { flex: 1 },
-  feedLine: { fontSize: 15, lineHeight: 20, color: colors.ink },
-  name: { color: colors.blueName, fontWeight: '700' },
-  verb: { color: colors.ink },
+  feedLine: { fontSize: 16, lineHeight: 22, color: colors.ink },
+  name: { color: colors.ink, fontWeight: '800', fontSize: 16, lineHeight: 22 },
+  verb: { color: colors.inkMuted, fontWeight: '500', fontSize: 16, lineHeight: 22 },
   feedNote: { marginTop: 6, color: colors.ink, fontSize: 15, lineHeight: 20 },
   feedAmount: { paddingTop: 1 },
   emptyHome: {
@@ -744,11 +994,16 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   demoCard: {
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 16,
-    paddingBottom: 14,
-    ...shadow,
+    backgroundColor: '#fffdf7',
+    borderRadius: 5,
+    padding: 18,
+    paddingBottom: 18,
+    overflow: 'visible',
+    shadowColor: '#463f2f',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.09,
+    shadowRadius: 10,
+    elevation: 2,
   },
   demoReactions: {
     flexDirection: 'row',
@@ -764,7 +1019,7 @@ const styles = StyleSheet.create({
   },
   carousel: { marginTop: 12, marginBottom: 4 },
   carouselImg: {
-    width: CARD_WIDTH,
+    width: RECEIPT_CONTENT_WIDTH,
     aspectRatio: 3 / 2,
     borderRadius: 16,
     backgroundColor: '#eef1f4',
@@ -797,17 +1052,16 @@ const styles = StyleSheet.create({
     zIndex: 2,
   },
   actionCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: '#d7d7d7',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#f1eee6',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 2,
   },
-  actionCircleLiked: { borderColor: '#ff5a8a', backgroundColor: '#fff0f5' },
+  actionCircleLiked: { backgroundColor: '#fff0f5' },
   likedText: { color: '#ff5a8a' },
   actionCount: { fontSize: 12, fontWeight: '600', color: colors.ink2, marginLeft: 2 },
   pickerBackdrop: { position: 'absolute', top: -1000, left: -1000, right: -1000, bottom: -1000 },

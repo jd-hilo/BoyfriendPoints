@@ -9,6 +9,7 @@ import type {
   Prize,
   PublicUser,
   Redemption,
+  Role,
   Submission,
   Suggestion,
   User,
@@ -62,8 +63,12 @@ function pickColor(state: State): string {
 }
 
 /** Deterministic, playful profile image for a given seed (renders client-side). */
-export function avatarFor(seed: string): string {
-  return `https://api.dicebear.com/9.x/adventurer/svg?seed=${encodeURIComponent(
+/**
+ * Generated avatar for a name. PNG by default because React Native's `Image`
+ * can't decode SVG; the web `<img>` renders either.
+ */
+export function avatarFor(seed: string, format: 'png' | 'svg' = 'png'): string {
+  return `https://api.dicebear.com/9.x/adventurer/${format}?seed=${encodeURIComponent(
     seed,
   )}&backgroundType=gradientLinear&radius=50`;
 }
@@ -366,7 +371,7 @@ export function loginOrCreateFromIdentity(
 export function deviceLogin(state: State, userId: string): User {
   const user = state.users.find((u) => u.id === userId);
   if (!user) throw new Error('Persona not found');
-  user.token = token();
+  if (!user.token) user.token = token();
   return user;
 }
 
@@ -382,7 +387,9 @@ export function listPersonas(state: State): PublicUser[] {
 }
 
 export function logout(user: User): void {
-  user.token = undefined;
+  // Empty string means "clear this token" in saveState. `undefined` is
+  // treated as "this snapshot doesn't know" so a deploy can't wipe sessions.
+  user.token = '';
 }
 
 export function inviteBoyfriend(
@@ -424,7 +431,7 @@ export function removePartner(state: State, wife: User): void {
   const partner = state.users.find((u) => u.id === wife.partnerId);
   if (partner?.partnerId === wife.id) {
     partner.partnerId = undefined;
-    partner.token = undefined;
+    partner.token = '';
   }
   wife.partnerId = undefined;
 }
@@ -436,12 +443,24 @@ export function listFriends(state: State, wife: User): PublicUser[] {
     .map((u) => publicUser(state, u));
 }
 
+/** The couple household for social features, or undefined when unlinked. */
+export function findHousehold(state: State, user: User): User | undefined {
+  const wifeId = ownerWifeId(user);
+  const wife = wifeId
+    ? state.users.find((candidate) => candidate.id === wifeId)
+    : undefined;
+  return wife?.role === 'wife' ? wife : undefined;
+}
+
 /** The couple household for social features — one person is enough. */
 export function requireHousehold(state: State, user: User): User {
-  const wifeId = ownerWifeId(user);
-  const wife = wifeId ? state.users.find((candidate) => candidate.id === wifeId) : undefined;
-  if (!wife || wife.role !== 'wife') {
-    throw new Error('Create your couple before connecting with other couples');
+  const wife = findHousehold(state, user);
+  if (!wife) {
+    throw new Error(
+      user.role === 'boyfriend'
+        ? 'Enter your partner’s invite code before connecting with other couples'
+        : 'Create your couple before connecting with other couples',
+    );
   }
   return wife;
 }
@@ -458,19 +477,16 @@ export function requireLinkedHousehold(state: State, user: User): User {
   return wife;
 }
 
+/** Friend-request payloads must never leak another household's invite code. */
+function withoutInviteCode(user: PublicUser): PublicUser {
+  return { ...user, inviteCode: undefined };
+}
+
 function friendRequestView(state: State, request: FriendRequest): FriendRequestView {
-  const { inviteCode: _fromInviteCode, ...from } = publicUser(
-    state,
-    requireUser(state, request.fromWifeId),
-  );
-  const { inviteCode: _toInviteCode, ...to } = publicUser(
-    state,
-    requireUser(state, request.toWifeId),
-  );
   return {
     ...request,
-    from,
-    to,
+    from: withoutInviteCode(publicUser(state, requireUser(state, request.fromWifeId))),
+    to: withoutInviteCode(publicUser(state, requireUser(state, request.toWifeId))),
   };
 }
 
@@ -563,7 +579,9 @@ export function requestFriendByCode(
 }
 
 export function friendRequestsForUser(state: State, user: User): FriendRequestView[] {
-  const wife = requireHousehold(state, user);
+  // An unlinked user has no household yet — that's an empty inbox, not an error.
+  const wife = findHousehold(state, user);
+  if (!wife) return [];
   return state.friendRequests
     .filter(
       (request) =>
@@ -633,13 +651,80 @@ export function completeOnboarding(user: User): void {
 /** Update display name during / after onboarding. */
 export function updateProfile(
   user: User,
-  input: { name?: string },
+  input: { name?: string; avatarUrl?: string },
 ): User {
   const name = input.name?.trim();
   if (name) {
+    // Only let the avatar follow the name while it's still the generated
+    // default — a picked one shouldn't be thrown away by a rename.
+    const usingDefault =
+      !user.avatarUrl ||
+      user.avatarUrl === avatarFor(user.name) ||
+      user.avatarUrl === avatarFor(user.name, 'svg');
     user.name = name;
-    user.avatarUrl = avatarFor(name);
+    if (usingDefault) user.avatarUrl = avatarFor(name);
   }
+
+  const avatarUrl = input.avatarUrl?.trim();
+  if (avatarUrl) {
+    if (!/^https?:\/\//.test(avatarUrl)) {
+      throw new Error('Avatar must be an image URL');
+    }
+    user.avatarUrl = avatarUrl;
+  }
+  return user;
+}
+
+export function setPushToken(user: User, token: string): User {
+  const trimmed = token.trim();
+  if (!trimmed) throw new Error('Push token is required');
+  user.pushToken = trimmed;
+  return user;
+}
+
+/**
+ * Swap which side of the household a user is on. Only possible during setup:
+ * once a partner is linked or points have moved, the role is load-bearing.
+ */
+export function switchRole(state: State, user: User, next: Role): User {
+  if (user.role === next) return user;
+  if (user.partnerId) throw new Error('Unlink your partner before switching roles');
+  if (state.submissions.some((s) => s.boyfriendId === user.id)) {
+    throw new Error('You already have point requests on this account');
+  }
+
+  if (next === 'boyfriend') {
+    state.prizes = state.prizes.filter((prize) => prize.wifeId !== user.id);
+    state.tasks = state.tasks.filter((task) => task.wifeId !== user.id);
+    state.friendRequests = state.friendRequests.filter(
+      (request) =>
+        request.fromWifeId !== user.id && request.toWifeId !== user.id,
+    );
+    for (const other of state.users) {
+      other.friendIds = other.friendIds.filter((id) => id !== user.id);
+    }
+    user.friendIds = [];
+    user.inviteCode = undefined;
+    user.coupleCode = undefined;
+    user.coupleUsername = undefined;
+  } else {
+    user.inviteCode = generateInviteCode(state);
+    user.coupleCode = generateInviteCode(state);
+    user.coupleUsername = availableCoupleUsername(state, user.name);
+    for (const suggestion of TASK_SUGGESTIONS) {
+      state.tasks.push({
+        id: id('t_'),
+        wifeId: user.id,
+        title: suggestion.title,
+        emoji: suggestion.emoji,
+        points: suggestion.points,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  user.role = next;
+  user.points = 0;
   return user;
 }
 
@@ -1040,12 +1125,20 @@ export function pendingSubmissionsForWife(
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-export function pendingRedemptionsForWife(
+/**
+ * Pending redemptions from either side of the household: the wife still owes
+ * them, and the boyfriend has already paid for them out of his balance.
+ */
+export function pendingRedemptionsForUser(
   state: State,
-  wife: User,
+  user: User,
 ): Redemption[] {
   return state.redemptions
-    .filter((r) => r.wifeId === wife.id && r.status === 'pending')
+    .filter(
+      (r) =>
+        (user.role === 'wife' ? r.wifeId : r.boyfriendId) === user.id &&
+        r.status === 'pending',
+    )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 

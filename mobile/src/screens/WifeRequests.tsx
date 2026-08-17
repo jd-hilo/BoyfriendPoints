@@ -133,7 +133,7 @@ export default function WifeRequests({
   if (empty) {
     return (
       <View style={styles.emptyScreen}>
-        {error && <Text style={styles.error}>{error}</Text>}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         <EmptyReview
           hasPartner={Boolean(user?.partnerId && user.partnerName)}
           onAddPrizes={onAddPrizes}
@@ -146,7 +146,7 @@ export default function WifeRequests({
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
       <Text style={styles.screenTitle}>Review</Text>
       <Text style={styles.subtitle}>A quick look at what your partner is asking for.</Text>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       {subs.length > 0 && (
         <>
@@ -160,7 +160,7 @@ export default function WifeRequests({
                   </Text>
                   <Xp value={s.requestedPoints} sign="+" size={13} />
                 </View>
-                {s.note && <Text style={styles.requestNote}>"{s.note}"</Text>}
+                {s.note ? <Text style={styles.requestNote}>"{s.note}"</Text> : null}
                 <Text style={styles.adjustLabel}>Approve points</Text>
                 <View style={styles.requestActions}>
                   <TextInput

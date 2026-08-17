@@ -20,6 +20,7 @@
         "CFBundleDisplayName": "LoveReceipts",
         "CFBundleName": "LoveReceipts",
         "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "LoveReceipts uses your photo library for your profile picture and proof photos on point requests.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
@@ -40,7 +41,20 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-notifications",
+        {
+          "color": "#191918",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow LoveReceipts to use photos for your profile and task proof."
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "https://api-production-bae8.up.railway.app/api",

@@ -24,7 +24,7 @@ import {
   loginOrCreateFromIdentity,
   logout,
   PRIZE_SUGGESTIONS,
-  pendingRedemptionsForWife,
+  pendingRedemptionsForUser,
   pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
@@ -36,10 +36,12 @@ import {
   removePartner,
   removePrize,
   removeTask,
+  setPushToken,
   shareRedemption,
   shareSubmission,
   signup,
   joinWithInviteCode,
+  switchRole,
   updateProfile,
   submissionsForBoyfriend,
   TASK_SUGGESTIONS,
@@ -54,6 +56,8 @@ import {
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
+import { notifyUser, userById } from './push.ts';
+import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
 
 export type WorkerEnv = {
   DATABASE_URL: string;
@@ -110,6 +114,35 @@ export function createApiApp() {
   app.get('/api/health', (c) => {
     const state = c.get('state');
     return c.json({ status: 'ok', users: state.users.length });
+  });
+
+  app.get('/api/media/:id', async (c) => {
+    const row = await readMedia(c.get('db'), c.req.param('id'));
+    if (!row) return c.json({ error: 'Photo not found' }, 404);
+    return new Response(mediaBytes(row), {
+      headers: {
+        'Content-Type': row.contentType,
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+    });
+  });
+
+  app.post('/api/media', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ contentType?: string; data?: string }>();
+      const row = await createMedia(
+        c.get('db'),
+        user.id,
+        String(body?.contentType ?? 'image/jpeg'),
+        String(body?.data ?? ''),
+      );
+      const origin = publicOrigin({ url: c.req.url });
+      return c.json({ id: row.id, url: mediaUrl(origin, row.id) }, 201);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
   });
 
   app.get('/api/suggestions', (c) =>
@@ -273,12 +306,34 @@ export function createApiApp() {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     try {
-      const body = await c.req.json<{ name?: string }>();
+      const body = await c.req.json<{
+        name?: string;
+        role?: string;
+        avatarUrl?: string;
+      }>();
+      const role = String(body?.role ?? '');
+      if (role === 'wife' || role === 'boyfriend') {
+        switchRole(c.get('state'), user, role);
+      }
       updateProfile(user, {
         name: body?.name ? String(body.name) : undefined,
+        avatarUrl: body?.avatarUrl ? String(body.avatarUrl) : undefined,
       });
       markDirty(c);
       return c.json(publicUser(c.get('state'), user));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.post('/api/me/push-token', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ token?: string }>();
+      setPushToken(user, String(body?.token ?? ''));
+      markDirty(c);
+      return c.body(null, 204);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }
@@ -401,6 +456,11 @@ export function createApiApp() {
         String(body?.code ?? ''),
       );
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), request.to.id),
+        'New friend request',
+        `${user.name} wants to connect`,
+      );
       return c.json(request, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -418,6 +478,11 @@ export function createApiApp() {
         true,
       );
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), request.from.id),
+        'Friend request accepted',
+        `${user.name} accepted your request`,
+      );
       return c.json(request);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -488,6 +553,11 @@ export function createApiApp() {
         cost: Number(body?.cost),
       });
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), wife.partnerId),
+        `${wife.name} added a prize`,
+        `${prize.emoji} ${prize.title} · ${prize.cost} 💎`,
+      );
       return c.json(prize, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -576,6 +646,11 @@ export function createApiApp() {
           : undefined,
       });
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), user.partnerId),
+        `${user.name} requested points`,
+        `${submission.emoji} ${submission.title} · +${submission.requestedPoints} 💎`,
+      );
       return c.json(submission, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -599,6 +674,11 @@ export function createApiApp() {
         revised,
       );
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), result.submission.boyfriendId),
+        `${wife.name} approved your request`,
+        `${result.submission.emoji} ${result.submission.title} · +${result.submission.points} 💎`,
+      );
       return c.json(result);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -616,6 +696,11 @@ export function createApiApp() {
         c.req.param('id'),
       );
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), submission.boyfriendId),
+        `${wife.name} passed on your request`,
+        `${submission.emoji} ${submission.title}`,
+      );
       return c.json(submission);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -639,10 +724,9 @@ export function createApiApp() {
   });
 
   app.get('/api/redemptions', (c) => {
-    const wife = c.get('user');
-    if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
-    return c.json(pendingRedemptionsForWife(c.get('state'), wife));
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    return c.json(pendingRedemptionsForUser(c.get('state'), user));
   });
 
   app.post('/api/redemptions', async (c) => {
@@ -656,6 +740,11 @@ export function createApiApp() {
         String(body?.prizeId ?? ''),
       );
       markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), user.partnerId),
+        `${user.name} redeemed a prize`,
+        `${result.redemption.emoji} ${result.redemption.prizeTitle} · −${result.redemption.cost} 💎`,
+      );
       return c.json(result, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);

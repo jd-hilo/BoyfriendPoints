@@ -24,6 +24,7 @@ const persist = (next: typeof state) => {
 const app = createApp({
   state,
   onChange: persist,
+  db,
 });
 
 app.listen(PORT, '0.0.0.0', () => {

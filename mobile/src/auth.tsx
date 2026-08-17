@@ -7,8 +7,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { AppState } from 'react-native';
 import type { PublicUser } from './types';
 import { api, ApiError } from './api';
+import { registerPushToken } from './push';
 import { getCachedUser, getToken, setCachedUser, setToken } from './storage';
 
 interface AuthContextValue {
@@ -38,27 +40,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!(await getToken())) {
       setUser(null);
-      await setCachedUser(null);
       return;
     }
+    const keepCached = async () => {
+      const cached = await getCachedUser();
+      if (cached) setUser(cached);
+    };
+    const transient = (err: unknown) => {
+      const status = err instanceof ApiError ? err.status : undefined;
+      const unreachable = err instanceof ApiError && err.unreachable;
+      return Boolean(unreachable || status === 404 || (status && status >= 500));
+    };
     try {
       const me = await api.me();
       setUser(me);
       await setCachedUser(me);
     } catch (err) {
-      // Stay signed in on network blips so incomplete onboarding can resume.
-      // Only clear the session on a real auth rejection.
-      const status = err instanceof ApiError ? err.status : undefined;
-      const unreachable = err instanceof ApiError && err.unreachable;
-      if (unreachable) {
-        const cached = await getCachedUser();
-        if (cached) setUser(cached);
+      if (transient(err)) {
+        await keepCached();
         return;
       }
-      if (status === 401 || status === 403) {
-        await setToken(null);
-        await setCachedUser(null);
-        setUser(null);
+      const status = err instanceof ApiError ? err.status : undefined;
+      if (status !== 401 && status !== 403) return;
+      // Railway deploys restart the in-memory API; the first /me can 401
+      // before tokens are loaded. Retry before treating it as a sign-out.
+      await new Promise((r) => setTimeout(r, 800));
+      try {
+        const me = await api.me();
+        setUser(me);
+        await setCachedUser(me);
+      } catch (retryErr) {
+        if (transient(retryErr)) {
+          await keepCached();
+          return;
+        }
+        await keepCached();
       }
     }
   }, []);
@@ -86,6 +102,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [refresh]);
+
+  // Points move on the other partner's phone, so re-read the session whenever
+  // this one comes back to the foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') void refresh();
+    });
+    return () => sub.remove();
+  }, [refresh]);
+
+  useEffect(() => {
+    if (!user) return;
+    void registerPushToken();
+  }, [user?.id]);
 
   const enterAs = useCallback(async (userId: string) => {
     const res = await api.enterAs(userId);

@@ -15,12 +15,8 @@ interface SuccessInfo {
 
 export default function Submit({
   onDone,
-  coachOpen,
-  onCoachDismiss,
 }: {
   onDone: () => void;
-  coachOpen?: boolean;
-  onCoachDismiss?: () => void;
 }) {
   const { user } = useAuth();
   const [options, setOptions] = useState<Suggestion[]>([]);
@@ -36,18 +32,13 @@ export default function Submit({
 
   const load = useCallback(async () => {
     const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
-    if (t.length > 0) {
-      setOptions(
-        t.map((task) => ({
-          title: task.title,
-          emoji: task.emoji,
-          points: task.points,
-        })),
-      );
-    } else {
-      const suggestions = await api.suggestions();
-      setOptions(suggestions.tasks);
-    }
+    setOptions(
+      t.map((task) => ({
+        title: task.title,
+        emoji: task.emoji,
+        points: task.points,
+      })),
+    );
     setMine(s);
   }, []);
 
@@ -60,7 +51,6 @@ export default function Submit({
     setEmoji(task.emoji);
     setPoints(String(task.points));
     setError(null);
-    onCoachDismiss?.();
   }
 
   async function submit(e: React.FormEvent) {
@@ -88,7 +78,6 @@ export default function Submit({
       setNote('');
       setImages([]);
       await load();
-      onCoachDismiss?.();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -122,21 +111,12 @@ export default function Submit({
         </p>
       </div>
 
-      {coachOpen && (
-        <div className="coach-card">
-          <p className="coach-title">Land your first win 💎</p>
-          <p className="coach-body">
-            Tap something you already did. We&apos;ll send {partner} a point
-            request — and you&apos;ll get a shareable receipt.
+      {options.length === 0 && !user?.partnerId && (
+        <div className="card" style={{ textAlign: 'center' }}>
+          <p className="coach-title">Add your partner first</p>
+          <p className="muted small">
+            Once you’re linked, you can submit wins for points.
           </p>
-          {options[0] && (
-            <Button block onClick={() => pickTask(options[0])}>
-              Quick start: {options[0].emoji} {options[0].title}
-            </Button>
-          )}
-          <Button variant="ghost" block onClick={() => onCoachDismiss?.()}>
-            I&apos;ll look around first
-          </Button>
         </div>
       )}
 
@@ -157,8 +137,11 @@ export default function Submit({
         </>
       )}
 
+      {(options.length > 0 || user?.partnerId) && (
       <form className="card form" onSubmit={submit}>
-        <p className="section-label">Or submit your own</p>
+        <p className="section-label">
+          {options.length > 0 ? 'Or submit your own' : 'Submit a task for points'}
+        </p>
         <div className="row gap">
           <input
             className="emoji-input"
@@ -225,6 +208,7 @@ export default function Submit({
           Request points
         </Button>
       </form>
+      )}
 
       {mine.length > 0 && (
         <>
