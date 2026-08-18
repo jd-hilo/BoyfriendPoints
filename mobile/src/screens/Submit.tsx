@@ -576,8 +576,8 @@ export default function Submit({
           setPushPrompt(false);
           if (!user) return;
           void (async () => {
-            await dismissPushPrompt(user.id);
-            await new Promise((r) => setTimeout(r, 350));
+            // iOS will not show the system sheet while our modal is still up.
+            await new Promise((r) => setTimeout(r, 700));
             await enablePushNotifications(user.id);
           })();
         }}

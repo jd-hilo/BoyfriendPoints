@@ -114,10 +114,10 @@ export default function Profile({ onClose }: { onClose: () => void }) {
       await new Promise((r) => setTimeout(r, 250));
       const result = await enablePushNotifications(me.id);
       setPushOn(result === 'on');
-      if (result === 'blocked' || result === 'unavailable') {
+      if (result === 'blocked') {
         Alert.alert(
           'Notifications are off',
-          'Turn them on for LoveReceipts in Settings, then flip this switch again.',
+          'LoveReceipts is blocked in iPhone Settings. Open Settings → Notifications → LoveReceipts and turn Allow Notifications on.',
           [
             { text: 'Not now', style: 'cancel' },
             { text: 'Open Settings', onPress: () => void Linking.openSettings() },

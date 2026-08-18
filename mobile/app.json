@@ -26,6 +26,9 @@
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true
         }
+      },
+      "entitlements": {
+        "aps-environment": "production"
       }
     },
     "android": {
@@ -47,7 +50,8 @@
         "expo-notifications",
         {
           "color": "#191918",
-          "defaultChannel": "default"
+          "defaultChannel": "default",
+          "enableBackgroundRemoteNotifications": true
         }
       ],
       [

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
+import * as Notifications from 'expo-notifications';
 import { api } from './api';
 import {
   getPushOptIn,
@@ -10,29 +11,31 @@ import {
 
 let handlerReady = false;
 
-async function notificationsModule() {
-  if (Platform.OS === 'web') return null;
-  try {
-    const Notifications = await import('expo-notifications');
-    return Notifications.default;
-  } catch {
-    return null;
-  }
+function canUseNotifications(): boolean {
+  return Platform.OS === 'ios' || Platform.OS === 'android';
 }
 
 export async function configurePushHandler(): Promise<void> {
-  if (handlerReady) return;
-  const Notifications = await notificationsModule();
-  if (!Notifications) return;
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
-  });
-  handlerReady = true;
+  if (handlerReady || !canUseNotifications()) return;
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+      }),
+    });
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'LoveReceipts',
+        importance: Notifications.AndroidImportance.MAX,
+      });
+    }
+    handlerReady = true;
+  } catch {
+    /* native module missing */
+  }
 }
 
 type PermissionSnapshot = {
@@ -40,36 +43,54 @@ type PermissionSnapshot = {
   canAskAgain: boolean;
 };
 
-async function readPermission(): Promise<PermissionSnapshot | null> {
-  const Notifications = await notificationsModule();
-  if (!Notifications) return null;
-  const existing = await Notifications.getPermissionsAsync();
+function snapshotFrom(
+  existing: Notifications.NotificationPermissionsStatus,
+): PermissionSnapshot {
+  const iosStatus = existing.ios?.status;
+  const undetermined =
+    existing.status === 'undetermined' ||
+    iosStatus === Notifications.IosAuthorizationStatus.NOT_DETERMINED;
+  const granted =
+    existing.granted ||
+    existing.status === 'granted' ||
+    iosStatus === Notifications.IosAuthorizationStatus.AUTHORIZED ||
+    iosStatus === Notifications.IosAuthorizationStatus.PROVISIONAL ||
+    iosStatus === Notifications.IosAuthorizationStatus.EPHEMERAL;
   return {
-    granted: existing.granted || existing.status === 'granted',
-    canAskAgain: existing.canAskAgain !== false,
+    granted,
+    // iOS will not show the sheet again after Don't Allow.
+    canAskAgain: undetermined || existing.canAskAgain !== false,
   };
 }
 
-/** Shows the OS notifications permission sheet when iOS/Android will still present it. */
+async function readPermission(): Promise<PermissionSnapshot | null> {
+  if (!canUseNotifications()) return null;
+  try {
+    return snapshotFrom(await Notifications.getPermissionsAsync());
+  } catch {
+    return null;
+  }
+}
+
+/** Shows the OS notifications permission sheet when the OS will still present it. */
 async function requestPermission(): Promise<PermissionSnapshot | null> {
-  const Notifications = await notificationsModule();
-  if (!Notifications) return null;
-  const asked = await Notifications.requestPermissionsAsync({
-    ios: {
-      allowAlert: true,
-      allowBadge: true,
-      allowSound: true,
-    },
-  });
-  return {
-    granted: asked.granted || asked.status === 'granted',
-    canAskAgain: asked.canAskAgain !== false,
-  };
+  if (!canUseNotifications()) return null;
+  try {
+    return snapshotFrom(
+      await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowBadge: true,
+          allowSound: true,
+        },
+      }),
+    );
+  } catch {
+    return null;
+  }
 }
 
 async function registerToken(): Promise<boolean> {
-  const Notifications = await notificationsModule();
-  if (!Notifications) return false;
   const projectId =
     Constants.easConfig?.projectId ??
     (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)
@@ -111,15 +132,18 @@ export async function enablePushNotifications(
   userId: string,
 ): Promise<PushEnableResult> {
   await configurePushHandler();
-  const Notifications = await notificationsModule();
-  if (!Notifications) return 'unavailable';
+  if (!canUseNotifications()) return 'unavailable';
   try {
     let permission = await readPermission();
     if (!permission) return 'unavailable';
 
     if (!permission.granted) {
-      if (!permission.canAskAgain) return 'blocked';
-      permission = (await requestPermission()) ?? permission;
+      // Always try the OS sheet unless iOS has already recorded Don't Allow.
+      if (permission.canAskAgain) {
+        permission = (await requestPermission()) ?? permission;
+      } else {
+        return 'blocked';
+      }
     }
 
     if (!permission.granted) {
@@ -151,7 +175,7 @@ export async function disablePushNotifications(userId: string): Promise<void> {
 }
 
 export async function shouldOfferPushPrompt(userId: string): Promise<boolean> {
-  if (Platform.OS === 'web') return false;
+  if (!canUseNotifications()) return false;
   if (await getPushPrompted(userId)) return false;
   if (await getPushOptIn(userId)) return false;
   const permission = await readPermission();
