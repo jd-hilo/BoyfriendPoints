@@ -7,15 +7,18 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "pnpm": "10.33.3",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api-production-bae8.up.railway.app/api"
       }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "pnpm": "10.33.3"
     },
     "production": {
       "autoIncrement": true,
+      "pnpm": "10.33.3",
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api-production-bae8.up.railway.app/api"
       }

@@ -32,5 +32,6 @@
     "web": "expo start --web",
     "eas:ios": "eas build --platform ios --profile production --auto-submit"
   },
+  "packageManager": "pnpm@10.33.3",
   "private": true
 }

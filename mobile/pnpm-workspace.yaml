@@ -1,0 +1,3 @@
+# Keep EAS installs on the same policy as local pnpm 10.
+# pnpm 11 defaults minimumReleaseAge to 1 day and fails frozen lockfile installs.
+minimumReleaseAge: 0
