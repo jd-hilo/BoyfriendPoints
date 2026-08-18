@@ -76,6 +76,7 @@ function asPrize(row: typeof prizes.$inferSelect): Prize {
     title: row.title,
     emoji: row.emoji,
     cost: row.cost,
+    forPartnerId: row.forPartnerId ?? undefined,
     createdAt: row.createdAt,
   };
 }
@@ -87,6 +88,7 @@ function asTask(row: typeof tasks.$inferSelect): EarnTask {
     title: row.title,
     emoji: row.emoji,
     points: row.points,
+    forPartnerId: row.forPartnerId ?? undefined,
     createdAt: row.createdAt,
   };
 }
@@ -231,10 +233,20 @@ export async function saveState(db: Database, state: State): Promise<void> {
       });
   }
   if (state.prizes.length > 0) {
-    await db.insert(prizes).values(state.prizes);
+    await db.insert(prizes).values(
+      state.prizes.map((prize) => ({
+        ...prize,
+        forPartnerId: prize.forPartnerId ?? null,
+      })),
+    );
   }
   if (state.tasks.length > 0) {
-    await db.insert(tasks).values(state.tasks);
+    await db.insert(tasks).values(
+      state.tasks.map((task) => ({
+        ...task,
+        forPartnerId: task.forPartnerId ?? null,
+      })),
+    );
   }
   if (state.submissions.length > 0) {
     await db.insert(submissions).values(

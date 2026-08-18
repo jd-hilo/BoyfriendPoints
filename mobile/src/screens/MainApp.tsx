@@ -203,25 +203,35 @@ export default function MainApp({
         {tab === 'redeem' && <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />}
       </View>
 
-      <View style={[styles.tabBar, { paddingBottom: Math.max(insets.bottom, 12) + 6 }]}>
-        <TabItem
-          icon="home-sharp"
-          label="Home"
-          active={tab === 'feed'}
-          onPress={() => go('feed')}
-        />
-        <TabItem
-          icon="checkbox-sharp"
-          label="Tasks"
-          active={tab === 'submit'}
-          onPress={() => go('submit')}
-        />
-        <TabItem
-          icon="gift-sharp"
-          label="Rewards"
-          active={tab === 'redeem'}
-          onPress={() => go('redeem')}
-        />
+      <View
+        pointerEvents="box-none"
+        style={[
+          styles.tabBarDock,
+          { paddingBottom: Math.max(insets.bottom, 10) },
+        ]}
+      >
+        <View style={styles.tabBarWrap}>
+          <View style={styles.tabBar}>
+            <TabItem
+              icon="home-sharp"
+              label="Home"
+              active={tab === 'feed'}
+              onPress={() => go('feed')}
+            />
+            <TabItem
+              icon="checkbox-sharp"
+              label="Tasks"
+              active={tab === 'submit'}
+              onPress={() => go('submit')}
+            />
+            <TabItem
+              icon="gift-sharp"
+              label="Rewards"
+              active={tab === 'redeem'}
+              onPress={() => go('redeem')}
+            />
+          </View>
+        </View>
       </View>
 
       {notifOpen && (
@@ -272,7 +282,7 @@ function TabItem({
   const color = active ? colors.ink : colors.inkMuted;
   return (
     <Pressable style={styles.tab} onPress={onPress}>
-      <View style={[styles.tabIconWrap, active && styles.tabIconWrapActive]}>
+      <View style={styles.tabIconWrap}>
         {iconNode ?? (
           <Ionicons name={icon ?? 'ellipse'} size={24} color={color} />
         )}
@@ -342,13 +352,35 @@ const styles = StyleSheet.create({
   },
   main: { flex: 1, paddingHorizontal: 14, paddingTop: 8 },
   homeMain: { backgroundColor: '#f3f3f2' },
+  tabBarDock: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 25,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  tabBarWrap: {
+    borderRadius: 28,
+    backgroundColor: colors.bg,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 8,
+  },
   tabBar: {
     flexDirection: 'row',
     backgroundColor: colors.bg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.border,
     paddingTop: 8,
-    paddingHorizontal: 16,
+    paddingBottom: 10,
+    paddingHorizontal: 8,
+    overflow: 'hidden',
   },
   tab: {
     flex: 1,
@@ -360,10 +392,6 @@ const styles = StyleSheet.create({
   tabIconWrap: {
     paddingHorizontal: 14,
     paddingVertical: 3,
-    borderRadius: 6,
-  },
-  tabIconWrapActive: {
-    backgroundColor: colors.panel,
   },
   tabLabel: { fontSize: 11, fontWeight: '500', color: colors.inkMuted },
   tabLabelActive: { color: colors.ink, fontWeight: '600' },

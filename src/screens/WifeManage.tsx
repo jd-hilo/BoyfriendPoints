@@ -70,7 +70,7 @@ export default function WifeManage() {
   async function removePartner() {
     if (!user?.partnerName) return;
     const ok = window.confirm(
-      `Remove ${user.partnerName} as your partner? They’ll lose access to this household.`,
+      `Leave this relationship?\n\nYou’ll lose all ${user.points} of your points. Tasks and prizes stay saved if you and ${user.partnerName} link back up — not if you join someone else.`,
     );
     if (!ok) return;
     setError(null);
@@ -133,7 +133,7 @@ export default function WifeManage() {
             disabled={busy}
             onClick={() => void removePartner()}
           >
-            Remove
+            Leave
           </Button>
         </div>
       ) : inviting ? (

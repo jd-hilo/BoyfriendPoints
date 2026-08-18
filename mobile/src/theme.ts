@@ -35,3 +35,6 @@ export const shadow = {
 export const gradients = {
   xp: ['#2383e2', '#2383e2', '#1b6ec2'] as const,
 };
+
+/** Floating tab bar height, not including the home-indicator inset. */
+export const TAB_BAR_FLOAT_HEIGHT = 82;

@@ -17,7 +17,7 @@ import { api } from '../api';
 import { useAuth } from '../auth';
 import { Avatar, Button, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
-import { APP_SHARE_URL, haptic } from '../utils';
+import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
 
 export default function WifeManage() {
@@ -78,11 +78,11 @@ export default function WifeManage() {
   function confirmRemovePartner() {
     if (!user?.partnerName) return;
     Alert.alert(
-      'Remove partner?',
-      `Remove ${user.partnerName} as your partner? They’ll lose access to this household.`,
+      'Leave this relationship?',
+      `You’ll lose all ${user.points} of your points. Tasks and prizes stay saved if you and ${user.partnerName} link back up — not if you join someone else.`,
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => void removePartner() },
+        { text: 'Stay', style: 'cancel' },
+        { text: 'Leave', style: 'destructive', onPress: () => void removePartner() },
       ],
     );
   }
@@ -109,10 +109,7 @@ export default function WifeManage() {
     }
     const who = user.name.trim() || 'Your partner';
     await Share.share({
-      message:
-        `${who} invited you to LoveReceipts!\n\n` +
-        `Use code ${code} to link our household and start earning points.\n\n` +
-        `${APP_SHARE_URL}`,
+      message: partnerWaitingShareMessage(who, code),
       url: APP_SHARE_URL,
     });
   }
@@ -130,7 +127,7 @@ export default function WifeManage() {
             <Text style={styles.partnerCardMeta}>Current partner</Text>
           </View>
           <Button variant="danger" disabled={busy} onPress={confirmRemovePartner}>
-            Remove
+            Leave
           </Button>
         </View>
       ) : (

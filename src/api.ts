@@ -1,8 +1,10 @@
 import type {
+  CoupleSearchResult,
   EarnTask,
   FeedComment,
   FeedEventView,
   FeedReaction,
+  FriendRequestView,
   NotificationItem,
   Prize,
   PublicUser,
@@ -119,6 +121,24 @@ export const api = {
       body: { name, email },
     }),
   friends: () => request<PublicUser[]>('/friends'),
+  searchCouples: (query: string) =>
+    request<CoupleSearchResult[]>(
+      `/couples/search?q=${encodeURIComponent(query.trim())}`,
+    ),
+  friendRequests: () => request<FriendRequestView[]>('/friend-requests'),
+  requestFriend: (code: string) =>
+    request<FriendRequestView>('/friend-requests', {
+      method: 'POST',
+      body: { code },
+    }),
+  acceptFriendRequest: (id: string) =>
+    request<FriendRequestView>(`/friend-requests/${id}/accept`, {
+      method: 'POST',
+    }),
+  declineFriendRequest: (id: string) =>
+    request<FriendRequestView>(`/friend-requests/${id}/decline`, {
+      method: 'POST',
+    }),
   completeOnboarding: () =>
     request<PublicUser>('/onboarding/complete', { method: 'POST' }),
 

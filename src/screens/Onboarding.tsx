@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
-import type { Prize, PublicUser, Suggestion } from '../../shared/types.ts';
+import type {
+  EarnTask,
+  Prize,
+  PublicUser,
+  Suggestion,
+} from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Button, Xp } from '../ui.tsx';
+import { Button, EmojiField, Xp } from '../ui.tsx';
 
-const STEPS = ['Prizes', 'Partner', 'Friends'] as const;
+const STEPS = ['Tasks', 'Prizes', 'Partner', 'Friends'] as const;
 
 export default function Onboarding() {
   const { user, refresh } = useAuth();
@@ -30,17 +35,16 @@ export default function Onboarding() {
         </div>
       </header>
 
-      {step === 0 && (
-        <StepPrizes onNext={() => setStep(1)} />
-      )}
-      {step === 1 && (
+      {step === 0 && <StepCatalog kind="task" onNext={() => setStep(1)} />}
+      {step === 1 && <StepCatalog kind="prize" onNext={() => setStep(2)} />}
+      {step === 2 && (
         <StepPartner
           partnerName={user?.partnerName}
-          onNext={() => setStep(2)}
+          onNext={() => setStep(3)}
           refresh={refresh}
         />
       )}
-      {step === 2 && (
+      {step === 3 && (
         <StepFriends
           onDone={async () => {
             await api.completeOnboarding();
@@ -52,41 +56,96 @@ export default function Onboarding() {
   );
 }
 
-function StepPrizes({ onNext }: { onNext: () => void }) {
+function StepCatalog({
+  kind,
+  onNext,
+}: {
+  kind: 'prize' | 'task';
+  onNext: () => void;
+}) {
+  const { user } = useAuth();
+  const isPrize = kind === 'prize';
+  const noun = isPrize ? 'prize' : 'task';
+  const nouns = isPrize ? 'prizes' : 'tasks';
+  const defaultEmoji = isPrize ? '🎁' : '⭐';
+  const partnerFirst = user?.partnerName?.split(' ')[0] || 'them';
+
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [prizes, setPrizes] = useState<Prize[]>([]);
-  const [title, setTitle] = useState('');
-  const [cost, setCost] = useState('');
-  const [emoji, setEmoji] = useState('🎁');
+  const [items, setItems] = useState<{ title: string }[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({
+    emoji: defaultEmoji,
+    title: '',
+    points: '',
+  });
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void api.suggestions().then((s) => setSuggestions(s.prizes));
-    void api.prizes().then(setPrizes);
-  }, []);
+    void api
+      .suggestions()
+      .then((s) => setSuggestions(isPrize ? s.prizes : s.tasks));
+    void (isPrize ? api.prizes() : api.tasks()).then(
+      (list: Prize[] | EarnTask[]) => setItems(list),
+    );
+  }, [isPrize]);
+
+  function resetForm() {
+    setForm({ emoji: defaultEmoji, title: '', points: '' });
+  }
+
+  function closeModal() {
+    setAdding(false);
+    resetForm();
+    setError(null);
+  }
 
   async function quickAdd(s: Suggestion) {
-    const prize = await api.addPrize(s.title, s.points, s.emoji);
-    setPrizes((p) => [...p, prize]);
+    if (isPrize) {
+      const prize = await api.addPrize(s.title, s.points, s.emoji);
+      setItems((p) => [...p, prize]);
+    } else {
+      const task = await api.addTask(s.title, s.points, s.emoji);
+      setItems((p) => [...p, task]);
+    }
   }
 
   async function addCustom(e: React.FormEvent) {
     e.preventDefault();
-    if (!title || !cost) return;
-    const prize = await api.addPrize(title, Number(cost), emoji);
-    setPrizes((p) => [...p, prize]);
-    setTitle('');
-    setCost('');
-    setEmoji('🎁');
+    if (!form.title.trim() || !form.points) return;
+    setError(null);
+    try {
+      if (isPrize) {
+        const prize = await api.addPrize(
+          form.title.trim(),
+          Number(form.points),
+          form.emoji,
+        );
+        setItems((p) => [...p, prize]);
+      } else {
+        const task = await api.addTask(
+          form.title.trim(),
+          Number(form.points),
+          form.emoji,
+        );
+        setItems((p) => [...p, task]);
+      }
+      closeModal();
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
-  const chosen = new Set(prizes.map((p) => p.title));
+  const chosen = new Set(items.map((p) => p.title));
 
   return (
     <div className="ob-step">
-      <h1 className="ob-title">Create your prizes</h1>
+      <h1 className="ob-title">
+        {isPrize ? 'Create your prizes' : 'Create your tasks'}
+      </h1>
       <p className="ob-sub">
-        These are the rewards your partner can redeem with points. Tap a
-        suggestion or add your own.
+        {isPrize
+          ? 'These are the rewards your partner can redeem with points. Tap a suggestion or add your own.'
+          : 'These are tasks your partner can submit to earn points when they join. Tap a suggestion or add your own.'}
       </p>
 
       <div className="chip-grid">
@@ -94,7 +153,7 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
           <button
             key={s.title}
             className={`chip ${chosen.has(s.title) ? 'chosen' : ''}`}
-            onClick={() => quickAdd(s)}
+            onClick={() => void quickAdd(s)}
             disabled={chosen.has(s.title)}
           >
             <span className="chip-emoji">{s.emoji}</span>
@@ -104,47 +163,100 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
             </span>
           </button>
         ))}
+        <button
+          type="button"
+          className="chip chip-add"
+          style={{ gridColumn: '1 / -1' }}
+          onClick={() => setAdding(true)}
+        >
+          <span className="chip-emoji">＋</span>
+          <span className="chip-title">Add a custom {noun}</span>
+          <span className="chip-points">Your own</span>
+        </button>
       </div>
 
-      <form className="card form" onSubmit={addCustom}>
-        <div className="row gap">
-          <input
-            className="emoji-input"
-            value={emoji}
-            onChange={(e) => setEmoji(e.target.value)}
-            maxLength={2}
-            aria-label="Prize emoji"
-          />
-          <input
-            className="grow"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Your own prize"
-            aria-label="Prize title"
-          />
-          <input
-            type="number"
-            className="cost"
-            value={cost}
-            onChange={(e) => setCost(e.target.value)}
-            placeholder="pts"
-            aria-label="Prize cost"
-          />
-        </div>
-        <Button variant="secondary" type="submit" disabled={!title || !cost}>
-          Add prize
-        </Button>
-      </form>
-
-      {prizes.length > 0 && (
-        <p className="ob-added">{prizes.length} prize{prizes.length > 1 ? 's' : ''} added ✓</p>
+      {items.length > 0 && (
+        <p className="ob-added">
+          {items.length} {items.length > 1 ? nouns : noun} added ✓
+        </p>
       )}
 
       <div className="ob-footer">
         <Button block onClick={onNext}>
-          {prizes.length === 0 ? 'Skip for now' : 'Continue'}
+          {items.length === 0 ? 'Skip for now' : 'Continue'}
         </Button>
       </div>
+
+      {adding && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={closeModal}
+        >
+          <form
+            className="modal compose-modal"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={(e) => void addCustom(e)}
+          >
+            <div className="compose-modal-head">
+              <div>
+                <p className="modal-title">
+                  {isPrize ? 'Add a prize' : 'Add a task'}
+                </p>
+                <p className="modal-sub">
+                  {isPrize
+                    ? partnerFirst === 'them'
+                      ? 'They can cash points in for this.'
+                      : `${partnerFirst} can cash points in for this.`
+                    : partnerFirst === 'them'
+                      ? 'They submit this to earn points when they join.'
+                      : `${partnerFirst} submits this to earn points when they join.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="compose-modal-cancel"
+                onClick={closeModal}
+              >
+                Cancel
+              </button>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <div className="row gap">
+              <EmojiField
+                value={form.emoji}
+                onChange={(emoji) => setForm({ ...form, emoji })}
+                autoFocus
+              />
+              <input
+                className="grow"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder={
+                  isPrize
+                    ? `A prize for ${partnerFirst}`
+                    : `A task for ${partnerFirst}`
+                }
+                aria-label={isPrize ? 'Prize title' : 'Task title'}
+              />
+            </div>
+            <input
+              type="number"
+              value={form.points}
+              onChange={(e) => setForm({ ...form, points: e.target.value })}
+              placeholder={isPrize ? 'Cost in points' : 'Points they earn'}
+              aria-label={isPrize ? 'Cost in points' : 'Points they earn'}
+            />
+            <Button
+              type="submit"
+              block
+              disabled={!form.title.trim() || !form.points}
+            >
+              {isPrize ? 'Add prize' : 'Add task'}
+            </Button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

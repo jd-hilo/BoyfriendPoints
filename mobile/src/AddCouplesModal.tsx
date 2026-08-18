@@ -18,7 +18,7 @@ import { useAuth } from './auth';
 import type { CoupleSearchResult } from './types';
 import { Avatar } from './ui';
 import { colors } from './theme';
-import { APP_SHARE_URL } from './utils';
+import { APP_SHARE_URL, coupleShareMessage } from './utils';
 
 export default function AddCouplesModal({
   visible,
@@ -113,9 +113,7 @@ export default function AddCouplesModal({
   async function shareProfile() {
     if (!user?.coupleUsername) return;
     await Share.share({
-      message:
-        `Find us on LoveReceipts: @${user.coupleUsername} 🧾\n` +
-        `Follow our wins and share yours.\n\n${APP_SHARE_URL}`,
+      message: coupleShareMessage(user.coupleUsername),
       url: APP_SHARE_URL,
     });
   }
@@ -135,7 +133,8 @@ export default function AddCouplesModal({
           <View style={styles.headerText}>
             <Text style={styles.title}>Add your friends</Text>
             <Text style={styles.subtitle}>
-              Search a couple username or share yours.
+              Search a couple username. They have to accept before they show up
+              on your feed.
             </Text>
           </View>
           <Pressable style={styles.close} onPress={onClose} hitSlop={8}>

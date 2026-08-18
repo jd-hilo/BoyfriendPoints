@@ -3,7 +3,7 @@ import type { EarnTask, Submission, Suggestion } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 import { Button, EmojiField, ReceiptModal, WhoPill, Xp } from '../ui.tsx';
-import { haptic } from '../utils.ts';
+import { haptic, sharePartnerInvite } from '../utils.ts';
 
 interface SuccessInfo {
   id: string;
@@ -167,6 +167,15 @@ export default function Submit({
               <p className="muted small">
                 Once you’re linked, you can submit wins for points.
               </p>
+              <Button
+                block
+                disabled={!user?.inviteCode}
+                onClick={() =>
+                  void sharePartnerInvite(user?.name ?? '', user?.inviteCode)
+                }
+              >
+                Invite partner
+              </Button>
             </div>
           )}
 

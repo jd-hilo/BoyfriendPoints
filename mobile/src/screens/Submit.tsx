@@ -7,18 +7,20 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { EarnTask, Submission, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Button, EmojiField, PushNudgeModal, ReceiptModal, WhoPill, Xp } from '../ui';
-import { colors, radius, shadow } from '../theme';
-import { haptic } from '../utils';
+import { colors, radius, shadow, TAB_BAR_FLOAT_HEIGHT } from '../theme';
+import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 import { pickAndUploadPhoto } from '../pickImage';
 import {
   dismissPushPrompt,
@@ -40,6 +42,7 @@ export default function Submit({
   onDone: () => void;
 }) {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [options, setOptions] = useState<Suggestion[]>([]);
   const [created, setCreated] = useState<EarnTask[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
@@ -201,8 +204,24 @@ export default function Submit({
   const partnerFirst = user?.partnerName?.trim().split(/\s+/)[0] ?? 'them';
   const canSubmit = title.trim().length > 0 && Number(points) > 0;
 
+  async function invitePartner() {
+    if (!user) return;
+    haptic(10);
+    const who = user.name.trim() || 'Your partner';
+    await Share.share({
+      message: partnerWaitingShareMessage(who, user.inviteCode),
+      url: APP_SHARE_URL,
+    });
+  }
+
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.flex}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: 24 + TAB_BAR_FLOAT_HEIGHT + Math.max(insets.bottom, 10) },
+      ]}
+    >
       <View style={styles.titleRow}>
         <Text style={styles.screenTitle}>Tasks</Text>
         <WhoPill
@@ -252,7 +271,15 @@ export default function Submit({
                 >
                   Submit a task for points
                 </Button>
-              ) : null}
+              ) : (
+                <Button
+                  block
+                  disabled={!user?.inviteCode}
+                  onPress={() => void invitePartner()}
+                >
+                  Invite partner
+                </Button>
+              )}
             </View>
           ) : (
             <View style={styles.grid}>
@@ -641,6 +668,7 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.inkMuted, marginTop: 4, marginBottom: 4 },
   empty: {
     alignItems: 'center',
+    alignSelf: 'stretch',
     paddingTop: 12,
     gap: 8,
   },

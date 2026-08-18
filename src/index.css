@@ -1317,6 +1317,204 @@ input:focus {
 .feed-ready {
   animation: fade-in 0.24s ease;
 }
+
+.add-friend-pill {
+  position: absolute;
+  right: 18px;
+  bottom: 96px;
+  z-index: 28;
+  width: 62px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 999px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  box-shadow:
+    0 10px 28px rgba(20, 30, 50, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.add-friend-pill:active {
+  transform: scale(0.96);
+  opacity: 0.92;
+}
+
+.friend-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.friend-request-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f7f6f3;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+}
+.friend-request-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.friend-request-text strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+.friend-request-text span {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.friend-request-decline {
+  border: none;
+  background: none;
+  color: var(--ink-muted);
+  font-size: 17px;
+  padding: 0 3px;
+}
+
+.add-friends-panel {
+  padding: 20px 24px 28px;
+  background: #fff;
+}
+.add-friends-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.add-friends-header h2 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.7px;
+}
+.add-friends-header p {
+  margin: 6px 0 0;
+  color: var(--ink-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+.add-friends-done {
+  border: none;
+  background: none;
+  padding: 4px 0 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.add-friends-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0 14px;
+  margin-bottom: 14px;
+}
+.add-friends-search span {
+  color: var(--ink-muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+.add-friends-search input {
+  background: transparent;
+  padding: 14px 4px;
+  border-radius: 0;
+  box-shadow: none;
+}
+.add-friends-search input:focus {
+  box-shadow: none;
+}
+.add-friends-share {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f7f6f3;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.add-friends-share-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+.add-friends-share-handle {
+  margin: 3px 0 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+.add-friends-share button {
+  border: none;
+  background: #191918;
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.add-friends-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  padding-bottom: 24px;
+}
+.add-friends-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.add-friends-avatars {
+  width: 54px;
+  display: flex;
+  flex: 0 0 auto;
+}
+.add-friends-partner {
+  margin-left: -18px;
+}
+.add-friends-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.add-friends-meta strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+.add-friends-meta span {
+  color: var(--ink-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.add-friends-add {
+  border: none;
+  background: #191918;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.add-friends-add.muted-btn,
+.add-friends-add:disabled {
+  background: #deddd9;
+}
 .feed-card {
   background: var(--card);
   border-radius: 28px;
@@ -1592,17 +1790,18 @@ input:focus {
 /* ---- Venmo-style tab bar + center FAB ---- */
 .tab-bar {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 14px;
+  right: 14px;
+  bottom: 12px;
   z-index: 30;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   align-items: end;
   background: var(--card);
-  border-top: 1px solid #ececec;
-  padding: 10px 24px 18px;
-  box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.05);
+  border: 1px solid #ececec;
+  border-radius: 28px;
+  padding: 10px 16px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 .tab {
   position: relative;

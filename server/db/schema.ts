@@ -38,6 +38,7 @@ export const prizes = pgTable('prizes', {
   title: text('title').notNull(),
   emoji: text('emoji').notNull(),
   cost: integer('cost').notNull(),
+  forPartnerId: text('for_partner_id'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),
@@ -66,6 +67,7 @@ export const tasks = pgTable('tasks', {
   title: text('title').notNull(),
   emoji: text('emoji').notNull(),
   points: integer('points').notNull(),
+  forPartnerId: text('for_partner_id'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),

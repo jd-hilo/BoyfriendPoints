@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -13,16 +14,16 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { Prize, Role, Suggestion } from '../types';
+import type { EarnTask, Prize, Role, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
-import { Xp } from '../ui';
+import { Button, EmojiField, Xp } from '../ui';
 import AddCouplesModal from '../AddCouplesModal';
-import { APP_SHARE_URL } from '../utils';
+import { APP_SHARE_URL, partnerWaitingShareMessage } from '../utils';
 
 const SLIDE_MS = 5000;
-const TOTAL_STEPS = 7;
+const TOTAL_STEPS = 8;
 
 type Phase = 'slides' | 'steps';
 
@@ -180,7 +181,7 @@ const SLIDES = [
 
 /**
  * Steps: 0=email 1=password 2=name 3=skipped 4=couple username
- * 5=partner 6=prizes 7=friends.
+ * 5=partner 6=tasks 7=prizes 8=friends.
  */
 function resumeStepFor(user: {
   partnerId?: string;
@@ -220,7 +221,17 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
 
   const totalSteps = TOTAL_STEPS;
   const progressStep =
-    step <= 2 ? step : step === 4 ? 3 : step === 5 ? 4 : step === 6 ? 5 : 6;
+    step <= 2
+      ? step
+      : step === 4
+        ? 3
+        : step === 5
+          ? 4
+          : step === 6
+            ? 5
+            : step === 7
+              ? 6
+              : 7;
 
   async function continueFromEmail() {
     setError(null);
@@ -508,7 +519,8 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
         )}
 
         {step === 6 && (
-          <StepPrizes
+          <StepCatalog
+            kind="task"
             onNext={() => {
               setError(null);
               setStep(7);
@@ -516,7 +528,17 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
           />
         )}
 
-        {step === 7 && <StepFriends busy={busy} onDone={() => void finish()} />}
+        {step === 7 && (
+          <StepCatalog
+            kind="prize"
+            onNext={() => {
+              setError(null);
+              setStep(8);
+            }}
+          />
+        )}
+
+        {step === 8 && <StepFriends busy={busy} onDone={() => void finish()} />}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -742,15 +764,6 @@ function SkipLink({ label = "I'll do this later", onPress }: { label?: string; o
 
 /* -------------------------------------------------------- account steps */
 
-function inviteShareMessage(code: string, sharerName: string): string {
-  const who = sharerName.trim() || 'Your partner';
-  return (
-    `${who} invited you to LoveReceipts!\n\n` +
-    `Use code ${code} to link our household and start earning points.\n\n` +
-    `${APP_SHARE_URL}`
-  );
-}
-
 /** Prize-setter shares a household invite code with a big Share CTA. */
 function StepInvitePartner({
   onNext,
@@ -774,7 +787,7 @@ function StepInvitePartner({
   async function share() {
     if (!inviteCode) return;
     await Share.share({
-      message: inviteShareMessage(inviteCode, sharerName),
+      message: partnerWaitingShareMessage(sharerName, inviteCode),
       url: APP_SHARE_URL,
     });
   }
@@ -936,29 +949,52 @@ function StepEnterCode({
   );
 }
 
-function StepPrizes({ onNext }: { onNext: () => void }) {
+function StepCatalog({
+  kind,
+  onNext,
+}: {
+  kind: 'prize' | 'task';
+  onNext: () => void;
+}) {
+  const { user } = useAuth();
+  const isPrize = kind === 'prize';
+  const noun = isPrize ? 'prize' : 'task';
+  const nouns = isPrize ? 'prizes' : 'tasks';
+  const defaultEmoji = isPrize ? '🎁' : '⭐';
+  const partnerFirst = user?.partnerName?.split(' ')[0] || 'them';
+
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   // Titles already saved in the household (e.g. resuming onboarding).
   const [existing, setExisting] = useState<Set<string>>(new Set());
-  // Selection is local + instant; prizes are created in one go on Continue.
+  // Selection is local + instant; items are created in one go on Continue.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [custom, setCustom] = useState<Suggestion[]>([]);
-  const [showComposer, setShowComposer] = useState(false);
-  const [cTitle, setCTitle] = useState('');
-  const [cPoints, setCPoints] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({ emoji: defaultEmoji, title: '', points: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     void api
       .suggestions()
-      .then((s) => setSuggestions(s.prizes))
+      .then((s) => setSuggestions(isPrize ? s.prizes : s.tasks))
       .catch(() => undefined);
-    void api
-      .prizes()
-      .then((p: Prize[]) => setExisting(new Set(p.map((x) => x.title))))
+    const loadExisting = isPrize
+      ? api.prizes().then((p: Prize[]) => p.map((x) => x.title))
+      : api.tasks().then((t: EarnTask[]) => t.map((x) => x.title));
+    void loadExisting
+      .then((titles) => setExisting(new Set(titles)))
       .catch(() => undefined);
-  }, []);
+  }, [isPrize]);
+
+  function resetForm() {
+    setForm({ emoji: defaultEmoji, title: '', points: '' });
+  }
+
+  function closeModal() {
+    setAdding(false);
+    resetForm();
+  }
 
   function toggle(title: string) {
     setError(null);
@@ -970,19 +1006,23 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
     });
   }
 
-  const customPoints = Number(cPoints);
+  const customPoints = Number(form.points);
   const customValid =
-    cTitle.trim().length > 0 && Number.isFinite(customPoints) && customPoints > 0;
+    form.title.trim().length > 0 &&
+    Number.isFinite(customPoints) &&
+    customPoints > 0;
 
   function addCustom() {
     if (!customValid) return;
     setCustom((c) => [
       ...c,
-      { title: cTitle.trim(), points: Math.round(customPoints), emoji: '🎁' },
+      {
+        title: form.title.trim(),
+        points: Math.round(customPoints),
+        emoji: form.emoji || defaultEmoji,
+      },
     ]);
-    setCTitle('');
-    setCPoints('');
-    setShowComposer(false);
+    closeModal();
   }
 
   const picked = [
@@ -999,10 +1039,11 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
     setBusy(true);
     setError(null);
     try {
-      // Confirm session before writing — never silently 401 on prize select.
+      // Confirm session before writing — never silently 401 on select.
       await api.me();
       for (const p of picked) {
-        await api.addPrize(p.title, p.points, p.emoji);
+        if (isPrize) await api.addPrize(p.title, p.points, p.emoji);
+        else await api.addTask(p.title, p.points, p.emoji);
       }
       onNext();
     } catch (err) {
@@ -1018,9 +1059,14 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
   }
 
   return (
+    <>
     <StepShell
-      title="Pick a few prizes"
-      sub="What can your partner cash points in for? Tap to select — you can edit later."
+      title={isPrize ? 'Pick a few prizes' : 'Pick a few tasks'}
+      sub={
+        isPrize
+          ? 'What can your partner cash points in for? Tap to select — you can edit later.'
+          : 'Tasks your partner can submit to earn points when they join. Tap to select — you can edit later.'
+      }
       error={error}
     >
       <View style={styles.chipGrid}>
@@ -1065,52 +1111,17 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
         ))}
       </View>
 
-      {showComposer ? (
-        <View style={styles.composer}>
-          <TextInput
-            style={styles.bigInput}
-            value={cTitle}
-            onChangeText={setCTitle}
-            placeholder="Prize name — e.g. Breakfast in bed"
-            placeholderTextColor="#b9b7b3"
-            autoFocus
-          />
-          <View style={styles.composerRow}>
-            <TextInput
-              style={[styles.bigInput, styles.composerPoints]}
-              value={cPoints}
-              onChangeText={(t) => setCPoints(t.replace(/[^0-9]/g, ''))}
-              placeholder="Points"
-              placeholderTextColor="#b9b7b3"
-              keyboardType="number-pad"
-              maxLength={5}
-            />
-            <Pressable
-              style={[styles.composerAdd, !customValid && styles.btnMuted]}
-              disabled={!customValid}
-              onPress={addCustom}
-            >
-              <Text style={styles.composerAddText}>Add</Text>
-            </Pressable>
-          </View>
-          <SkipLink label="Cancel" onPress={() => setShowComposer(false)} />
-        </View>
-      ) : (
-        <Pressable
-          style={styles.customPrizeBtn}
-          onPress={() => setShowComposer(true)}
-        >
-          <Text style={styles.customPrizeText}>＋ Add a custom prize</Text>
-        </Pressable>
-      )}
+      <Pressable style={styles.customPrizeBtn} onPress={() => setAdding(true)}>
+        <Text style={styles.customPrizeText}>＋ Add a custom {noun}</Text>
+      </Pressable>
 
       <PrimaryButton
         label={
           busy
             ? undefined
             : count > 0
-              ? `Add ${count} prize${count > 1 ? 's' : ''} & continue`
-              : 'Continue without prizes'
+              ? `Add ${count} ${count > 1 ? nouns : noun} & continue`
+              : `Continue without ${nouns}`
         }
         busy={busy}
         disabled={busy}
@@ -1118,6 +1129,76 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
       />
       {count === 0 && !busy && <SkipLink onPress={onNext} />}
     </StepShell>
+
+      <Modal
+        visible={adding}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closeModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalSheet}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.modalGrow}>
+                <Text style={styles.modalTitle}>
+                  {isPrize ? 'Add a prize' : 'Add a task'}
+                </Text>
+                <Text style={styles.modalSub}>
+                  {isPrize
+                    ? partnerFirst === 'them'
+                      ? 'They can cash points in for this.'
+                      : `${partnerFirst} can cash points in for this.`
+                    : partnerFirst === 'them'
+                      ? 'They submit this to earn points when they join.'
+                      : `${partnerFirst} submits this to earn points when they join.`}
+                </Text>
+              </View>
+              <Pressable onPress={closeModal} hitSlop={8}>
+                <Text style={styles.modalClose}>Cancel</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.modalRow}>
+              <EmojiField
+                value={form.emoji}
+                onChange={(emoji) => setForm({ ...form, emoji })}
+                autoFocus
+              />
+              <TextInput
+                style={[styles.modalInput, styles.modalGrow]}
+                value={form.title}
+                onChangeText={(title) => setForm({ ...form, title })}
+                placeholder={
+                  isPrize
+                    ? `A prize for ${partnerFirst}`
+                    : `A task for ${partnerFirst}`
+                }
+                placeholderTextColor={colors.inkMuted}
+              />
+            </View>
+            <TextInput
+              style={styles.modalInput}
+              value={form.points}
+              onChangeText={(v) =>
+                setForm({ ...form, points: v.replace(/[^0-9]/g, '') })
+              }
+              placeholder={isPrize ? 'Cost in points' : 'Points they earn'}
+              placeholderTextColor={colors.inkMuted}
+              keyboardType="number-pad"
+            />
+            <Button block disabled={!customValid} onPress={addCustom}>
+              {isPrize ? 'Add prize' : 'Add task'}
+            </Button>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
+    </>
   );
 }
 
@@ -1508,27 +1589,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
   },
   customPrizeText: { fontSize: 14, fontWeight: '600', color: '#787774' },
-  composer: {
+  modalSheet: { flex: 1, backgroundColor: colors.bg },
+  modalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
     gap: 10,
-    borderWidth: 1,
-    borderColor: '#e3e2e0',
-    borderRadius: 10,
-    padding: 12,
-    backgroundColor: '#fbfbfa',
   },
-  composerRow: {
+  modalHeader: {
     flexDirection: 'row',
-    gap: 10,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
   },
-  composerPoints: { flex: 1 },
-  composerAdd: {
-    backgroundColor: colors.black,
-    borderRadius: 999,
-    paddingHorizontal: 26,
-    justifyContent: 'center',
-    alignItems: 'center',
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    color: colors.ink,
   },
-  composerAddText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  modalSub: { fontSize: 14, color: colors.inkMuted, marginTop: 4 },
+  modalClose: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    paddingTop: 4,
+  },
+  modalRow: { flexDirection: 'row', gap: 8 },
+  modalGrow: { flex: 1 },
+  modalInput: {
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    backgroundColor: colors.panel,
+    color: colors.ink,
+  },
 
   /* friends share */
   friendsPage: {

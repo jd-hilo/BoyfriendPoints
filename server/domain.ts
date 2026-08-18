@@ -185,8 +185,6 @@ export const PRIZE_SUGGESTIONS: Suggestion[] = [
   { title: 'Breakfast in bed', emoji: '🥞', points: 150 },
   { title: 'Get out of one chore', emoji: '🧹', points: 120 },
   { title: 'Full-body massage', emoji: '💆‍♀️', points: 300 },
-  { title: 'Girls night, no questions', emoji: '💃', points: 250 },
-  { title: 'Control the remote all weekend', emoji: '📺', points: 200 },
 ];
 
 export const TASK_SUGGESTIONS: Suggestion[] = [
@@ -395,15 +393,36 @@ export function inviteBoyfriend(
   return boyfriend;
 }
 
-/** Unlink the current partner from both sides. */
-export function removePartner(state: State, wife: User): void {
-  if (!wife.partnerId) throw new Error('No partner to remove');
-  const partner = state.users.find((u) => u.id === wife.partnerId);
-  if (partner?.partnerId === wife.id) {
+/** Unlink the current partner from both sides. The person who leaves
+ *  loses their points. Tasks and prizes stay tagged to this pair so they
+ *  come back if the same two people link again — not with someone else. */
+export function removePartner(state: State, user: User): void {
+  if (!user.partnerId) throw new Error('No partner to remove');
+  const partner = state.users.find((u) => u.id === user.partnerId);
+  stampCatalogForPair(state, user.id, user.partnerId);
+  user.points = 0;
+  if (partner?.partnerId === user.id) {
     partner.partnerId = undefined;
     partner.token = '';
   }
-  wife.partnerId = undefined;
+  user.partnerId = undefined;
+}
+
+function stampCatalogForPair(
+  state: State,
+  leftId: string,
+  rightId: string,
+): void {
+  for (const task of state.tasks) {
+    if (task.forPartnerId) continue;
+    if (task.wifeId === leftId) task.forPartnerId = rightId;
+    else if (task.wifeId === rightId) task.forPartnerId = leftId;
+  }
+  for (const prize of state.prizes) {
+    if (prize.forPartnerId) continue;
+    if (prize.wifeId === leftId) prize.forPartnerId = rightId;
+    else if (prize.wifeId === rightId) prize.forPartnerId = leftId;
+  }
 }
 
 export function listFriends(state: State, wife: User): PublicUser[] {
@@ -727,6 +746,7 @@ export function addPrize(
     title,
     emoji: input.emoji?.trim() || '🎁',
     cost: Math.round(input.cost),
+    forPartnerId: wife.partnerId,
     createdAt: new Date().toISOString(),
   };
   state.prizes.push(prize);
@@ -757,6 +777,7 @@ export function addTask(
     title,
     emoji: input.emoji?.trim() || '⭐',
     points: Math.round(input.points),
+    forPartnerId: wife.partnerId,
     createdAt: new Date().toISOString(),
   };
   state.tasks.push(task);
@@ -772,15 +793,23 @@ export function removeTask(state: State, wife: User, taskId: string): boolean {
 }
 
 export function prizesForUser(state: State, user: User): Prize[] {
-  return state.prizes.filter(
-    (p) => p.wifeId === user.id || (user.partnerId && p.wifeId === user.partnerId),
-  );
+  return state.prizes.filter((p) => isCatalogVisible(user, p));
 }
 
 export function tasksForUser(state: State, user: User): EarnTask[] {
-  return state.tasks.filter(
-    (t) => t.wifeId === user.id || (user.partnerId && t.wifeId === user.partnerId),
-  );
+  return state.tasks.filter((t) => isCatalogVisible(user, t));
+}
+
+function isCatalogVisible(
+  user: User,
+  item: { wifeId: string; forPartnerId?: string },
+): boolean {
+  if (user.partnerId) {
+    if (item.wifeId !== user.id && item.wifeId !== user.partnerId) return false;
+    if (!item.forPartnerId) return true;
+    return item.forPartnerId === user.id || item.forPartnerId === user.partnerId;
+  }
+  return item.wifeId === user.id;
 }
 
 export function createSubmission(

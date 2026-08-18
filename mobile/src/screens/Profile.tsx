@@ -3,6 +3,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -34,6 +35,8 @@ export default function Profile({ onClose }: { onClose: () => void }) {
   const [saved, setSaved] = useState(false);
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
 
   // A rename elsewhere (or a pull-to-refresh) shouldn't leave a stale draft.
   useEffect(() => {
@@ -98,6 +101,24 @@ export default function Profile({ onClose }: { onClose: () => void }) {
         },
       ],
     );
+  }
+
+  async function leaveRelationship() {
+    if (leaveBusy) return;
+    setLeaveBusy(true);
+    setError(null);
+    try {
+      const updated = await api.removePartner();
+      await applyUser(updated);
+      await refresh();
+      setLeaveOpen(false);
+      haptic(12);
+    } catch (err) {
+      setError((err as Error).message);
+      setLeaveOpen(false);
+    } finally {
+      setLeaveBusy(false);
+    }
   }
 
   async function togglePush(next: boolean) {
@@ -219,7 +240,19 @@ export default function Profile({ onClose }: { onClose: () => void }) {
                 <Row label="Household code" value={user.inviteCode} />
               ) : null}
               {partnered ? (
-                <Row label="Partner" value={user.partnerName ?? ''} />
+                <>
+                  <Row label="Partner" value={user.partnerName ?? ''} />
+                  <Button
+                    block
+                    variant="ghost"
+                    onPress={() => {
+                      haptic(10);
+                      setLeaveOpen(true);
+                    }}
+                  >
+                    Leave relationship
+                  </Button>
+                </>
               ) : (
                 <>
                   <Text style={styles.muted}>No partner linked yet.</Text>
@@ -291,6 +324,39 @@ export default function Profile({ onClose }: { onClose: () => void }) {
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
+      <Modal
+        visible={leaveOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLeaveOpen(false)}
+      >
+        <Pressable style={styles.leaveBackdrop} onPress={() => setLeaveOpen(false)}>
+          <Pressable style={styles.leaveCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.leaveTitle}>Leave this relationship?</Text>
+            <Text style={styles.leaveBody}>
+              You’ll lose all {user.points} of your points. Tasks and prizes stay
+              saved if you and {user.partnerName} link back up — not if you join
+              someone else.
+            </Text>
+            <Button
+              block
+              variant="danger"
+              disabled={leaveBusy}
+              onPress={() => void leaveRelationship()}
+            >
+              {leaveBusy ? 'Leaving…' : 'Leave and lose points'}
+            </Button>
+            <Button
+              block
+              variant="ghost"
+              disabled={leaveBusy}
+              onPress={() => setLeaveOpen(false)}
+            >
+              Stay
+            </Button>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -393,4 +459,31 @@ const styles = StyleSheet.create({
   rowValueLeft: { fontSize: 14, color: colors.ink, fontWeight: '700' },
   grow: { flex: 1, minWidth: 0, gap: 2, paddingRight: 12 },
   muted: { fontSize: 13, color: colors.inkMuted },
+  leaveBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15,20,30,0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  leaveCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: colors.card,
+    borderRadius: 24,
+    padding: 22,
+    gap: 12,
+  },
+  leaveTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: colors.ink,
+  },
+  leaveBody: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.ink2,
+    marginBottom: 4,
+  },
 });

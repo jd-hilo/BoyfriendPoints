@@ -20,10 +20,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { FeedComment, FeedEventView, FriendRequestView } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { colors, shadow } from '../theme';
+import { colors, shadow, TAB_BAR_FLOAT_HEIGHT } from '../theme';
 import { Avatar, Xp } from '../ui';
 import { haptic, timeAgo } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
+import AddFriendPill from '../AddFriendPill';
 import { Ionicons } from '@expo/vector-icons';
 
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
@@ -83,6 +84,8 @@ export default function Feed({
   onInvitePartner?: () => void;
 } = {}) {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const tabClearance = TAB_BAR_FLOAT_HEIGHT + Math.max(insets.bottom, 10);
   const [events, setEvents] = useState<FeedEventView[]>([]);
   const [friendRequests, setFriendRequests] = useState<FriendRequestView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -224,6 +227,11 @@ export default function Feed({
         <EmptyHome
           onAddCouples={() => setAddCouplesOpen(true)}
           onInvitePartner={onInvitePartner}
+          bottomClearance={tabClearance}
+        />
+        <AddFriendPill
+          onPress={() => setAddCouplesOpen(true)}
+          bottom={tabClearance + 8}
         />
         <AddCouplesModal
           visible={addCouplesOpen}
@@ -239,7 +247,10 @@ export default function Feed({
       <FlatList
         data={events}
         keyExtractor={(e) => e.id}
-        contentContainerStyle={styles.feedList}
+        contentContainerStyle={[
+          styles.feedList,
+          { paddingBottom: tabClearance + 56 },
+        ]}
         ListHeaderComponent={requestBanner}
         renderItem={({ item: e }) => (
           <View style={styles.feedCard}>
@@ -325,6 +336,10 @@ export default function Feed({
           onSubmitComment={(text) => addComment(activeCommentEvent.id, text)}
         />
       )}
+      <AddFriendPill
+        onPress={() => setAddCouplesOpen(true)}
+        bottom={tabClearance + 8}
+      />
       <AddCouplesModal
         visible={addCouplesOpen}
         onClose={() => setAddCouplesOpen(false)}
@@ -412,15 +427,17 @@ function CoupleAvatars({
 function EmptyHome({
   onAddCouples,
   onInvitePartner,
+  bottomClearance,
 }: {
   onAddCouples: () => void;
   onInvitePartner?: () => void;
+  bottomClearance: number;
 }) {
   // The feed stays empty until both partners are in, so say that instead of
   // pointing at friends they can't see yet.
   const unlinked = Boolean(onInvitePartner);
   return (
-    <View style={styles.emptyHome}>
+    <View style={[styles.emptyHome, { paddingBottom: bottomClearance + 24 }]}>
       <DemoPost />
       <Text style={styles.emptyTitle}>
         {unlinked
@@ -754,7 +771,7 @@ function CommentSheet({
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: '#f3f3f2' },
   centerMuted: { textAlign: 'center', color: colors.inkMuted, padding: 16 },
-  feedList: { gap: 12, paddingTop: 4, paddingBottom: 24 },
+  feedList: { gap: 12, paddingTop: 4, paddingBottom: 88 },
   requestList: { gap: 8, marginBottom: 8 },
   requestCard: {
     flexDirection: 'row',
@@ -833,7 +850,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 8,
-    paddingBottom: 28,
+    paddingBottom: 80,
   },
   emptyTitle: {
     color: colors.ink,

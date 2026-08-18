@@ -6,17 +6,19 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { Prize, PublicUser, Redemption } from '../types';
 import { api } from '../api';
 import { Button, CoupleLockup, EmojiField, ReceiptModal, WhoPill, Xp } from '../ui';
-import { colors, radius, shadow } from '../theme';
-import { haptic } from '../utils';
+import { colors, radius, shadow, TAB_BAR_FLOAT_HEIGHT } from '../theme';
+import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 
 interface SuccessInfo {
   id: string;
@@ -32,6 +34,7 @@ export default function Redeem({
   user: PublicUser;
   onChange: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [prizes, setPrizes] = useState<Prize[]>([]);
   const [created, setCreated] = useState<Prize[]>([]);
   const [pending, setPending] = useState<Redemption[]>([]);
@@ -97,9 +100,25 @@ export default function Redeem({
   const held = pending.reduce((sum, r) => sum + r.cost, 0);
   const partner = user.partnerName ?? 'your partner';
   const partnerFirst = user.partnerName?.trim().split(/\s+/)[0] ?? 'them';
+  const linked = Boolean(user.partnerId);
+
+  async function invitePartner() {
+    haptic(10);
+    const who = user.name.trim() || 'Your partner';
+    await Share.share({
+      message: partnerWaitingShareMessage(who, user.inviteCode),
+      url: APP_SHARE_URL,
+    });
+  }
 
   return (
-    <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.flex}
+      contentContainerStyle={[
+        styles.content,
+        { paddingBottom: 24 + TAB_BAR_FLOAT_HEIGHT + Math.max(insets.bottom, 10) },
+      ]}
+    >
       <View style={styles.titleRow}>
         <Text style={styles.screenTitle}>Rewards</Text>
         <WhoPill
@@ -150,16 +169,31 @@ export default function Redeem({
 
       {scope === 'you' && (prizes.length === 0 ? (
         <View style={styles.empty}>
-          <View style={[styles.tile, styles.tileLocked]}>
-            <Ionicons name="lock-closed" size={18} color={colors.inkMuted} />
-            <Text style={styles.tileEmoji}>🎁</Text>
-            <Text style={styles.tileTitle}>Movie night</Text>
-            <Xp value={40} size={12} />
-          </View>
-          <Text style={styles.emptyTitle}>No prizes yet</Text>
-          <Text style={styles.emptyBody}>
-            Ask {user.partnerName ?? 'your partner'} to add rewards you can cash points in for.
+          {linked ? (
+            <View style={[styles.tile, styles.tileLocked]}>
+              <Ionicons name="lock-closed" size={18} color={colors.inkMuted} />
+              <Text style={styles.tileEmoji}>🎁</Text>
+              <Text style={styles.tileTitle}>Movie night</Text>
+              <Xp value={40} size={12} />
+            </View>
+          ) : null}
+          <Text style={styles.emptyTitle}>
+            {linked ? 'No prizes yet' : 'Add your partner first'}
           </Text>
+          <Text style={styles.emptyBody}>
+            {linked
+              ? `Ask ${partner} to add rewards you can cash points in for.`
+              : 'Once you’re linked, you can cash points in for rewards.'}
+          </Text>
+          {linked ? null : (
+            <Button
+              block
+              disabled={!user.inviteCode}
+              onPress={() => void invitePartner()}
+            >
+              Invite partner
+            </Button>
+          )}
         </View>
       ) : (
         <View style={styles.grid}>
@@ -433,7 +467,12 @@ const styles = StyleSheet.create({
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
   subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: -8 },
   error: { color: colors.red, fontSize: 13 },
-  empty: { alignItems: 'center', paddingTop: 12, gap: 8 },
+  empty: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    paddingTop: 12,
+    gap: 8,
+  },
   emptyTitle: {
     color: colors.ink,
     fontSize: 22,

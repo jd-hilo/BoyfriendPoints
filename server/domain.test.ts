@@ -13,6 +13,7 @@ import {
   avatarFor,
   inviteBoyfriend,
   pendingRedemptionsForUser,
+  prizesForUser,
   redeemPrize,
   setPushToken,
   updateProfile,
@@ -116,6 +117,41 @@ describe('accounts', () => {
     removePartner(state, wife);
     expect(wife.partnerId).toBeUndefined();
     expect(boyfriend.partnerId).toBeUndefined();
+  });
+
+  it('zeros the leaver’s points and keeps tasks for the same pair', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    wife.points = 80;
+    boyfriend.points = 40;
+    addTask(state, wife, { title: 'Dishes', points: 10 });
+    addPrize(state, wife, { title: 'Date night', cost: 50 });
+    removePartner(state, boyfriend);
+    expect(boyfriend.points).toBe(0);
+    expect(wife.points).toBe(80);
+    expect(tasksForUser(state, wife)).toHaveLength(1);
+    expect(prizesForUser(state, wife)).toHaveLength(1);
+
+    joinWithInviteCode(state, boyfriend, wife.inviteCode!);
+    expect(tasksForUser(state, boyfriend).map((t) => t.title)).toEqual(['Dishes']);
+    expect(prizesForUser(state, boyfriend).map((p) => p.title)).toEqual([
+      'Date night',
+    ]);
+  });
+
+  it('hides saved tasks when you join a different partner', () => {
+    const { state, wife } = bootstrap();
+    addTask(state, wife, { title: 'Dishes', points: 10 });
+    removePartner(state, wife);
+    const other = signup(state, {
+      name: 'Alex',
+      email: 'alex@x.com',
+      password: 'secret',
+      role: 'boyfriend',
+    });
+    joinWithInviteCode(state, other, wife.inviteCode!);
+    expect(state.tasks.map((t) => t.title)).toEqual(['Dishes']);
+    expect(tasksForUser(state, wife)).toEqual([]);
+    expect(tasksForUser(state, other)).toEqual([]);
   });
 
   it('allows inviting again after a partner is removed', () => {

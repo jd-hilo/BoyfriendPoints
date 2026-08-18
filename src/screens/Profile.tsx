@@ -5,11 +5,13 @@ import { Avatar, Button, Xp } from '../ui.tsx';
 import { haptic } from '../utils.ts';
 
 export default function Profile({ onClose }: { onClose: () => void }) {
-  const { user, applyUser, logout } = useAuth();
+  const { user, applyUser, logout, refresh } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveBusy, setLeaveBusy] = useState(false);
 
   // A rename elsewhere (or a refresh) shouldn't leave a stale draft in the box.
   useEffect(() => {
@@ -20,6 +22,23 @@ export default function Profile({ onClose }: { onClose: () => void }) {
   const me = user;
   const trimmed = name.trim();
   const dirty = trimmed.length > 0 && trimmed !== me.name;
+
+  async function leaveRelationship() {
+    if (leaveBusy) return;
+    setLeaveBusy(true);
+    setError(null);
+    try {
+      applyUser(await api.removePartner());
+      await refresh();
+      setLeaveOpen(false);
+      haptic(12);
+    } catch (err) {
+      setError((err as Error).message);
+      setLeaveOpen(false);
+    } finally {
+      setLeaveBusy(false);
+    }
+  }
 
   async function saveName() {
     if (!dirty || saving) return;
@@ -110,7 +129,19 @@ export default function Profile({ onClose }: { onClose: () => void }) {
           <Row label="Email" value={me.email} />
           {me.inviteCode && <Row label="Household code" value={me.inviteCode} />}
           {me.partnerName ? (
-            <Row label="Partner" value={me.partnerName} />
+            <>
+              <Row label="Partner" value={me.partnerName} />
+              <Button
+                variant="ghost"
+                block
+                onClick={() => {
+                  haptic(10);
+                  setLeaveOpen(true);
+                }}
+              >
+                Leave relationship
+              </Button>
+            </>
           ) : (
             <p className="muted">No partner linked yet.</p>
           )}
@@ -123,6 +154,49 @@ export default function Profile({ onClose }: { onClose: () => void }) {
           </Button>
         </div>
       </div>
+
+      {leaveOpen ? (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => setLeaveOpen(false)}
+        >
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="leave-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="modal-title" id="leave-title">
+              Leave this relationship?
+            </h3>
+            <p className="modal-sub" style={{ textAlign: 'left' }}>
+              You’ll lose all {me.points} of your points. Tasks and prizes stay
+              saved if you and {me.partnerName} link back up — not if you join
+              someone else.
+            </p>
+            <div className="modal-actions">
+              <Button
+                variant="danger"
+                block
+                disabled={leaveBusy}
+                onClick={() => void leaveRelationship()}
+              >
+                {leaveBusy ? 'Leaving…' : 'Leave and lose points'}
+              </Button>
+              <Button
+                variant="ghost"
+                block
+                disabled={leaveBusy}
+                onClick={() => setLeaveOpen(false)}
+              >
+                Stay
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

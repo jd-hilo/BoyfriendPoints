@@ -14,7 +14,7 @@ import {
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors, radius, shadow } from '../theme';
-import { APP_SHARE_URL, haptic } from '../utils';
+import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 
 /**
  * Everything a redeemer can do lives inside a household, so an unlinked
@@ -55,10 +55,7 @@ export default function LinkPartner() {
   async function nudgePartner() {
     const who = user?.name.trim() || 'Your partner';
     await Share.share({
-      message:
-        `${who} is waiting for you on LoveReceipts!\n\n` +
-        `Sign up, pick “I'll set the prizes”, and send me the 6-character ` +
-        `household code so we can link up.\n\n${APP_SHARE_URL}`,
+      message: partnerWaitingShareMessage(who, user?.inviteCode),
       url: APP_SHARE_URL,
     });
   }
@@ -74,8 +71,8 @@ export default function LinkPartner() {
       >
         <Text style={styles.title}>Link your partner</Text>
         <Text style={styles.subtitle}>
-          LoveReceipts only works as a pair. The partner who sets the prizes has
-          a 6-character household code — enter it to start earning.
+          LoveReceipts only works as a pair. Your partner has a 6-character
+          household code — enter it to link up.
         </Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -112,8 +109,9 @@ export default function LinkPartner() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>No code yet?</Text>
           <Text style={styles.cardBody}>
-            Your partner needs to sign up first and choose “I&apos;ll set the
-            prizes”. Their code is on their Manage tab.
+            Ask your partner for their 6-character household code. If they
+            already started a household, it’s in the app. If not, they can start
+            one and send it.
           </Text>
           <Pressable style={styles.secondaryBtn} onPress={() => void nudgePartner()}>
             <Text style={styles.secondaryBtnText}>Send them the app</Text>

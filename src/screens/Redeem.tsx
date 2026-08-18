@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Prize, PublicUser } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { Button, EmojiField, ReceiptModal, WhoPill, Xp } from '../ui.tsx';
-import { haptic } from '../utils.ts';
+import { haptic, sharePartnerInvite } from '../utils.ts';
 
 interface SuccessInfo {
   id: string;
@@ -98,6 +98,7 @@ export default function Redeem({
   }
 
   const partnerFirst = user.partnerName?.trim().split(/\s+/)[0] ?? 'them';
+  const linked = Boolean(user.partnerId);
 
   return (
     <div className="screen">
@@ -126,9 +127,27 @@ export default function Redeem({
 
       {scope === 'you' ? (
         prizes.length === 0 ? (
-          <p className="muted center pad">
-            {user.partnerName ?? 'Your partner'} hasn&apos;t added prizes yet.
-          </p>
+          linked ? (
+            <p className="muted center pad">
+              {user.partnerName ?? 'Your partner'} hasn&apos;t added prizes yet.
+            </p>
+          ) : (
+            <div className="card" style={{ textAlign: 'center' }}>
+              <p className="coach-title">Add your partner first</p>
+              <p className="muted small">
+                Once you’re linked, you can cash points in for rewards.
+              </p>
+              <Button
+                block
+                disabled={!user.inviteCode}
+                onClick={() =>
+                  void sharePartnerInvite(user.name, user.inviteCode)
+                }
+              >
+                Invite partner
+              </Button>
+            </div>
+          )
         ) : (
           <div className="prize-grid">
             {prizes.map((p) => {

@@ -80,6 +80,8 @@ export interface Prize {
   title: string;
   emoji: string;
   cost: number;
+  /** Partner this prize was created with. Hidden if you join someone else. */
+  forPartnerId?: string;
   createdAt: string;
 }
 
@@ -89,6 +91,8 @@ export interface EarnTask {
   title: string;
   emoji: string;
   points: number;
+  /** Partner this task was created with. Hidden if you join someone else. */
+  forPartnerId?: string;
   createdAt: string;
 }
 
