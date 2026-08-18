@@ -38,6 +38,16 @@ function PhotoCarousel({ images }: { images: string[] }) {
     setActive(Math.max(0, Math.min(images.length - 1, idx)));
   }
 
+  if (images.length === 1) {
+    return (
+      <Image
+        source={{ uri: images[0] }}
+        style={styles.heroPhoto}
+        resizeMode="cover"
+      />
+    );
+  }
+
   return (
     <View style={styles.carousel}>
       <ScrollView
@@ -52,16 +62,15 @@ function PhotoCarousel({ images }: { images: string[] }) {
             key={src + i}
             source={{ uri: src }}
             style={styles.carouselImg}
+            resizeMode="cover"
           />
         ))}
       </ScrollView>
-      {images.length > 1 && (
-        <View style={styles.carouselDots}>
-          {images.map((src, i) => (
-            <View key={src + i} style={[styles.dot, i === active && styles.dotOn]} />
-          ))}
-        </View>
-      )}
+      <View style={styles.carouselDots}>
+        {images.map((src, i) => (
+          <View key={src + i} style={[styles.dot, i === active && styles.dotOn]} />
+        ))}
+      </View>
     </View>
   );
 }
@@ -160,15 +169,21 @@ export default function Feed({
 
   const incomingRequests = friendRequests.filter(
     (request) =>
-      request.to.id ===
-      (user?.role === 'wife' ? user.id : user?.partnerId),
+      request.to.id === (user?.inviteCode ? user.id : user?.partnerId),
   );
 
-  if (loading) {
-    return (
-      <Text style={styles.centerMuted}>Loading feed…</Text>
-    );
-  }
+  const fade = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (loading) return;
+    fade.setValue(0);
+    Animated.timing(fade, {
+      toValue: 1,
+      duration: 240,
+      useNativeDriver: true,
+    }).start();
+  }, [fade, loading]);
+
+  if (loading) return <View style={styles.flex} />;
 
   const requestBanner = incomingRequests.length ? (
     <View style={styles.requestList}>
@@ -204,7 +219,7 @@ export default function Feed({
 
   if (events.length === 0) {
     return (
-      <View style={styles.flex}>
+      <Animated.View style={[styles.flex, { opacity: fade }]}>
         {requestBanner}
         <EmptyHome
           onAddCouples={() => setAddCouplesOpen(true)}
@@ -215,12 +230,12 @@ export default function Feed({
           onClose={() => setAddCouplesOpen(false)}
           onChanged={() => void load()}
         />
-      </View>
+      </Animated.View>
     );
   }
 
   return (
-    <View style={styles.flex}>
+    <Animated.View style={[styles.flex, { opacity: fade }]}>
       <FlatList
         data={events}
         keyExtractor={(e) => e.id}
@@ -246,7 +261,9 @@ export default function Feed({
               note={e.note}
             />
 
-            {e.images.length > 0 && <PhotoCarousel images={e.images} />}
+            {e.type === 'earn' && e.images.length > 0 && (
+              <PhotoCarousel images={e.images} />
+            )}
 
             <ReactionRow
               event={e}
@@ -313,7 +330,7 @@ export default function Feed({
         onClose={() => setAddCouplesOpen(false)}
         onChanged={() => void load()}
       />
-    </View>
+    </Animated.View>
   );
 }
 
@@ -735,7 +752,7 @@ function CommentSheet({
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
+  flex: { flex: 1, backgroundColor: '#f3f3f2' },
   centerMuted: { textAlign: 'center', color: colors.inkMuted, padding: 16 },
   feedList: { gap: 12, paddingTop: 4, paddingBottom: 24 },
   requestList: { gap: 8, marginBottom: 8 },
@@ -761,7 +778,7 @@ const styles = StyleSheet.create({
   requestAcceptText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   requestDecline: { color: colors.inkMuted, fontSize: 17, paddingHorizontal: 3 },
   feedCard: {
-    backgroundColor: '#f3f3f2',
+    backgroundColor: colors.card,
     borderRadius: 28,
     padding: 18,
     paddingBottom: 16,
@@ -843,7 +860,7 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   demoCard: {
-    backgroundColor: '#f3f3f2',
+    backgroundColor: colors.card,
     borderRadius: 28,
     padding: 18,
     paddingBottom: 16,
@@ -860,11 +877,17 @@ const styles = StyleSheet.create({
     bottom: 36,
     fontSize: 22,
   },
-  carousel: { marginTop: 12, marginBottom: 4 },
+  heroPhoto: {
+    width: CARD_WIDTH,
+    aspectRatio: 4 / 5,
+    backgroundColor: '#eef1f4',
+    marginTop: 14,
+    marginHorizontal: -18,
+  },
+  carousel: { marginTop: 14, marginHorizontal: -18 },
   carouselImg: {
     width: CARD_WIDTH,
-    aspectRatio: 3 / 2,
-    borderRadius: 16,
+    aspectRatio: 4 / 5,
     backgroundColor: '#eef1f4',
   },
   carouselDots: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginTop: 8 },
@@ -898,7 +921,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#fff',
+    backgroundColor: '#f3f3f2',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',

@@ -127,6 +127,84 @@ export function PointsPill({
   return <Xp value={value} sign={kind === 'earn' ? '+' : '−'} />;
 }
 
+function latestEmoji(next: string, fallback: string): string {
+  const cleaned = next.replace(/[0-9A-Za-z\s]/g, '');
+  if (!cleaned) return fallback;
+  const parts = Array.from(cleaned);
+  return parts[parts.length - 1] ?? fallback;
+}
+
+/** Opens the system emoji keyboard (Apple Character Viewer / iOS emoji panel). */
+export function EmojiField({
+  value,
+  onChange,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  autoFocus?: boolean;
+}) {
+  return (
+    <label className="emoji-field">
+      <span className="emoji-field-glyph" aria-hidden>
+        {value || '⭐'}
+      </span>
+      <input
+        className="emoji-field-input"
+        value=""
+        autoFocus={autoFocus}
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        inputMode="text"
+        aria-label="Choose emoji"
+        onChange={(e) => {
+          onChange(latestEmoji(e.target.value, value));
+          e.target.value = '';
+        }}
+      />
+    </label>
+  );
+}
+
+/** Compact segmented pill: For you / For {partner}. */
+export function WhoPill({
+  value,
+  themLabel,
+  onChange,
+}: {
+  value: 'you' | 'them';
+  themLabel: string;
+  onChange: (next: 'you' | 'them') => void;
+}) {
+  return (
+    <div className="who-pill" role="tablist" aria-label="Whose list">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'you'}
+        className={`who-pill-seg${value === 'you' ? ' on' : ''}`}
+        onClick={() => {
+          if (value !== 'you') onChange('you');
+        }}
+      >
+        For you
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'them'}
+        className={`who-pill-seg${value === 'them' ? ' on' : ''}`}
+        onClick={() => {
+          if (value !== 'them') onChange('them');
+        }}
+      >
+        {themLabel}
+      </button>
+    </div>
+  );
+}
+
 const RECEIPT_HEADLINE: Record<ReceiptKind, string> = {
   request: 'Request sent',
   earn: 'Points earned',

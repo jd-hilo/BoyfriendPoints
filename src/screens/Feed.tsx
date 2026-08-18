@@ -103,10 +103,10 @@ export default function Feed() {
     );
   }
 
-  if (loading) return <p className="muted center pad">Loading feed…</p>;
+  if (loading) return null;
 
   return (
-    <div className="feed">
+    <div className="feed feed-ready">
       {events.length === 0 ? (
         <div className="feed-card">
           <p className="muted center" style={{ margin: 12 }}>
@@ -153,7 +153,9 @@ export default function Feed() {
               </span>
             </p>
 
-            {e.images.length > 0 && <PhotoCarousel images={e.images} />}
+            {e.type === 'earn' && e.images.length > 0 && (
+              <PhotoCarousel images={e.images} />
+            )}
 
             <ReactionRow
               event={e}

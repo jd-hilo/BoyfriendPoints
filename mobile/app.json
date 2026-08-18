@@ -21,6 +21,7 @@
         "CFBundleName": "LoveReceipts",
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "LoveReceipts uses your photo library for your profile picture and proof photos on point requests.",
+        "UIBackgroundModes": ["remote-notification"],
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true,
           "NSAllowsArbitraryLoads": true

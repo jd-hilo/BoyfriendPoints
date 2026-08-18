@@ -33,3 +33,17 @@ export async function notifyUser(
     /* ignore */
   }
 }
+
+/** Ping both people on a household post, except the person who just acted. */
+export function notifyOwners(
+  state: State,
+  event: { wifeId: string; boyfriendId: string },
+  exceptUserId: string,
+  title: string,
+  body: string,
+): void {
+  for (const id of [event.wifeId, event.boyfriendId]) {
+    if (!id || id === exceptUserId) continue;
+    void notifyUser(userById(state, id), title, body);
+  }
+}

@@ -22,9 +22,7 @@ import AddCouplesModal from '../AddCouplesModal';
 import { APP_SHARE_URL } from '../utils';
 
 const SLIDE_MS = 5000;
-/** Account setup + partner + prizes + friends (prizes skipped for redeemers). */
-const TOTAL_STEPS_WIFE = 8;
-const TOTAL_STEPS_BF = 6;
+const TOTAL_STEPS = 7;
 
 type Phase = 'slides' | 'steps';
 
@@ -181,16 +179,15 @@ const SLIDES = [
 ];
 
 /**
- * Steps: 0=email 1=password 2=name 3=role 4=couple username
- * 5=partner 6=prizes 7=friends. Redeemers skip 4 and 6.
+ * Steps: 0=email 1=password 2=name 3=skipped 4=couple username
+ * 5=partner 6=prizes 7=friends.
  */
 function resumeStepFor(user: {
-  role: Role;
   partnerId?: string;
 } | null): number {
   if (!user) return 0;
   if (!user.partnerId) return 5;
-  return user.role === 'boyfriend' ? 7 : 6;
+  return 6;
 }
 
 export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) {
@@ -202,7 +199,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role | null>(user?.role ?? null);
+  const [role, setRole] = useState<Role | null>(user?.role ?? 'wife');
   const [name, setName] = useState(user?.name ?? '');
   const [coupleUsername, setCoupleUsername] = useState(
     user?.coupleUsername ?? '',
@@ -221,17 +218,9 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
     setStep((current) => (current < 5 ? resumeStepFor(user) : current));
   }, [user]);
 
-  const effectiveRole: Role | null = user?.role ?? role;
-  const totalSteps =
-    effectiveRole === 'boyfriend' ? TOTAL_STEPS_BF : TOTAL_STEPS_WIFE;
+  const totalSteps = TOTAL_STEPS;
   const progressStep =
-    effectiveRole === 'boyfriend'
-      ? step <= 3
-        ? step
-        : step === 5
-          ? 4
-          : 5
-      : step;
+    step <= 2 ? step : step === 4 ? 3 : step === 5 ? 4 : step === 6 ? 5 : 6;
 
   async function continueFromEmail() {
     setError(null);
@@ -250,13 +239,8 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
     }
   }
 
-  /** Create the account only after name + role have been collected. */
+  /** Create the account after name + couple username. */
   async function createAccount() {
-    if (!role) {
-      setError('Choose what you’ll do first');
-      setStep(3);
-      return;
-    }
     setError(null);
     setBusy(true);
     try {
@@ -264,10 +248,9 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
         name.trim(),
         email.trim(),
         password,
-        role,
-        role === 'wife' ? coupleUsername : undefined,
+        'wife',
+        coupleUsername,
       );
-      // Verify that the token is live before allowing authenticated setup.
       await api.me();
       setStep(5);
     } catch (err) {
@@ -296,18 +279,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
 
   function afterPartner() {
     setError(null);
-    // Redeemers skip prize setup — that's the other partner's job.
-    if ((user?.role ?? role) !== 'boyfriend') {
-      setStep(6);
-      return;
-    }
-    // Finding friends needs a household, so an unlinked redeemer goes straight
-    // into the app, where they're gated on entering a code.
-    if (!user?.partnerId) {
-      void finish();
-      return;
-    }
-    setStep(7);
+    setStep(6);
   }
 
   /** Let people fix a mis-picked role while setup is still reversible. */
@@ -442,7 +414,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               disabled={!name.trim()}
               onPress={() => {
                 setError(null);
-                setStep(3);
+                setStep(4);
               }}
             />
           </StepShell>
@@ -525,25 +497,15 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
           </StepShell>
         )}
 
-        {step === 5 &&
-          (user?.role === 'boyfriend' || role === 'boyfriend' ? (
-            <StepEnterCode
-              onNext={afterPartner}
-              refresh={refresh}
-              partnerName={user?.partnerName}
-              onSwitchRole={busy ? undefined : () => void changeRole('wife')}
-            />
-          ) : (
-            <StepInvitePartner
-              onNext={afterPartner}
-              inviteCode={user?.inviteCode}
-              partnerName={user?.partnerName}
-              sharerName={user?.name ?? name}
-              onSwitchRole={
-                busy ? undefined : () => void changeRole('boyfriend')
-              }
-            />
-          ))}
+        {step === 5 && (
+          <StepInvitePartner
+            onNext={afterPartner}
+            inviteCode={user?.inviteCode}
+            partnerName={user?.partnerName}
+            sharerName={user?.name ?? name}
+            refresh={refresh}
+          />
+        )}
 
         {step === 6 && (
           <StepPrizes
@@ -795,15 +757,19 @@ function StepInvitePartner({
   inviteCode,
   partnerName,
   sharerName,
-  onSwitchRole,
+  refresh,
 }: {
   onNext: () => void;
   inviteCode?: string;
   partnerName?: string;
   sharerName: string;
-  onSwitchRole?: () => void;
+  refresh: () => Promise<void>;
 }) {
   const code = inviteCode ?? '······';
+  const [joinCode, setJoinCode] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const linked = Boolean(partnerName);
 
   async function share() {
     if (!inviteCode) return;
@@ -813,10 +779,25 @@ function StepInvitePartner({
     });
   }
 
+  async function join() {
+    setError(null);
+    setBusy(true);
+    try {
+      await api.joinWithCode(joinCode);
+      await refresh();
+      onNext();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <StepShell
-      title="Invite your partner"
-      sub="Share this code — they'll enter it after signing up to earn and redeem points."
+      title="Add your partner"
+      sub="Share your code, or enter theirs if they already started a household."
+      error={error}
     >
       <Pop>
         <View style={styles.codeCard}>
@@ -825,37 +806,50 @@ function StepInvitePartner({
             {code}
           </Text>
           <Text style={styles.codeHint}>
-            They open LoveReceipts → pick “I'll redeem points” → enter this code.
+            They sign up and enter this code to link with you.
           </Text>
         </View>
       </Pop>
 
-      {partnerName ? (
+      {linked ? (
         <View style={styles.successCard}>
           <Text style={styles.successTitle}>{partnerName} is linked 🎉</Text>
           <Text style={styles.successBody}>
             You're set — keep the code handy if they need to reinstall.
           </Text>
         </View>
-      ) : null}
+      ) : (
+        <>
+          <TextInput
+            style={[styles.bigInput, styles.codeInput]}
+            value={joinCode}
+            onChangeText={(t) =>
+              setJoinCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+            }
+            placeholder="Or enter their code"
+            placeholderTextColor="#b9b7b3"
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={8}
+          />
+          <PrimaryButton
+            label={busy ? undefined : 'Join with their code'}
+            busy={busy}
+            disabled={joinCode.trim().length < 4 || busy}
+            onPress={() => void join()}
+          />
+        </>
+      )}
 
       <PrimaryButton
         label="Share invite"
         disabled={!inviteCode}
         onPress={() => void share()}
       />
-      {partnerName ? (
+      {linked ? (
         <PrimaryButton label="Continue" onPress={onNext} />
       ) : (
-        <>
-          <SkipLink label="Continue — I'll share later" onPress={onNext} />
-          {onSwitchRole && (
-            <SkipLink
-              label="Actually, I'm the one earning points"
-              onPress={onSwitchRole}
-            />
-          )}
-        </>
+        <SkipLink label="Continue — I'll share later" onPress={onNext} />
       )}
     </StepShell>
   );

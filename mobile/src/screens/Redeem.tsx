@@ -1,9 +1,20 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  Animated,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Prize, PublicUser, Redemption } from '../types';
 import { api } from '../api';
-import { CoupleLockup, ReceiptModal, Xp } from '../ui';
+import { Button, CoupleLockup, EmojiField, ReceiptModal, WhoPill, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { haptic } from '../utils';
 
@@ -22,22 +33,30 @@ export default function Redeem({
   onChange: () => void;
 }) {
   const [prizes, setPrizes] = useState<Prize[]>([]);
+  const [created, setCreated] = useState<Prize[]>([]);
   const [pending, setPending] = useState<Redemption[]>([]);
+  const [prizeForm, setPrizeForm] = useState({ emoji: '🎁', title: '', cost: '' });
+  const [addingPrize, setAddingPrize] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [scope, setScope] = useState<'you' | 'them'>('you');
+  const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(async () => {
-    setPrizes(await api.prizes());
     try {
-      setPending(await api.redemptions());
-    } catch {
-      // Servers before this shipped only let the wife read the list. The hold
-      // hint is a nicety, so lose it rather than the whole screen.
-      setPending([]);
+      const all = await api.prizes();
+      setPrizes(all.filter((p) => user.partnerId && p.wifeId === user.partnerId));
+      setCreated(all.filter((p) => p.wifeId === user.id));
+      const redemptions = await api.redemptions();
+      setPending(redemptions.filter((r) => r.boyfriendId === user.id));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoaded(true);
     }
-  }, []);
+  }, [user.id, user.partnerId]);
 
   useEffect(() => {
     void load();
@@ -77,9 +96,23 @@ export default function Redeem({
 
   const held = pending.reduce((sum, r) => sum + r.cost, 0);
   const partner = user.partnerName ?? 'your partner';
+  const partnerFirst = user.partnerName?.trim().split(/\s+/)[0] ?? 'them';
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
+      <View style={styles.titleRow}>
+        <Text style={styles.screenTitle}>Rewards</Text>
+        <WhoPill
+          value={scope}
+          themLabel={`For ${partnerFirst}`}
+          onChange={(next) => {
+            haptic(8);
+            setScope(next);
+          }}
+        />
+      </View>
+      <LoadFade ready={loaded} identity={scope}>
+        {scope === 'you' && (
       <View style={styles.balanceCard}>
         <View style={styles.balanceTop}>
           <View>
@@ -111,12 +144,11 @@ export default function Redeem({
           </View>
         )}
       </View>
+      )}
 
-      <Text style={styles.screenTitle}>Redeem</Text>
-      <Text style={styles.subtitle}>Tap a prize you can afford.</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {prizes.length === 0 ? (
+      {scope === 'you' && (prizes.length === 0 ? (
         <View style={styles.empty}>
           <View style={[styles.tile, styles.tileLocked]}>
             <Ionicons name="lock-closed" size={18} color={colors.inkMuted} />
@@ -167,7 +199,135 @@ export default function Redeem({
             );
           })}
         </View>
-      )}
+      ))}
+
+        {scope === 'them' && (
+      <>
+      <View style={styles.grid}>
+        {created.map((p) => (
+          <View key={p.id} style={styles.tile}>
+            <Pressable
+              style={styles.tileRemove}
+              onPress={() => void api.removePrize(p.id).then(load)}
+              hitSlop={8}
+            >
+              <Text style={styles.xBtn}>✕</Text>
+            </Pressable>
+            <Text style={styles.tileEmoji}>{p.emoji}</Text>
+            <Text style={styles.tileTitle} numberOfLines={2}>
+              {p.title}
+            </Text>
+            <Xp value={p.cost} size={12} />
+          </View>
+        ))}
+        <Pressable
+          style={[styles.tile, styles.tileAdd]}
+          onPress={() => {
+            haptic(10);
+            setError(null);
+            setAddingPrize(true);
+          }}
+        >
+          <View style={styles.tileAddInner}>
+            <Ionicons name="gift-outline" size={30} color={colors.inkMuted} />
+            <View style={styles.tileAddCopy}>
+              <Text style={styles.tileAddLabel}>Add a prize</Text>
+              <Text style={styles.tileAddSub}>For {partnerFirst}</Text>
+            </View>
+          </View>
+        </Pressable>
+      </View>
+      </>
+        )}
+      </LoadFade>
+
+      <Modal
+        visible={addingPrize}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          setAddingPrize(false);
+          setPrizeForm({ emoji: '🎁', title: '', cost: '' });
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalSheet}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.modalHeader}>
+              <View style={styles.grow}>
+                <Text style={styles.modalTitle}>Add a prize</Text>
+                <Text style={styles.modalSub}>
+                  {partnerFirst === 'them'
+                    ? 'They can cash points in for this.'
+                    : `${partnerFirst} can cash points in for this.`}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setAddingPrize(false);
+                  setPrizeForm({ emoji: '🎁', title: '', cost: '' });
+                }}
+                hitSlop={8}
+              >
+                <Text style={styles.modalClose}>Cancel</Text>
+              </Pressable>
+            </View>
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <View style={styles.row}>
+              <EmojiField
+                value={prizeForm.emoji}
+                onChange={(emoji) => setPrizeForm({ ...prizeForm, emoji })}
+                autoFocus
+              />
+              <TextInput
+                style={[styles.input, styles.grow]}
+                value={prizeForm.title}
+                onChangeText={(v) => setPrizeForm({ ...prizeForm, title: v })}
+                placeholder={`A prize for ${partnerFirst}`}
+                placeholderTextColor={colors.inkMuted}
+              />
+            </View>
+            <TextInput
+              style={styles.input}
+              value={prizeForm.cost}
+              onChangeText={(v) =>
+                setPrizeForm({ ...prizeForm, cost: v.replace(/[^0-9]/g, '') })
+              }
+              placeholder="Cost in points"
+              placeholderTextColor={colors.inkMuted}
+              keyboardType="number-pad"
+            />
+            <Button
+              block
+              disabled={!prizeForm.title.trim() || !prizeForm.cost}
+              onPress={async () => {
+                setError(null);
+                try {
+                  await api.addPrize(
+                    prizeForm.title,
+                    Number(prizeForm.cost),
+                    prizeForm.emoji,
+                  );
+                  setPrizeForm({ emoji: '🎁', title: '', cost: '' });
+                  setAddingPrize(false);
+                  await load();
+                } catch (err) {
+                  setError((err as Error).message);
+                }
+              }}
+            >
+              Add prize
+            </Button>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {success && (
         <ReceiptModal
@@ -191,9 +351,56 @@ export default function Redeem({
   );
 }
 
+function LoadFade({
+  ready,
+  identity,
+  children,
+}: {
+  ready: boolean;
+  identity: string;
+  children: ReactNode;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(8)).current;
+
+  useEffect(() => {
+    if (!ready) return;
+    opacity.setValue(0);
+    translateY.setValue(8);
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [identity, opacity, ready, translateY]);
+
+  if (!ready) return null;
+  return (
+    <Animated.View
+      style={[styles.loadedContent, { opacity, transform: [{ translateY }] }]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { gap: 12, paddingBottom: 24 },
+  content: { gap: 12, paddingTop: 10, paddingBottom: 24 },
+  loadedContent: { gap: 12 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   balanceCard: {
     backgroundColor: colors.card,
     borderRadius: radius.card,
@@ -273,5 +480,88 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 10,
     right: 10,
+  },
+  sectionLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.inkMuted,
+    marginTop: 4,
+  },
+  tileRemove: { position: 'absolute', top: 8, right: 10, zIndex: 1 },
+  xBtn: { color: colors.inkMuted, fontSize: 14 },
+  tileAdd: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  tileAddInner: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  tileAddCopy: {
+    alignItems: 'center',
+    gap: 3,
+  },
+  tileAddLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.inkMuted,
+    textAlign: 'center',
+  },
+  tileAddSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    textAlign: 'center',
+  },
+  modalSheet: { flex: 1, backgroundColor: colors.bg },
+  modalContent: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 28,
+    gap: 10,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    color: colors.ink,
+  },
+  modalSub: { fontSize: 14, color: colors.inkMuted, marginTop: 4 },
+  modalClose: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    paddingTop: 4,
+  },
+  row: { flexDirection: 'row', gap: 8 },
+  grow: { flex: 1 },
+  input: {
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    fontSize: 16,
+    backgroundColor: colors.bg,
+    color: colors.ink,
+  },
+  emojiInput: {
+    width: 52,
+    textAlign: 'center',
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: colors.bg,
+    fontSize: 16,
   },
 });

@@ -12,6 +12,7 @@ import type {
 } from '../shared/types.ts';
 
 const TOKEN_KEY = 'bp_token';
+const USER_KEY = 'bp_user';
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -19,7 +20,25 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null): void {
   if (token) localStorage.setItem(TOKEN_KEY, token);
-  else localStorage.removeItem(TOKEN_KEY);
+  else {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+}
+
+export function getCachedUser(): PublicUser | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as PublicUser;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedUser(user: PublicUser | null): void {
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
+  else localStorage.removeItem(USER_KEY);
 }
 
 async function request<T>(
@@ -69,10 +88,20 @@ export const api = {
     }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
   me: () => request<PublicUser>('/me'),
+  updateProfile: (input: { name?: string; avatarUrl?: string }) =>
+    request<PublicUser>('/me', {
+      method: 'PATCH',
+      body: input,
+    }),
 
   suggestions: () =>
     request<{ prizes: Suggestion[]; tasks: Suggestion[] }>('/suggestions'),
 
+  joinWithCode: (code: string) =>
+    request<{ user: PublicUser; partner: PublicUser }>('/onboarding/join', {
+      method: 'POST',
+      body: { code },
+    }),
   inviteBoyfriend: (name: string, email: string, password: string) =>
     request<{
       boyfriend: PublicUser;

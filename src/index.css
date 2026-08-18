@@ -148,6 +148,33 @@ input:focus {
   flex: 0 0 auto;
   padding: 14px 6px;
 }
+.emoji-field {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: pointer;
+}
+.emoji-field-glyph {
+  font-size: 26px;
+  line-height: 32px;
+  pointer-events: none;
+}
+.emoji-field-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0.02;
+  border: none;
+  background: transparent;
+  font-size: 1px;
+  caret-color: transparent;
+}
 .cost {
   width: 72px;
   flex: 0 0 auto;
@@ -467,10 +494,20 @@ input:focus {
   position: absolute;
   inset: 0;
   z-index: 55;
-  background: var(--bg);
+  background: #f3f3f2;
   display: flex;
   flex-direction: column;
   animation: notif-in 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.notif-header {
+  background: #f3f3f2;
+  justify-content: space-between;
+}
+.notif-header .wordmark.sm {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.4px;
 }
 @keyframes notif-in {
   from {
@@ -505,14 +542,13 @@ input:focus {
 }
 .notif-empty {
   text-align: center;
-  padding: 36px 20px;
-}
-.notif-empty-emoji {
-  font-size: 40px;
+  padding: 48px 18px 20px;
 }
 .notif-empty-title {
+  font-size: 22px;
   font-weight: 700;
-  margin: 10px 0 4px;
+  letter-spacing: -0.5px;
+  margin: 0 0 8px;
 }
 
 /* ---- Center success modal ---- */
@@ -558,6 +594,34 @@ input:focus {
   margin: 0 auto 14px;
   box-shadow: 0 8px 20px rgba(46, 168, 79, 0.35);
   animation: modal-pop 0.35s 0.05s both cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.compose-modal {
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.compose-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.compose-modal-cancel {
+  border: none;
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-weight: 600;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.chip-add {
+  border: 1.5px dashed var(--border);
+  background: transparent;
+  box-shadow: none;
+  align-items: center;
+  text-align: center;
 }
 .modal-title {
   font-size: 20px;
@@ -839,14 +903,13 @@ input:focus {
 
 /* ---- Post photo carousel ---- */
 .carousel {
-  margin: 12px 0 4px;
+  margin: 14px -18px 0;
 }
 .carousel-track {
   display: flex;
   gap: 0;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
-  border-radius: 16px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
@@ -856,7 +919,7 @@ input:focus {
 .carousel-img {
   flex: 0 0 100%;
   width: 100%;
-  aspect-ratio: 3 / 2;
+  aspect-ratio: 4 / 5;
   object-fit: cover;
   scroll-snap-align: center;
   background: #eef1f4;
@@ -1051,6 +1114,20 @@ input:focus {
 .chip-points {
   margin-top: 2px;
 }
+.chip-static {
+  position: relative;
+}
+.chip-remove {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  padding: 2px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ink-muted);
+}
 
 .card {
   background: var(--card);
@@ -1170,6 +1247,9 @@ input:focus {
   padding: 8px 14px 120px;
   background: var(--bg);
 }
+.app-main.home-main {
+  background: #f3f3f2;
+}
 /* Screens sit inside .app-main, which already provides the side gutter. */
 .screen,
 .screen-scroll {
@@ -1187,6 +1267,44 @@ input:focus {
 .screen-title.flush {
   margin: 0 2px;
 }
+.title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 2px 2px;
+}
+.title-row .screen-title,
+.title-row .screen-title.flush {
+  margin: 0;
+}
+.who-pill {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  background: #e8e8e6;
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  max-width: 220px;
+}
+.who-pill-seg {
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-pill);
+  padding: 6px 10px;
+  min-width: 64px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.who-pill-seg.on {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
 
 /* ---- Feed cards (Venmo-style) ---- */
 .feed {
@@ -1195,8 +1313,11 @@ input:focus {
   gap: 12px;
   padding-top: 4px;
 }
+.feed-ready {
+  animation: fade-in 0.24s ease;
+}
 .feed-card {
-  background: #f3f3f2;
+  background: var(--card);
   border-radius: 28px;
   padding: 18px 18px 16px;
   box-shadow: none;
@@ -1285,7 +1406,7 @@ input:focus {
   height: 38px;
   border-radius: 50%;
   border: none;
-  background: #fff;
+  background: #f3f3f2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1475,7 +1596,7 @@ input:focus {
   bottom: 0;
   z-index: 30;
   display: grid;
-  grid-template-columns: 1fr 88px 1fr;
+  grid-template-columns: repeat(3, 1fr);
   align-items: end;
   background: var(--card);
   border-top: 1px solid #ececec;
@@ -1517,68 +1638,6 @@ input:focus {
   font-weight: 600;
   line-height: 1;
 }
-.tab-fab-slot {
-  position: relative;
-  min-height: 52px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-end;
-}
-.fab {
-  position: absolute;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
-  width: 58px;
-  height: 58px;
-  border-radius: 50%;
-  border: 5px solid var(--bg);
-  background: var(--blue);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 6px 16px rgba(0, 140, 255, 0.35);
-  padding: 0;
-  z-index: 2;
-}
-.fab:active {
-  transform: translateX(-50%) scale(0.96);
-}
-.fab.active {
-  background: #0074de;
-}
-.fab-count {
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1;
-}
-.fab-plus-gem {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.fab-gem {
-  position: absolute;
-  right: -10px;
-  bottom: -8px;
-  font-size: 18px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0, 60, 120, 0.35));
-}
-.fab-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: #8e8e93;
-  line-height: 1;
-  white-space: nowrap;
-}
-.fab-label.active {
-  color: var(--blue);
-}
-
 .pill {
   font-weight: 800;
   font-size: 15px;

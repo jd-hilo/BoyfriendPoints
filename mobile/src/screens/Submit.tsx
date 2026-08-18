@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Animated,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -11,13 +12,19 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import type { Submission, Suggestion } from '../types';
+import { Ionicons } from '@expo/vector-icons';
+import type { EarnTask, Submission, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { Button, ReceiptModal, Xp } from '../ui';
+import { Button, EmojiField, PushNudgeModal, ReceiptModal, WhoPill, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { haptic } from '../utils';
 import { pickAndUploadPhoto } from '../pickImage';
+import {
+  dismissPushPrompt,
+  enablePushNotifications,
+  shouldOfferPushPrompt,
+} from '../push';
 
 interface SuccessInfo {
   id: string;
@@ -34,7 +41,10 @@ export default function Submit({
 }) {
   const { user } = useAuth();
   const [options, setOptions] = useState<Suggestion[]>([]);
+  const [created, setCreated] = useState<EarnTask[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
+  const [taskForm, setTaskForm] = useState({ emoji: '⭐', title: '', points: '' });
+  const [addingTask, setAddingTask] = useState(false);
   const [title, setTitle] = useState('');
   const [emoji, setEmoji] = useState('⭐');
   const [points, setPoints] = useState('');
@@ -45,15 +55,43 @@ export default function Submit({
   const [sharing, setSharing] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [busyTitle, setBusyTitle] = useState<string | null>(null);
+  const [scope, setScope] = useState<'you' | 'them'>('you');
+  const [loaded, setLoaded] = useState(false);
+  const [pushPrompt, setPushPrompt] = useState(false);
   // The receipt is its own modal, so it can only be presented once the
   // compose sheet has finished dismissing.
   const queuedSuccess = useRef<SuccessInfo | null>(null);
+  const queuedPushPrompt = useRef(false);
+
+  async function maybeQueuePushPrompt() {
+    if (!user || created.length > 0) return;
+    if (!(await shouldOfferPushPrompt(user.id))) return;
+    queuedPushPrompt.current = true;
+  }
+
+  function flushPushPrompt() {
+    if (!queuedPushPrompt.current) return;
+    queuedPushPrompt.current = false;
+    setPushPrompt(true);
+  }
 
   const load = useCallback(async () => {
-    const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
-    setOptions(t.map((task) => ({ title: task.title, emoji: task.emoji, points: task.points })));
-    setMine(s);
-  }, []);
+    try {
+      const [t, s] = await Promise.all([api.tasks(), api.submissions()]);
+      const partnerId = user?.partnerId;
+      setOptions(
+        t
+          .filter((task) => partnerId && task.wifeId === partnerId)
+          .map((task) => ({ title: task.title, emoji: task.emoji, points: task.points })),
+      );
+      setCreated(t.filter((task) => task.wifeId === user?.id));
+      setMine(s.filter((sub) => sub.boyfriendId === user?.id));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoaded(true);
+    }
+  }, [user?.id, user?.partnerId]);
 
   useEffect(() => {
     void load();
@@ -160,76 +198,260 @@ export default function Submit({
   }
 
   const partner = user?.partnerName ?? 'your partner';
+  const partnerFirst = user?.partnerName?.trim().split(/\s+/)[0] ?? 'them';
   const canSubmit = title.trim().length > 0 && Number(points) > 0;
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={styles.content}>
-      <Text style={styles.screenTitle}>Submit</Text>
-      <Text style={styles.subtitle}>Tap a win. Your partner approves it.</Text>
+      <View style={styles.titleRow}>
+        <Text style={styles.screenTitle}>Tasks</Text>
+        <WhoPill
+          value={scope}
+          themLabel={`For ${partnerFirst}`}
+          onChange={(next) => {
+            haptic(8);
+            setScope(next);
+          }}
+        />
+      </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      <LoadFade ready={loaded} identity={scope}>
+        {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {options.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyTitle}>
-            {user?.partnerId
-              ? `${partner} hasn’t added any tasks yet`
-              : 'Add your partner first'}
-          </Text>
-          <Text style={styles.emptyBody}>
-            {user?.partnerId
-              ? 'You can still send a custom request for points.'
-              : 'Once you’re linked, you can submit wins for points.'}
-          </Text>
-          {user?.partnerId ? (
-            <Button
-              block
-              disabled={!!success}
+        {scope === 'you' ? (
+        <>
+          {options.length === 0 ? (
+            <View style={styles.empty}>
+              {user?.partnerId ? (
+                <View style={[styles.tile, styles.emptyPreviewTile]}>
+                  <Ionicons name="lock-closed" size={18} color={colors.inkMuted} />
+                  <Text style={styles.tileEmoji}>⭐</Text>
+                  <Text style={styles.tileTitle}>Thoughtful favor</Text>
+                  <Xp value={25} sign="+" size={12} />
+                </View>
+              ) : null}
+              <Text style={styles.emptyTitle}>
+                {user?.partnerId
+                  ? `${partner} hasn’t added any tasks yet`
+                  : 'Add your partner first'}
+              </Text>
+              <Text style={styles.emptyBody}>
+                {user?.partnerId
+                  ? 'You can still send a custom request for points.'
+                  : 'Once you’re linked, you can submit wins for points.'}
+              </Text>
+              {user?.partnerId ? (
+                <Button
+                  block
+                  disabled={!!success}
+                  onPress={() => {
+                    haptic(10);
+                    setError(null);
+                    setComposeOpen(true);
+                  }}
+                >
+                  Submit a task for points
+                </Button>
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.grid}>
+              {options.map((t) => (
+                <Pressable
+                  key={t.title}
+                  style={styles.tile}
+                  disabled={!!busyTitle || !!success}
+                  onPress={() => void submitTask(t)}
+                >
+                  <Text style={styles.tileEmoji}>{t.emoji}</Text>
+                  <Text style={styles.tileTitle} numberOfLines={2}>
+                    {t.title}
+                  </Text>
+                  <Xp value={t.points} sign="+" size={12} />
+                  {busyTitle === t.title ? (
+                    <Text style={styles.tileBusy}>Sending…</Text>
+                  ) : null}
+                </Pressable>
+              ))}
+              <Pressable
+                style={[styles.tile, styles.tileAdd]}
+                disabled={!!busyTitle || !!success}
+                onPress={() => {
+                  haptic(10);
+                  setError(null);
+                  setComposeOpen(true);
+                }}
+              >
+                <View style={styles.tileAddInner}>
+                  <Text style={styles.tileAddPlus}>+</Text>
+                  <Text style={styles.tileAddLabel}>Something else</Text>
+                </View>
+              </Pressable>
+            </View>
+          )}
+
+          {mine.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>Your requests</Text>
+              <View style={styles.list}>
+                {mine.map((s) => (
+                  <View key={s.id} style={styles.miniRow}>
+                    <Text>
+                      {s.emoji} {s.title}
+                    </Text>
+                    {s.status === 'approved' ? (
+                      <View style={styles.rowGap}>
+                        <Xp value={s.points} sign="+" size={11} />
+                        {s.revised ? (
+                          <Text style={styles.mutedSmall}>revised</Text>
+                        ) : null}
+                      </View>
+                    ) : (
+                      <Text
+                        style={[
+                          styles.status,
+                          s.status === 'denied'
+                            ? styles.statusDenied
+                            : styles.statusPending,
+                        ]}
+                      >
+                        {s.status}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <View style={styles.grid}>
+            {created.map((t) => (
+              <View key={t.id} style={styles.tile}>
+                <Pressable
+                  style={styles.tileRemove}
+                  onPress={() => void api.removeTask(t.id).then(load)}
+                  hitSlop={8}
+                >
+                  <Text style={styles.xBtn}>✕</Text>
+                </Pressable>
+                <Text style={styles.tileEmoji}>{t.emoji}</Text>
+                <Text style={styles.tileTitle} numberOfLines={2}>
+                  {t.title}
+                </Text>
+                <Xp value={t.points} sign="+" size={12} />
+              </View>
+            ))}
+            <Pressable
+              style={[styles.tile, styles.tileAdd]}
               onPress={() => {
                 haptic(10);
                 setError(null);
-                setComposeOpen(true);
+                setAddingTask(true);
               }}
             >
-              Submit a task for points
-            </Button>
-          ) : null}
-        </View>
-      ) : (
-        <View style={styles.grid}>
-          {options.map((t) => (
-            <Pressable
-              key={t.title}
-              style={styles.tile}
-              disabled={!!busyTitle || !!success}
-              onPress={() => void submitTask(t)}
-            >
-              <Text style={styles.tileEmoji}>{t.emoji}</Text>
-              <Text style={styles.tileTitle} numberOfLines={2}>
-                {t.title}
-              </Text>
-              <Xp value={t.points} sign="+" size={12} />
-              {busyTitle === t.title ? (
-                <Text style={styles.tileBusy}>Sending…</Text>
-              ) : null}
+              <View style={styles.tileAddInner}>
+                <Text style={styles.tileAddPlus}>+</Text>
+                <Text style={styles.tileAddLabel}>Add a task</Text>
+              </View>
             </Pressable>
-          ))}
-          <Pressable
-            style={[styles.tile, styles.tileAdd]}
-            disabled={!!busyTitle || !!success}
-            onPress={() => {
-              haptic(10);
-              setError(null);
-              setComposeOpen(true);
-            }}
+          </View>
+        </>
+        )}
+      </LoadFade>
+
+      <Modal
+        visible={addingTask}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => {
+          setAddingTask(false);
+          setTaskForm({ emoji: '⭐', title: '', points: '' });
+        }}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalSheet}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <ScrollView
+            contentContainerStyle={styles.modalContent}
+            keyboardShouldPersistTaps="handled"
           >
-            <View style={styles.tileAddInner}>
-              <Text style={styles.tileAddPlus}>+</Text>
-              <Text style={styles.tileAddLabel}>Something else</Text>
+            <View style={styles.modalHeader}>
+              <View style={styles.grow}>
+                <Text style={styles.modalTitle}>Add a task</Text>
+                <Text style={styles.modalSub}>
+                  {partnerFirst === 'them'
+                    ? 'They submit this to earn points.'
+                    : `${partnerFirst} submits this to earn points.`}
+                </Text>
+              </View>
+              <Pressable
+                onPress={() => {
+                  setAddingTask(false);
+                  setTaskForm({ emoji: '⭐', title: '', points: '' });
+                }}
+                hitSlop={8}
+              >
+                <Text style={styles.modalClose}>Cancel</Text>
+              </Pressable>
             </View>
-          </Pressable>
-        </View>
-      )}
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
+            <View style={styles.row}>
+              <EmojiField
+                value={taskForm.emoji}
+                onChange={(emoji) => setTaskForm({ ...taskForm, emoji })}
+                autoFocus
+              />
+              <TextInput
+                style={[styles.input, styles.grow]}
+                value={taskForm.title}
+                onChangeText={(v) => setTaskForm({ ...taskForm, title: v })}
+                placeholder={`A task for ${partnerFirst}`}
+                placeholderTextColor={colors.inkMuted}
+              />
+            </View>
+            <TextInput
+              style={styles.input}
+              value={taskForm.points}
+              onChangeText={(v) =>
+                setTaskForm({ ...taskForm, points: v.replace(/[^0-9]/g, '') })
+              }
+              placeholder="Points they earn"
+              placeholderTextColor={colors.inkMuted}
+              keyboardType="number-pad"
+            />
+            <Button
+              block
+              disabled={!taskForm.title.trim() || !taskForm.points}
+              onPress={async () => {
+                setError(null);
+                try {
+                  await maybeQueuePushPrompt();
+                  await api.addTask(
+                    taskForm.title,
+                    Number(taskForm.points),
+                    taskForm.emoji,
+                  );
+                  setTaskForm({ emoji: '⭐', title: '', points: '' });
+                  setAddingTask(false);
+                  await load();
+                  if (Platform.OS !== 'ios') flushPushPrompt();
+                  else setTimeout(flushPushPrompt, 450);
+                } catch (err) {
+                  queuedPushPrompt.current = false;
+                  setError((err as Error).message);
+                }
+              }}
+            >
+              Add task
+            </Button>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
 
       <Modal
         visible={composeOpen}
@@ -265,19 +487,13 @@ export default function Submit({
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             <View style={styles.row}>
-              <TextInput
-                style={styles.emojiInput}
-                value={emoji}
-                onChangeText={setEmoji}
-                maxLength={2}
-              />
+              <EmojiField value={emoji} onChange={setEmoji} autoFocus />
               <TextInput
                 style={[styles.input, styles.grow]}
                 value={title}
                 onChangeText={setTitle}
                 placeholder="What did you do?"
                 placeholderTextColor={colors.inkMuted}
-                autoFocus
               />
             </View>
             <TextInput
@@ -323,36 +539,6 @@ export default function Submit({
         </KeyboardAvoidingView>
       </Modal>
 
-      {mine.length > 0 && (
-        <>
-          <Text style={styles.sectionLabel}>Your requests</Text>
-          <View style={styles.list}>
-            {mine.map((s) => (
-              <View key={s.id} style={styles.miniRow}>
-                <Text>
-                  {s.emoji} {s.title}
-                </Text>
-                {s.status === 'approved' ? (
-                  <View style={styles.rowGap}>
-                    <Xp value={s.points} sign="+" size={11} />
-                    {s.revised ? <Text style={styles.mutedSmall}>revised</Text> : null}
-                  </View>
-                ) : (
-                  <Text
-                    style={[
-                      styles.status,
-                      s.status === 'denied' ? styles.statusDenied : styles.statusPending,
-                    ]}
-                  >
-                    {s.status}
-                  </Text>
-                )}
-              </View>
-            ))}
-          </View>
-        </>
-      )}
-
       {success && user && (
         <ReceiptModal
           kind="request"
@@ -376,36 +562,102 @@ export default function Submit({
           onSkip={() => void finish(false)}
         />
       )}
+
+      <PushNudgeModal
+        visible={pushPrompt}
+        partnerFirst={partnerFirst}
+        onSkip={() => {
+          haptic(8);
+          setPushPrompt(false);
+          if (user) void dismissPushPrompt(user.id);
+        }}
+        onYes={() => {
+          haptic(10);
+          setPushPrompt(false);
+          if (!user) return;
+          void (async () => {
+            await dismissPushPrompt(user.id);
+            await new Promise((r) => setTimeout(r, 350));
+            await enablePushNotifications(user.id);
+          })();
+        }}
+      />
     </ScrollView>
+  );
+}
+
+function LoadFade({
+  ready,
+  identity,
+  children,
+}: {
+  ready: boolean;
+  identity: string;
+  children: ReactNode;
+}) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(8)).current;
+
+  useEffect(() => {
+    if (!ready) return;
+    opacity.setValue(0);
+    translateY.setValue(8);
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [identity, opacity, ready, translateY]);
+
+  if (!ready) return null;
+  return (
+    <Animated.View
+      style={[styles.loadedContent, { opacity, transform: [{ translateY }] }]}
+    >
+      {children}
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { gap: 12, paddingBottom: 24 },
+  content: { gap: 12, paddingTop: 10, paddingBottom: 24 },
+  loadedContent: { gap: 12 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   screenTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
-  subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: -8 },
+  subtitle: { color: colors.inkMuted, fontSize: 13, marginTop: -2 },
   sectionLabel: { fontSize: 13, fontWeight: '700', color: colors.inkMuted, marginTop: 4, marginBottom: 4 },
   empty: {
-    padding: 20,
-    backgroundColor: colors.card,
-    borderRadius: radius.card,
-    gap: 10,
-    alignItems: 'stretch',
-    ...shadow,
+    alignItems: 'center',
+    paddingTop: 12,
+    gap: 8,
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: -0.3,
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.5,
     color: colors.ink,
     textAlign: 'center',
+    marginTop: 12,
   },
   emptyBody: {
-    fontSize: 14,
-    color: colors.ink2,
-    lineHeight: 19,
+    fontSize: 15,
+    color: colors.inkMuted,
+    lineHeight: 21,
     textAlign: 'center',
+    marginHorizontal: 18,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {
@@ -428,6 +680,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   tileBusy: { fontSize: 11, fontWeight: '700', color: colors.blue },
+  emptyPreviewTile: { opacity: 0.55 },
   tileAdd: {
     borderWidth: 1.5,
     borderColor: colors.border,
@@ -548,4 +801,6 @@ const styles = StyleSheet.create({
   status: { fontSize: 12, fontWeight: '700', textTransform: 'capitalize' },
   statusPending: { color: '#b7791f' },
   statusDenied: { color: colors.red },
+  tileRemove: { position: 'absolute', top: 8, right: 10, zIndex: 1 },
+  xBtn: { color: colors.inkMuted, fontSize: 14 },
 });

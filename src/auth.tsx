@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { PublicUser } from '../shared/types.ts';
-import { api, getToken, setToken } from './api.ts';
+import { api, getCachedUser, getToken, setCachedUser, setToken } from './api.ts';
 import { neonIdToken, neonSignOut } from './neonAuth.ts';
 
 interface AuthContextValue {
@@ -19,6 +19,7 @@ interface AuthContextValue {
   signInWithAppleToken: (idToken: string, name?: string) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
+  applyUser: (user: PublicUser) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -29,24 +30,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!getToken()) {
-      setUser(null);
+      const cached = getCachedUser();
+      if (cached) setUser(cached);
       return;
     }
     try {
-      setUser(await api.me());
+      const me = await api.me();
+      setUser(me);
+      setCachedUser(me);
     } catch {
-      setToken(null);
-      setUser(null);
+      const cached = getCachedUser();
+      if (cached) setUser(cached);
     }
   }, []);
 
   useEffect(() => {
+    const cached = getCachedUser();
+    if (cached && getToken()) setUser(cached);
     void refresh().finally(() => setLoading(false));
   }, [refresh]);
+
+  const applyUser = useCallback((next: PublicUser) => {
+    setCachedUser(next);
+    setUser(next);
+  }, []);
 
   const enterAs = useCallback(async (userId: string) => {
     const res = await api.enterAs(userId);
     setToken(res.token);
+    setCachedUser(res.user);
     setUser(res.user);
   }, []);
 
@@ -54,6 +66,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const idToken = await neonIdToken();
     const res = await api.neonSession(idToken);
     setToken(res.token);
+    setCachedUser(res.user);
     setUser(res.user);
   }, []);
 
@@ -61,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (idToken: string, name?: string) => {
       const res = await api.appleSession(idToken, name);
       setToken(res.token);
+      setCachedUser(res.user);
       setUser(res.user);
     },
     [],
@@ -82,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithAppleToken,
       logout,
       refresh,
+      applyUser,
     }),
     [
       user,
@@ -91,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInWithAppleToken,
       logout,
       refresh,
+      applyUser,
     ],
   );
 

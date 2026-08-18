@@ -29,7 +29,6 @@ import {
   logout,
   PRIZE_SUGGESTIONS,
   pendingRedemptionsForUser,
-  pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
   requestFriendByCode,
@@ -47,7 +46,7 @@ import {
   joinWithInviteCode,
   switchRole,
   updateProfile,
-  submissionsForBoyfriend,
+  submissionsForUser,
   TASK_SUGGESTIONS,
   tasksForUser,
   toggleLike,
@@ -58,9 +57,11 @@ import {
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
-import { notifyUser, userById } from './push.ts';
+import { notifyOwners, notifyUser, userById } from './push.ts';
 import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
 import type { Database } from './db/client.ts';
+import { users } from './db/schema.ts';
+import { eq } from 'drizzle-orm';
 
 export interface CreateAppOptions {
   state: State;
@@ -91,14 +92,32 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
 
   const persist = () => onChange?.(state);
 
-  const authenticate = (
+  const authenticate = async (
     req: AuthedRequest,
     _res: Response,
     next: NextFunction,
   ) => {
     const header = req.header('authorization') ?? '';
-    const tok = header.startsWith('Bearer ') ? header.slice(7) : undefined;
+    const tok = header.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
     req.user = findByToken(state, tok);
+    if (!req.user && tok && db) {
+      try {
+        const [row] = await db
+          .select()
+          .from(users)
+          .where(eq(users.token, tok))
+          .limit(1);
+        if (row) {
+          const live = state.users.find((candidate) => candidate.id === row.id);
+          if (live) {
+            live.token = row.token ?? undefined;
+            req.user = live;
+          }
+        }
+      } catch {
+        /* stay unauthenticated */
+      }
+    }
     next();
   };
   app.use(authenticate);
@@ -109,16 +128,6 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
       return null;
     }
     return req.user;
-  };
-
-  const requireWife = (req: AuthedRequest, res: Response): User | null => {
-    const user = requireAuth(req, res);
-    if (!user) return null;
-    if (user.role !== 'wife') {
-      res.status(403).json({ error: 'Only a wife can do that' });
-      return null;
-    }
-    return user;
   };
 
   const fail = (res: Response, err: unknown) =>
@@ -355,7 +364,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/onboarding/boyfriend', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const bf = inviteBoyfriend(state, wife, {
@@ -375,7 +384,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.delete('/api/partner', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       removePartner(state, wife);
@@ -387,7 +396,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/onboarding/friend', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const friend = addFriend(state, wife, {
@@ -402,7 +411,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.get('/api/friends', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     res.json(listFriends(state, wife));
   });
@@ -478,7 +487,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/friends', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const friend = addFriend(state, wife, {
@@ -508,7 +517,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/prizes', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const prize = addPrize(state, wife, {
@@ -529,7 +538,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.delete('/api/prizes/:id', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     if (!removePrize(state, wife, req.params.id)) {
       res.status(404).json({ error: 'Prize not found' });
@@ -547,7 +556,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/tasks', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const task = addTask(state, wife, {
@@ -563,7 +572,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.delete('/api/tasks/:id', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     if (!removeTask(state, wife, req.params.id)) {
       res.status(404).json({ error: 'Task not found' });
@@ -577,11 +586,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   app.get('/api/submissions', (req: AuthedRequest, res) => {
     const user = requireAuth(req, res);
     if (!user) return;
-    if (user.role === 'wife') {
-      res.json(pendingSubmissionsForWife(state, user));
-    } else {
-      res.json(submissionsForBoyfriend(state, user));
-    }
+    res.json(submissionsForUser(state, user));
   });
 
   app.post('/api/submissions', (req: AuthedRequest, res) => {
@@ -610,7 +615,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/submissions/:id/approve', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const revised =
@@ -629,7 +634,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/submissions/:id/deny', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const submission = denySubmission(state, wife, req.params.id);
@@ -682,7 +687,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.post('/api/redemptions/:id/fulfill', (req: AuthedRequest, res) => {
-    const wife = requireWife(req, res);
+    const wife = requireAuth(req, res);
     if (!wife) return;
     try {
       const redemption = fulfillRedemption(state, wife, req.params.id);
@@ -734,8 +739,27 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     const user = requireAuth(req, res);
     if (!user) return;
     try {
-      const event = reactToFeed(state, user, req.params.id, String(req.body?.emoji ?? ''));
+      const emoji = String(req.body?.emoji ?? '').trim().slice(0, 8);
+      const existing = state.feed.find((item) => item.id === req.params.id);
+      const had = Boolean(
+        existing?.reactions?.some(
+          (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
+        ),
+      );
+      const event = reactToFeed(state, user, req.params.id, emoji);
       persist();
+      const has = event.reactions.some(
+        (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
+      );
+      if (has && !had) {
+        notifyOwners(
+          state,
+          event,
+          user.id,
+          `${user.name} reacted`,
+          `${event.emoji} ${event.title}`,
+        );
+      }
       res.json({ id: event.id, reactions: event.reactions });
     } catch (err) {
       fail(res, err);
@@ -748,6 +772,14 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     try {
       const event = addComment(state, user, req.params.id, String(req.body?.text ?? ''));
       persist();
+      const last = event.comments[event.comments.length - 1];
+      notifyOwners(
+        state,
+        event,
+        user.id,
+        `${user.name} commented`,
+        last ? `“${last.text}”` : `${event.emoji} ${event.title}`,
+      );
       res.json({ id: event.id, comments: event.comments });
     } catch (err) {
       fail(res, err);

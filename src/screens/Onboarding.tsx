@@ -141,8 +141,8 @@ function StepPrizes({ onNext }: { onNext: () => void }) {
       )}
 
       <div className="ob-footer">
-        <Button block onClick={onNext} disabled={prizes.length === 0}>
-          Continue
+        <Button block onClick={onNext}>
+          {prizes.length === 0 ? 'Skip for now' : 'Continue'}
         </Button>
       </div>
     </div>
@@ -161,6 +161,7 @@ function StepPartner({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('points');
+  const [joinCode, setJoinCode] = useState('');
   const [hint, setHint] = useState<{ email: string; password: string } | null>(
     null,
   );
@@ -178,11 +179,23 @@ function StepPartner({
     }
   }
 
+  async function join(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await api.joinWithCode(joinCode);
+      await refresh();
+      onNext();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
   return (
     <div className="ob-step">
-      <h1 className="ob-title">Invite your partner</h1>
+      <h1 className="ob-title">Add your partner</h1>
       <p className="ob-sub">
-        They&apos;ll get their own login to earn points and redeem prizes.
+        Invite them with a login, or enter their household code if they already signed up.
       </p>
 
       {partnerName || hint ? (
@@ -222,9 +235,24 @@ function StepPartner({
         </form>
       )}
 
+      {!partnerName && !hint && (
+        <form className="card form" onSubmit={join}>
+          <input
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            placeholder="Or enter their code"
+            aria-label="Partner invite code"
+            autoCapitalize="characters"
+          />
+          <Button type="submit" block disabled={joinCode.trim().length < 4}>
+            Join with their code
+          </Button>
+        </form>
+      )}
+
       <div className="ob-footer">
-        <Button block onClick={onNext} disabled={!partnerName && !hint}>
-          Continue
+        <Button block onClick={onNext}>
+          {partnerName || hint ? 'Continue' : 'Skip for now'}
         </Button>
       </div>
     </div>

@@ -98,16 +98,14 @@ export function generateInviteCode(state: State): string {
   return id('C').slice(-6).toUpperCase();
 }
 
-/** Ensure a prize-setter has a shareable invite code (lazy for legacy users). */
+/** Household invite code for the partner who created (or still owns) the couple. */
 export function ensureInviteCode(state: State, user: User): string {
-  if (user.role !== 'wife') throw new Error('Only prize-setters get invite codes');
   if (user.inviteCode) return user.inviteCode;
   user.inviteCode = generateInviteCode(state);
   return user.inviteCode;
 }
 
 export function ensureCoupleCode(state: State, wife: User): string {
-  if (wife.role !== 'wife') throw new Error('Only households have couple codes');
   if (wife.coupleCode) return wife.coupleCode;
   wife.coupleCode = generateInviteCode(state);
   return wife.coupleCode;
@@ -140,7 +138,6 @@ export function setCoupleUsername(
   wife: User,
   rawUsername: string,
 ): string {
-  if (wife.role !== 'wife') throw new Error('Only couple creators choose a couple username');
   const username = normalizeCoupleUsername(rawUsername);
   if (username.length < 3) throw new Error('Couple username must be at least 3 characters');
   if (username.length > 24) throw new Error('Couple username must be 24 characters or less');
@@ -158,18 +155,8 @@ export function publicUser(state: State, user: User): PublicUser {
   const partner = user.partnerId
     ? state.users.find((u) => u.id === user.partnerId)
     : undefined;
-  if (user.role === 'wife' && !user.inviteCode) {
-    ensureInviteCode(state, user);
-  }
-  const householdWife =
-    user.role === 'wife'
-      ? user
-      : user.partnerId
-        ? state.users.find((candidate) => candidate.id === user.partnerId)
-        : undefined;
-  if (householdWife?.role === 'wife' && !householdWife.coupleCode) {
-    ensureCoupleCode(state, householdWife);
-  }
+  const household = householdAnchor(state, user);
+  if (household && !household.coupleCode) ensureCoupleCode(state, household);
   return {
     id: user.id,
     name: user.name,
@@ -183,9 +170,9 @@ export function publicUser(state: State, user: User): PublicUser {
     partnerAvatar: partner
       ? (partner.avatarUrl ?? avatarFor(partner.name))
       : undefined,
-    inviteCode: user.role === 'wife' ? user.inviteCode : undefined,
-    coupleCode: householdWife?.coupleCode,
-    coupleUsername: householdWife?.coupleUsername,
+    inviteCode: user.inviteCode ?? household?.inviteCode,
+    coupleCode: household?.coupleCode,
+    coupleUsername: household?.coupleUsername,
     friendIds: user.friendIds,
     points: user.points,
     onboarded: user.onboarded,
@@ -218,8 +205,9 @@ function requireUser(state: State, userId: string): User {
 }
 
 export function findByToken(state: State, tok?: string): User | undefined {
-  if (!tok) return undefined;
-  return state.users.find((u) => u.token === tok);
+  const value = tok?.trim();
+  if (!value) return undefined;
+  return state.users.find((u) => u.token === value);
 }
 
 export function findByEmail(state: State, email: string): User | undefined {
@@ -244,11 +232,10 @@ export function signup(
   if (!email) throw new Error('Email is required');
   if (!input.password) throw new Error('Password is required');
   if (findByEmail(state, email)) throw new Error('That email is already taken');
-  const requestedCoupleUsername =
-    role === 'wife'
-      ? input.coupleUsername
-        ? normalizeCoupleUsername(input.coupleUsername)
-        : availableCoupleUsername(state, name)
+  const requestedCoupleUsername = input.coupleUsername
+    ? normalizeCoupleUsername(input.coupleUsername)
+    : role === 'wife'
+      ? availableCoupleUsername(state, name)
       : undefined;
   if (requestedCoupleUsername && requestedCoupleUsername.length < 3) {
     throw new Error('Couple username must be at least 3 characters');
@@ -284,21 +271,6 @@ export function signup(
     createdAt: new Date().toISOString(),
   };
   state.users.push(user);
-
-  if (role === 'wife') {
-    // Starter earn tasks the partner can pick from.
-    for (const suggestion of TASK_SUGGESTIONS) {
-      state.tasks.push({
-        id: id('t_'),
-        wifeId: user.id,
-        title: suggestion.title,
-        emoji: suggestion.emoji,
-        points: suggestion.points,
-        createdAt: new Date().toISOString(),
-      });
-    }
-  }
-
   return user;
 }
 
@@ -310,29 +282,28 @@ export function signupWife(
   return signup(state, { ...input, role: 'wife' });
 }
 
-/** Partner joins a household using the prize-setter's invite code. */
+/** Partner joins a household using the household invite code. */
 export function joinWithInviteCode(
   state: State,
-  boyfriend: User,
+  joiner: User,
   rawCode: string,
 ): User {
-  if (boyfriend.role !== 'boyfriend') {
-    throw new Error('Only the partner earning points can enter an invite code');
-  }
-  if (boyfriend.partnerId) throw new Error('You are already linked to a partner');
+  if (joiner.partnerId) throw new Error('You are already linked to a partner');
 
   const code = rawCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length < 4) throw new Error('Enter a valid invite code');
 
-  const wife = state.users.find(
-    (u) => u.role === 'wife' && u.inviteCode?.toUpperCase() === code,
-  );
-  if (!wife) throw new Error('Invite code not found');
-  if (wife.partnerId) throw new Error('That household already has a partner');
+  const host = state.users.find((u) => u.inviteCode?.toUpperCase() === code);
+  if (!host) throw new Error('Invite code not found');
+  if (host.id === joiner.id) throw new Error('That is your own invite code');
+  if (host.partnerId) throw new Error('That household already has a partner');
 
-  boyfriend.partnerId = wife.id;
-  wife.partnerId = boyfriend.id;
-  return wife;
+  joiner.inviteCode = undefined;
+  joiner.coupleCode = undefined;
+  joiner.coupleUsername = undefined;
+  joiner.partnerId = host.id;
+  host.partnerId = joiner.id;
+  return host;
 }
 
 export function login(state: State, email: string, password: string): User {
@@ -397,8 +368,8 @@ export function inviteBoyfriend(
   wife: User,
   input: { name: string; email: string; password?: string },
 ): User {
-  if (wife.role !== 'wife') throw new Error('Only a partner manager can invite');
   if (wife.partnerId) throw new Error('You already have a partner linked');
+  ensureInviteCode(state, wife);
   const name = input.name.trim();
   const email = input.email.trim();
   if (!name) throw new Error('Name is required');
@@ -426,7 +397,6 @@ export function inviteBoyfriend(
 
 /** Unlink the current partner from both sides. */
 export function removePartner(state: State, wife: User): void {
-  if (wife.role !== 'wife') throw new Error('Only a partner manager can remove');
   if (!wife.partnerId) throw new Error('No partner to remove');
   const partner = state.users.find((u) => u.id === wife.partnerId);
   if (partner?.partnerId === wife.id) {
@@ -437,7 +407,8 @@ export function removePartner(state: State, wife: User): void {
 }
 
 export function listFriends(state: State, wife: User): PublicUser[] {
-  return wife.friendIds
+  const household = householdAnchor(state, wife) ?? wife;
+  return household.friendIds
     .map((id) => state.users.find((u) => u.id === id))
     .filter((u): u is User => Boolean(u))
     .map((u) => publicUser(state, u));
@@ -445,11 +416,7 @@ export function listFriends(state: State, wife: User): PublicUser[] {
 
 /** The couple household for social features, or undefined when unlinked. */
 export function findHousehold(state: State, user: User): User | undefined {
-  const wifeId = ownerWifeId(user);
-  const wife = wifeId
-    ? state.users.find((candidate) => candidate.id === wifeId)
-    : undefined;
-  return wife?.role === 'wife' ? wife : undefined;
+  return householdAnchor(state, user);
 }
 
 /** The couple household for social features — one person is enough. */
@@ -457,9 +424,7 @@ export function requireHousehold(state: State, user: User): User {
   const wife = findHousehold(state, user);
   if (!wife) {
     throw new Error(
-      user.role === 'boyfriend'
-        ? 'Enter your partner’s invite code before connecting with other couples'
-        : 'Create your couple before connecting with other couples',
+      'Enter your partner’s invite code before connecting with other couples',
     );
   }
   return wife;
@@ -502,7 +467,7 @@ export function searchCouples(
   return state.users
     .filter(
       (candidate) =>
-        candidate.role === 'wife' &&
+        Boolean(candidate.inviteCode) &&
         candidate.id !== me.id &&
         Boolean(candidate.coupleUsername?.includes(query)),
     )
@@ -546,7 +511,7 @@ export function requestFriendByCode(
   const username = normalizeCoupleUsername(rawCode);
   const to = state.users.find(
     (candidate) =>
-      candidate.role === 'wife' &&
+      Boolean(candidate.inviteCode) &&
       candidate.coupleUsername?.toLowerCase() === username,
   );
   if (!to) throw new Error('Couple not found');
@@ -618,7 +583,6 @@ export function addFriend(
   wife: User,
   input: { name: string; email: string },
 ): User {
-  if (wife.role !== 'wife') throw new Error('Only a wife can add friends');
   const email = input.email.trim();
   if (!email) throw new Error('Email is required');
 
@@ -677,7 +641,10 @@ export function updateProfile(
 
 export function setPushToken(user: User, token: string): User {
   const trimmed = token.trim();
-  if (!trimmed) throw new Error('Push token is required');
+  if (!trimmed) {
+    delete user.pushToken;
+    return user;
+  }
   user.pushToken = trimmed;
   return user;
 }
@@ -728,9 +695,19 @@ export function switchRole(state: State, user: User, next: Role): User {
   return user;
 }
 
-/** The wife who owns a given user's economy (self if wife, else partner). */
+/** Partner who owns household codes — self if you created, else your partner. */
+export function householdAnchor(state: State, user: User): User | undefined {
+  if (user.inviteCode) return user;
+  if (user.partnerId) {
+    const partner = state.users.find((candidate) => candidate.id === user.partnerId);
+    if (partner?.inviteCode) return partner;
+  }
+  return undefined;
+}
+
+/** @deprecated Prefer householdAnchor. Kept for feed/circle helpers. */
 export function ownerWifeId(user: User): string | undefined {
-  if (user.role === 'wife') return user.id;
+  if (user.inviteCode) return user.id;
   return user.partnerId;
 }
 
@@ -739,7 +716,6 @@ export function addPrize(
   wife: User,
   input: { title: string; emoji?: string; cost: number },
 ): Prize {
-  if (wife.role !== 'wife') throw new Error('Only a wife can add prizes');
   const title = input.title.trim();
   if (!title) throw new Error('Prize title is required');
   if (!Number.isFinite(input.cost) || input.cost <= 0) {
@@ -770,7 +746,6 @@ export function addTask(
   wife: User,
   input: { title: string; emoji?: string; points: number },
 ): EarnTask {
-  if (wife.role !== 'wife') throw new Error('Only a wife can add tasks');
   const title = input.title.trim();
   if (!title) throw new Error('Task title is required');
   if (!Number.isFinite(input.points) || input.points <= 0) {
@@ -797,13 +772,15 @@ export function removeTask(state: State, wife: User, taskId: string): boolean {
 }
 
 export function prizesForUser(state: State, user: User): Prize[] {
-  const wifeId = ownerWifeId(user);
-  return state.prizes.filter((p) => p.wifeId === wifeId);
+  return state.prizes.filter(
+    (p) => p.wifeId === user.id || (user.partnerId && p.wifeId === user.partnerId),
+  );
 }
 
 export function tasksForUser(state: State, user: User): EarnTask[] {
-  const wifeId = ownerWifeId(user);
-  return state.tasks.filter((t) => t.wifeId === wifeId);
+  return state.tasks.filter(
+    (t) => t.wifeId === user.id || (user.partnerId && t.wifeId === user.partnerId),
+  );
 }
 
 export function createSubmission(
@@ -817,9 +794,6 @@ export function createSubmission(
     images?: string[];
   },
 ): Submission {
-  if (boyfriend.role !== 'boyfriend') {
-    throw new Error('Only a boyfriend can submit for points');
-  }
   if (!boyfriend.partnerId) throw new Error('You are not linked to a partner');
   const title = input.title.trim();
   if (!title) throw new Error('Describe what you did');
@@ -868,6 +842,9 @@ export function approveSubmission(
 ): { submission: Submission; feed?: FeedEvent } {
   const submission = state.submissions.find((s) => s.id === submissionId);
   if (!submission) throw new Error('Request not found');
+  if (submission.boyfriendId === wife.id) {
+    throw new Error('You cannot approve your own request');
+  }
   if (submission.wifeId !== wife.id) throw new Error('Not your request');
   if (submission.status !== 'pending') {
     throw new Error('Request already resolved');
@@ -915,6 +892,9 @@ export function denySubmission(
 ): Submission {
   const submission = state.submissions.find((s) => s.id === submissionId);
   if (!submission) throw new Error('Request not found');
+  if (submission.boyfriendId === wife.id) {
+    throw new Error('You cannot deny your own request');
+  }
   if (submission.wifeId !== wife.id) throw new Error('Not your request');
   if (submission.status !== 'pending') {
     throw new Error('Request already resolved');
@@ -929,11 +909,9 @@ export function redeemPrize(
   boyfriend: User,
   prizeId: string,
 ): { redemption: Redemption; feed?: FeedEvent } {
-  if (boyfriend.role !== 'boyfriend') {
-    throw new Error('Only a boyfriend can redeem prizes');
-  }
   const prize = state.prizes.find((p) => p.id === prizeId);
   if (!prize) throw new Error('Prize not found');
+  if (prize.wifeId === boyfriend.id) throw new Error('You cannot redeem your own prize');
   if (prize.wifeId !== boyfriend.partnerId) throw new Error('Not your prize');
   if (boyfriend.points < prize.cost) {
     throw new Error('Not enough points for this prize');
@@ -1010,14 +988,19 @@ export function fulfillRedemption(
   return redemption;
 }
 
-/** The set of wife ids whose activity a user can see in their feed. */
+/** Household members + friend households whose activity a user can see. */
 export function circleWifeIds(state: State, user: User): Set<string> {
-  const rootWifeId = ownerWifeId(user);
+  const root = householdAnchor(state, user);
   const ids = new Set<string>();
-  if (!rootWifeId) return ids;
-  ids.add(rootWifeId);
-  const rootWife = state.users.find((u) => u.id === rootWifeId);
-  for (const fid of rootWife?.friendIds ?? []) ids.add(fid);
+  function addHousehold(person: User | undefined) {
+    if (!person) return;
+    ids.add(person.id);
+    if (person.partnerId) ids.add(person.partnerId);
+  }
+  addHousehold(root);
+  for (const fid of root?.friendIds ?? []) {
+    addHousehold(state.users.find((candidate) => candidate.id === fid));
+  }
   return ids;
 }
 
@@ -1136,7 +1119,7 @@ export function pendingRedemptionsForUser(
   return state.redemptions
     .filter(
       (r) =>
-        (user.role === 'wife' ? r.wifeId : r.boyfriendId) === user.id &&
+        (r.wifeId === user.id || r.boyfriendId === user.id) &&
         r.status === 'pending',
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -1149,6 +1132,14 @@ export function submissionsForBoyfriend(
   return state.submissions
     .filter((s) => s.boyfriendId === boyfriend.id)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/** Pending reviews you owe, plus requests you submitted. */
+export function submissionsForUser(state: State, user: User): Submission[] {
+  const byId = new Map<string, Submission>();
+  for (const s of pendingSubmissionsForWife(state, user)) byId.set(s.id, s);
+  for (const s of submissionsForBoyfriend(state, user)) byId.set(s.id, s);
+  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function displayUser(state: State, userId: string) {
@@ -1167,10 +1158,8 @@ export function buildNotifications(
 ): NotificationItem[] {
   const items: NotificationItem[] = [];
 
-  if (user.role === 'boyfriend') {
-    // Results of your own requests.
-    for (const s of state.submissions) {
-      if (s.boyfriendId !== user.id || s.status === 'pending') continue;
+  for (const s of state.submissions) {
+    if (s.boyfriendId === user.id && s.status !== 'pending') {
       const wife = displayUser(state, s.wifeId);
       if (s.status === 'approved') {
         items.push({
@@ -1199,27 +1188,7 @@ export function buildNotifications(
         });
       }
     }
-    // New prizes your partner added.
-    for (const p of state.prizes) {
-      if (p.wifeId !== user.partnerId) continue;
-      const wife = displayUser(state, p.wifeId);
-      items.push({
-        id: `n_prize_${p.id}`,
-        kind: 'prize',
-        emoji: p.emoji,
-        title: `${wife.name} added a new prize`,
-        body: p.title,
-        points: p.cost,
-        actorName: wife.name,
-        actorColor: wife.color,
-        actorAvatar: wife.avatar,
-        createdAt: p.createdAt,
-      });
-    }
-  } else {
-    // Wife: incoming point requests to review.
-    for (const s of state.submissions) {
-      if (s.wifeId !== user.id || s.status !== 'pending') continue;
+    if (s.wifeId === user.id && s.status === 'pending') {
       const bf = displayUser(state, s.boyfriendId);
       items.push({
         id: `n_req_${s.id}`,
@@ -1234,23 +1203,40 @@ export function buildNotifications(
         createdAt: s.createdAt,
       });
     }
-    // Wife: redemptions to fulfill.
-    for (const r of state.redemptions) {
-      if (r.wifeId !== user.id || r.status !== 'pending') continue;
-      const bf = displayUser(state, r.boyfriendId);
-      items.push({
-        id: `n_redeem_${r.id}`,
-        kind: 'redeem',
-        emoji: r.emoji,
-        title: `${bf.name} redeemed a prize`,
-        body: r.prizeTitle,
-        points: r.cost,
-        actorName: bf.name,
-        actorColor: bf.color,
-        actorAvatar: bf.avatar,
-        createdAt: r.createdAt,
-      });
-    }
+  }
+
+  for (const p of state.prizes) {
+    if (p.wifeId !== user.partnerId) continue;
+    const wife = displayUser(state, p.wifeId);
+    items.push({
+      id: `n_prize_${p.id}`,
+      kind: 'prize',
+      emoji: p.emoji,
+      title: `${wife.name} added a new prize`,
+      body: p.title,
+      points: p.cost,
+      actorName: wife.name,
+      actorColor: wife.color,
+      actorAvatar: wife.avatar,
+      createdAt: p.createdAt,
+    });
+  }
+
+  for (const r of state.redemptions) {
+    if (r.wifeId !== user.id || r.status !== 'pending') continue;
+    const bf = displayUser(state, r.boyfriendId);
+    items.push({
+      id: `n_redeem_${r.id}`,
+      kind: 'redeem',
+      emoji: r.emoji,
+      title: `${bf.name} redeemed a prize`,
+      body: r.prizeTitle,
+      points: r.cost,
+      actorName: bf.name,
+      actorColor: bf.color,
+      actorAvatar: bf.avatar,
+      createdAt: r.createdAt,
+    });
   }
 
   const myHouseholdId = ownerWifeId(user);

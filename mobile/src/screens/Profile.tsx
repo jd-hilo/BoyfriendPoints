@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -14,6 +16,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { pickAndUploadPhoto } from '../pickImage';
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  isPushEnabled,
+} from '../push';
 import { colors, radius, shadow } from '../theme';
 import { Avatar, Button, CoupleLockup } from '../ui';
 import { haptic } from '../utils';
@@ -21,12 +28,25 @@ import { haptic } from '../utils';
 export default function Profile({ onClose }: { onClose: () => void }) {
   const { user, applyUser, logout, refresh } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
+  const [joinCode, setJoinCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  // A rename elsewhere (or a pull-to-refresh) shouldn't leave a stale draft.
+  useEffect(() => {
+    setName(user?.name ?? '');
+  }, [user?.name]);
+
+  useEffect(() => {
+    if (!user) return;
+    void isPushEnabled(user.id).then(setPushOn);
+  }, [user?.id]);
 
   if (!user) return null;
   const me = user;
-
   const partnered = Boolean(me.partnerId && me.partnerName);
   const dirty = name.trim() !== me.name && name.trim().length > 0;
 
@@ -35,9 +55,11 @@ export default function Profile({ onClose }: { onClose: () => void }) {
     if (!next || next === me.name) return;
     setSaving(true);
     setError(null);
+    setSaved(false);
     try {
       const updated = await api.updateProfile({ name: next });
       await applyUser(updated);
+      setSaved(true);
       haptic(10);
     } catch (err) {
       setError((err as Error).message);
@@ -78,8 +100,34 @@ export default function Profile({ onClose }: { onClose: () => void }) {
     );
   }
 
-  const roleLabel =
-    user.role === 'wife' ? 'Sets the prizes' : 'Earns and redeems';
+  async function togglePush(next: boolean) {
+    if (pushBusy) return;
+    haptic(10);
+    setPushBusy(true);
+    try {
+      if (!next) {
+        await disablePushNotifications(me.id);
+        setPushOn(false);
+        return;
+      }
+      // Let the switch settle so iOS will actually present the system sheet.
+      await new Promise((r) => setTimeout(r, 250));
+      const result = await enablePushNotifications(me.id);
+      setPushOn(result === 'on');
+      if (result === 'blocked' || result === 'unavailable') {
+        Alert.alert(
+          'Notifications are off',
+          'Turn them on for LoveReceipts in Settings, then flip this switch again.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+          ],
+        );
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   return (
     <View style={styles.panel}>
@@ -145,42 +193,90 @@ export default function Profile({ onClose }: { onClose: () => void }) {
               <TextInput
                 style={styles.input}
                 value={name}
-                onChangeText={setName}
+                onChangeText={(t) => {
+                  setName(t);
+                  setSaved(false);
+                }}
                 placeholder="Your name"
                 placeholderTextColor={colors.inkMuted}
                 autoCapitalize="words"
                 returnKeyType="done"
                 onSubmitEditing={() => void saveName()}
               />
-              {dirty && (
-                <Button
-                  block
-                  disabled={saving}
-                  onPress={() => void saveName()}
-                >
-                  {saving ? 'Saving…' : 'Save name'}
-                </Button>
-              )}
+              <Button
+                block
+                disabled={saving || !dirty}
+                onPress={() => void saveName()}
+              >
+                {saving ? 'Saving…' : saved && !dirty ? 'Saved' : 'Save name'}
+              </Button>
             </View>
 
             <Text style={styles.section}>ACCOUNT</Text>
             <View style={styles.card}>
-              <Row label="Role" value={roleLabel} />
               <Row label="Email" value={user.email} />
-              {user.role === 'wife' && user.inviteCode ? (
+              {user.inviteCode ? (
                 <Row label="Household code" value={user.inviteCode} />
               ) : null}
               {partnered ? (
                 <Row label="Partner" value={user.partnerName ?? ''} />
               ) : (
-                <Text style={styles.muted}>
-                  No partner linked yet.
-                </Text>
+                <>
+                  <Text style={styles.muted}>No partner linked yet.</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={joinCode}
+                    onChangeText={(t) =>
+                      setJoinCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))
+                    }
+                    placeholder="Enter their household code"
+                    placeholderTextColor={colors.inkMuted}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    maxLength={8}
+                  />
+                  <Button
+                    block
+                    disabled={saving || joinCode.length < 4}
+                    onPress={() =>
+                      void (async () => {
+                        setSaving(true);
+                        setError(null);
+                        try {
+                          await api.joinWithCode(joinCode);
+                          await refresh();
+                          haptic(10);
+                        } catch (err) {
+                          setError((err as Error).message);
+                        } finally {
+                          setSaving(false);
+                        }
+                      })()
+                    }
+                  >
+                    Join household
+                  </Button>
+                </>
               )}
             </View>
 
             <Text style={styles.section}>SETTINGS</Text>
             <View style={styles.card}>
+              <View style={styles.row}>
+                <View style={styles.grow}>
+                  <Text style={styles.rowValueLeft}>Push notifications</Text>
+                  <Text style={styles.muted}>
+                    A ping whenever something lands in your inbox.
+                  </Text>
+                </View>
+                <Switch
+                  value={pushOn}
+                  disabled={pushBusy}
+                  onValueChange={(value) => void togglePush(value)}
+                  trackColor={{ false: colors.border, true: colors.blue }}
+                  thumbColor={colors.white}
+                />
+              </View>
               <Button
                 block
                 variant="ghost"
@@ -294,5 +390,7 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
   rowValue: { fontSize: 14, color: colors.ink, fontWeight: '700', flexShrink: 1, textAlign: 'right' },
+  rowValueLeft: { fontSize: 14, color: colors.ink, fontWeight: '700' },
+  grow: { flex: 1, minWidth: 0, gap: 2, paddingRight: 12 },
   muted: { fontSize: 13, color: colors.inkMuted },
 });

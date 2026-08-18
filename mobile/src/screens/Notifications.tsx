@@ -9,12 +9,13 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NotificationItem } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { setSeenNotificationIds } from '../storage';
-import { colors, radius, shadow } from '../theme';
+import { colors } from '../theme';
 import { Avatar, Xp } from '../ui';
 import { timeAgo } from '../utils';
 
@@ -125,61 +126,133 @@ export default function Notifications({
     >
       <SafeAreaView style={styles.flex} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <Pressable style={styles.headerIconBtn} onPress={close}>
-            <Text style={styles.backIcon}>‹</Text>
+          <Pressable style={styles.headerIconBtn} onPress={close} hitSlop={6}>
+            <Ionicons name="chevron-back" size={22} color={colors.ink} />
           </Pressable>
-          <View style={styles.searchPill}>
-            <Text style={styles.brandGem}>🔔</Text>
-            <Text style={styles.wordmarkSm}>Notifications</Text>
-          </View>
-          <View style={[styles.headerIconBtn, styles.spacer]} />
+          <Text style={styles.wordmarkSm}>Notifications</Text>
+          <View style={styles.headerIconBtn} />
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {items === null && !error && <Text style={styles.centerMuted}>Loading…</Text>}
 
+        {items !== null ? (
         <FlatList
-          data={items ?? []}
+          data={items}
           keyExtractor={(n) => n.id}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            items !== null ? (
-              <View style={styles.feedCard}>
-                <View style={styles.empty}>
-                  <Text style={styles.emptyEmoji}>🔔</Text>
-                  <Text style={styles.emptyTitle}>You&apos;re all caught up</Text>
-                  <Text style={styles.centerMuted}>
-                    Reactions, approvals, new requests and prizes will show up here.
-                  </Text>
-                </View>
-              </View>
-            ) : null
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>You&apos;re all caught up</Text>
+              <Text style={styles.emptyBody}>
+                Reactions, approvals, and prizes will show up here.
+              </Text>
+            </View>
           }
           renderItem={({ item: n }) => {
             const sign = amountSign(n.kind);
             const actor = n.actorName ?? 'Someone';
+            const reason = n.title || n.body;
             return (
               <View style={styles.feedCard}>
                 <View style={styles.feedCardTop}>
                   <Text style={styles.feedTime}>{timeAgo(n.createdAt)} ago</Text>
+                  {typeof n.points === 'number' && sign !== null ? (
+                    <Xp value={n.points} sign={sign} size={13} />
+                  ) : null}
                 </View>
-                <View style={styles.feedStory}>
-                  {n.actorAvatar || n.actorName ? (
-                    <Avatar name={actor} color={n.actorColor ?? colors.blue} src={n.actorAvatar} size={40} />
-                  ) : (
-                    <View style={styles.notifBubble}>
-                      <Text style={{ fontSize: 20 }}>{n.emoji}</Text>
-                    </View>
-                  )}
-                  <View style={styles.feedStoryText}>
-                    <Text style={styles.feedLine}>
-                      <Text style={styles.name}>{actor}</Text>
-                      <Text> {verbFor(n.kind)}</Text>
+                <View style={styles.storyLine}>
+                  <View style={styles.storyPerson}>
+                    <Avatar
+                      name={actor}
+                      color={n.actorColor ?? colors.blue}
+                      src={n.actorAvatar}
+                      size={22}
+                    />
+                    <Text style={styles.name}>{actor}</Text>
+                  </View>
+                  <Text style={styles.verb}>{verbFor(n.kind)}</Text>
+                  {reason ? (
+                    <Text style={styles.storyReason}>
+                      {n.emoji ? `${n.emoji} ` : ''}
+                      {reason}
                     </Text>
-                    {n.body || n.emoji ? (
-                      <Text style={styles.feedNote}>
-                        {n.emoji} {n.body ?? ''}
-                      </Text>
+                  ) : null}
+                </View>
+                <View>
+                    {n.kind === 'request' && n.id.startsWith('n_req_') ? (
+                      <View style={styles.friendActions}>
+                        <Pressable
+                          style={styles.acceptButton}
+                          disabled={actingId === n.id}
+                          onPress={() =>
+                            void (async () => {
+                              setActingId(n.id);
+                              setError(null);
+                              try {
+                                await api.approve(n.id.slice('n_req_'.length));
+                                await load();
+                                onChanged?.();
+                              } catch (err) {
+                                setError((err as Error).message);
+                              } finally {
+                                setActingId(null);
+                              }
+                            })()
+                          }
+                        >
+                          <Text style={styles.acceptText}>
+                            {actingId === n.id ? 'Working…' : 'Approve'}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={styles.declineButton}
+                          disabled={actingId === n.id}
+                          onPress={() =>
+                            void (async () => {
+                              setActingId(n.id);
+                              setError(null);
+                              try {
+                                await api.deny(n.id.slice('n_req_'.length));
+                                await load();
+                                onChanged?.();
+                              } catch (err) {
+                                setError((err as Error).message);
+                              } finally {
+                                setActingId(null);
+                              }
+                            })()
+                          }
+                        >
+                          <Text style={styles.declineText}>Pass</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+                    {n.kind === 'redeem' && n.id.startsWith('n_redeem_') ? (
+                      <View style={styles.friendActions}>
+                        <Pressable
+                          style={styles.acceptButton}
+                          disabled={actingId === n.id}
+                          onPress={() =>
+                            void (async () => {
+                              setActingId(n.id);
+                              setError(null);
+                              try {
+                                await api.fulfill(n.id.slice('n_redeem_'.length));
+                                await load();
+                                onChanged?.();
+                              } catch (err) {
+                                setError((err as Error).message);
+                              } finally {
+                                setActingId(null);
+                              }
+                            })()
+                          }
+                        >
+                          <Text style={styles.acceptText}>
+                            {actingId === n.id ? 'Working…' : 'Mark as given'}
+                          </Text>
+                        </Pressable>
+                      </View>
                     ) : null}
                     {n.friendRequestId ? (
                       <View style={styles.friendActions}>
@@ -205,15 +278,12 @@ export default function Notifications({
                         </Pressable>
                       </View>
                     ) : null}
-                  </View>
-                  {typeof n.points === 'number' && sign !== null && (
-                    <Xp value={n.points} sign={sign} size={13} />
-                  )}
                 </View>
               </View>
             );
           }}
         />
+        ) : null}
       </SafeAreaView>
     </Animated.View>
   );
@@ -226,72 +296,84 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.bg,
+    backgroundColor: '#f3f3f2',
     zIndex: 55,
   },
   flex: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: '#f3f3f2',
   },
   headerIconBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.card,
+    width: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow,
   },
-  spacer: { opacity: 0 },
-  backIcon: { fontSize: 24, color: colors.ink2 },
-  searchPill: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: colors.card,
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    ...shadow,
+  wordmarkSm: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.ink,
+    letterSpacing: -0.4,
   },
-  brandGem: { fontSize: 16 },
-  wordmarkSm: { fontSize: 15, fontWeight: '800', color: colors.blue, letterSpacing: -0.3 },
   error: { color: colors.red, padding: 16 },
-  centerMuted: { textAlign: 'center', color: colors.inkMuted },
-  list: { paddingHorizontal: 16, paddingBottom: 28, gap: 12 },
+  list: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 28 },
   feedCard: {
     backgroundColor: colors.card,
-    borderRadius: radius.card,
-    padding: 16,
-    paddingBottom: 12,
+    borderRadius: 28,
+    padding: 18,
+    paddingBottom: 16,
     marginBottom: 12,
-    ...shadow,
   },
-  feedCardTop: { marginBottom: 12 },
-  feedTime: { fontSize: 13, color: colors.inkMuted, fontWeight: '500' },
-  feedStory: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  feedStoryText: { flex: 1 },
-  feedLine: { fontSize: 15, lineHeight: 20, color: colors.ink },
-  name: { color: colors.blueName, fontWeight: '700' },
-  feedNote: { marginTop: 6, color: colors.ink, fontSize: 15, lineHeight: 20 },
-  notifBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.blueSoft,
+  feedCardTop: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
   },
-  empty: { alignItems: 'center', padding: 20, gap: 4 },
-  emptyEmoji: { fontSize: 40 },
-  emptyTitle: { fontWeight: '700', color: colors.ink },
-  friendActions: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  feedTime: { fontSize: 13, color: colors.inkMuted, fontWeight: '500' },
+  storyLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: 6,
+    rowGap: 8,
+  },
+  storyPerson: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  storyReason: {
+    fontSize: 16,
+    lineHeight: 22,
+    color: colors.ink,
+    fontWeight: '500',
+  },
+  name: { color: colors.ink, fontWeight: '800', fontSize: 16, lineHeight: 22 },
+  verb: { color: colors.inkMuted, fontWeight: '500', fontSize: 16, lineHeight: 22 },
+  empty: {
+    alignItems: 'center',
+    paddingTop: 48,
+    paddingHorizontal: 18,
+    gap: 8,
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: -0.5,
+  },
+  emptyBody: {
+    color: colors.inkMuted,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: 'center',
+  },
+  friendActions: { flexDirection: 'row', gap: 8, marginTop: 14 },
   acceptButton: {
     backgroundColor: colors.black,
     borderRadius: 999,

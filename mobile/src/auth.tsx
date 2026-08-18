@@ -10,8 +10,14 @@ import {
 import { AppState } from 'react-native';
 import type { PublicUser } from './types';
 import { api, ApiError } from './api';
-import { registerPushToken } from './push';
-import { getCachedUser, getToken, setCachedUser, setToken } from './storage';
+import { configurePushHandler, refreshPushTokenIfEnabled } from './push';
+import {
+  getCachedUser,
+  getToken,
+  setCachedUser,
+  setSession,
+  setToken,
+} from './storage';
 
 interface AuthContextValue {
   user: PublicUser | null;
@@ -38,44 +44,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    if (!(await getToken())) {
-      setUser(null);
-      return;
-    }
     const keepCached = async () => {
       const cached = await getCachedUser();
       if (cached) setUser(cached);
     };
-    const transient = (err: unknown) => {
-      const status = err instanceof ApiError ? err.status : undefined;
-      const unreachable = err instanceof ApiError && err.unreachable;
-      return Boolean(unreachable || status === 404 || (status && status >= 500));
-    };
+    if (!(await getToken())) {
+      // Missing token is a storage blip, not a logout. Keep whoever we have.
+      await keepCached();
+      return;
+    }
     try {
       const me = await api.me();
       setUser(me);
       await setCachedUser(me);
     } catch (err) {
-      if (transient(err)) {
+      const status = err instanceof ApiError ? err.status : undefined;
+      const unreachable = err instanceof ApiError && err.unreachable;
+      if (unreachable || status === 404 || (status && status >= 500)) {
         await keepCached();
         return;
       }
-      const status = err instanceof ApiError ? err.status : undefined;
-      if (status !== 401 && status !== 403) return;
-      // Railway deploys restart the in-memory API; the first /me can 401
-      // before tokens are loaded. Retry before treating it as a sign-out.
-      await new Promise((r) => setTimeout(r, 800));
-      try {
-        const me = await api.me();
-        setUser(me);
-        await setCachedUser(me);
-      } catch (retryErr) {
-        if (transient(retryErr)) {
+      if (status === 401 || status === 403) {
+        // Railway restarts drop in-memory tokens for a beat. Retry, then
+        // stay on the cached session — never wipe the device token here.
+        await new Promise((r) => setTimeout(r, 800));
+        try {
+          const me = await api.me();
+          setUser(me);
+          await setCachedUser(me);
+        } catch {
           await keepCached();
-          return;
         }
-        await keepCached();
+        return;
       }
+      await keepCached();
     }
   }, []);
 
@@ -87,14 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const token = await getToken();
-      if (token) {
-        const cached = await getCachedUser();
-        if (!cancelled && cached) {
-          setUser(cached);
-          setLoading(false);
-        }
-      }
+      // Do not mount authenticated screens from cache until `/me` has had a
+      // chance to validate the persisted token. Mounting early makes every
+      // screen fire protected requests during a Railway restart/token write.
       await refresh();
       if (!cancelled) setLoading(false);
     })();
@@ -113,22 +110,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   useEffect(() => {
+    void configurePushHandler();
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
-    void registerPushToken();
+    void refreshPushTokenIfEnabled(user.id);
   }, [user?.id]);
 
   const enterAs = useCallback(async (userId: string) => {
     const res = await api.enterAs(userId);
-    await setToken(res.token);
-    await setCachedUser(res.user);
+    await setSession(res.token, res.user);
     setUser(res.user);
   }, []);
 
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
       const res = await api.login(email, password);
-      await setToken(res.token);
-      await setCachedUser(res.user);
+      await setSession(res.token, res.user);
       setUser(res.user);
     },
     [],
@@ -150,9 +149,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         coupleUsername,
       );
       if (!res.token) throw new Error('Signup succeeded but no session token');
-      // Token must be stored before any follow-up authenticated call.
-      await setToken(res.token);
-      await setCachedUser(res.user);
+      await setSession(res.token, res.user);
       setUser(res.user);
     },
     [],
@@ -161,8 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithAppleToken = useCallback(
     async (idToken: string, name?: string) => {
       const res = await api.appleSession(idToken, name);
-      await setToken(res.token);
-      await setCachedUser(res.user);
+      await setSession(res.token, res.user);
       setUser(res.user);
     },
     [],

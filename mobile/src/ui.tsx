@@ -10,6 +10,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   useWindowDimensions,
   View,
   type StyleProp,
@@ -375,6 +376,49 @@ function receiptStamp(): { order: string; date: string } {
     order: `LR-${1000 + Math.floor(Math.random() * 9000)}`,
     date: `${pad(now.getDate())} ${months[now.getMonth()]} ${now.getFullYear()} · ${pad(now.getHours())}:${pad(now.getMinutes())}`,
   };
+}
+
+/** In-app prime before the OS notifications permission sheet. */
+export function PushNudgeModal({
+  visible,
+  partnerFirst,
+  onYes,
+  onSkip,
+}: {
+  visible: boolean;
+  partnerFirst: string;
+  onYes: () => void;
+  onSkip: () => void;
+}) {
+  const name = partnerFirst.trim() || 'they';
+  const who = name === 'them' || name === 'they' ? 'they' : name;
+
+  return (
+    <Modal transparent animationType="fade" visible={visible} onRequestClose={onSkip}>
+      <Pressable style={styles.pushNudgeBackdrop} onPress={onSkip}>
+        <Pressable style={styles.pushNudgeCard} onPress={(e) => e.stopPropagation()}>
+          <View style={styles.pushNudgeIcon}>
+            <Text style={styles.pushNudgeBell}>🔔</Text>
+          </View>
+          <Text style={styles.pushNudgeTitle}>
+            {who === 'they'
+              ? 'Want to be notified when they complete it?'
+              : `Want to be notified when ${who} completes it?`}
+          </Text>
+          <Text style={styles.pushNudgeBody}>
+            We’ll ping you when this task is done — and whenever something new
+            lands in your inbox.
+          </Text>
+          <Button block onPress={onYes}>
+            Notify me
+          </Button>
+          <Pressable onPress={onSkip} hitSlop={8}>
+            <Text style={styles.pushNudgeSkip}>Not now</Text>
+          </Pressable>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
 
 /** Paper-receipt success sheet with native image share (captured via view-shot). */
@@ -753,6 +797,52 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(18,18,16,0.72)',
     justifyContent: 'center',
   },
+  pushNudgeBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(18,18,16,0.55)',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  pushNudgeCard: {
+    backgroundColor: colors.card,
+    borderRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 18,
+    gap: 12,
+    alignItems: 'center',
+  },
+  pushNudgeIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.panel,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  pushNudgeBell: { fontSize: 26 },
+  pushNudgeTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    color: colors.ink,
+    textAlign: 'center',
+    lineHeight: 28,
+  },
+  pushNudgeBody: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: colors.inkMuted,
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  pushNudgeSkip: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.inkMuted,
+    paddingVertical: 8,
+  },
   printerScroll: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -1022,5 +1112,144 @@ const styles = StyleSheet.create({
   receiptShareBtn: {
     minHeight: 50,
     borderRadius: radius.pill,
+  },
+});
+
+function latestEmoji(next: string, fallback: string): string {
+  const cleaned = next.replace(/[0-9A-Za-z\s]/g, '');
+  if (!cleaned) return fallback;
+  const parts = Array.from(cleaned);
+  return parts[parts.length - 1] ?? fallback;
+}
+
+/** Opens the system emoji keyboard (Apple emoji panel on iOS). */
+export function EmojiField({
+  value,
+  onChange,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  autoFocus?: boolean;
+}) {
+  const ref = useRef<TextInput>(null);
+  return (
+    <Pressable
+      style={emojiStyles.wrap}
+      onPress={() => ref.current?.focus()}
+      accessibilityRole="button"
+      accessibilityLabel="Choose emoji"
+    >
+      <Text style={emojiStyles.glyph} pointerEvents="none">
+        {value || '⭐'}
+      </Text>
+      <TextInput
+        ref={ref}
+        value=""
+        onChangeText={(text) => onChange(latestEmoji(text, value))}
+        autoFocus={autoFocus}
+        autoCorrect={false}
+        autoComplete="off"
+        spellCheck={false}
+        caretHidden
+        contextMenuHidden
+        keyboardType="default"
+        textContentType="none"
+        importantForAutofill="no"
+        style={emojiStyles.input}
+        accessibilityLabel="Emoji keyboard"
+      />
+    </Pressable>
+  );
+}
+
+const emojiStyles = StyleSheet.create({
+  wrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  glyph: { fontSize: 26, lineHeight: 32 },
+  input: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    opacity: 0.02,
+    fontSize: 1,
+  },
+});
+
+/** Compact segmented pill: For you / For {partner}. */
+export function WhoPill({
+  value,
+  themLabel,
+  onChange,
+}: {
+  value: 'you' | 'them';
+  themLabel: string;
+  onChange: (next: 'you' | 'them') => void;
+}) {
+  return (
+    <View style={whoStyles.track}>
+      <Pressable
+        style={[whoStyles.seg, value === 'you' && whoStyles.segOn]}
+        onPress={() => {
+          if (value !== 'you') onChange('you');
+        }}
+      >
+        <Text style={[whoStyles.segText, value === 'you' && whoStyles.segTextOn]}>
+          For you
+        </Text>
+      </Pressable>
+      <Pressable
+        style={[whoStyles.seg, value === 'them' && whoStyles.segOn]}
+        onPress={() => {
+          if (value !== 'them') onChange('them');
+        }}
+      >
+        <Text
+          style={[whoStyles.segText, value === 'them' && whoStyles.segTextOn]}
+          numberOfLines={1}
+        >
+          {themLabel}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const whoStyles = StyleSheet.create({
+  track: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.panel,
+    borderRadius: radius.pill,
+    padding: 3,
+    maxWidth: 220,
+  },
+  seg: {
+    borderRadius: radius.pill,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    minWidth: 64,
+    alignItems: 'center',
+  },
+  segOn: {
+    backgroundColor: colors.card,
+    ...shadow,
+  },
+  segText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.inkMuted,
+  },
+  segTextOn: {
+    color: colors.ink,
   },
 });

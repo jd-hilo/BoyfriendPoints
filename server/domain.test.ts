@@ -324,6 +324,13 @@ describe('profile', () => {
     setPushToken(boyfriend, 'ExponentPushToken[abc]');
     expect(boyfriend.pushToken).toBe('ExponentPushToken[abc]');
   });
+
+  it('clears a push token', () => {
+    const { boyfriend } = bootstrap();
+    setPushToken(boyfriend, 'ExponentPushToken[abc]');
+    setPushToken(boyfriend, '  ');
+    expect(boyfriend.pushToken).toBeUndefined();
+  });
 });
 
 describe('the social feed', () => {
@@ -427,6 +434,36 @@ describe('session', () => {
     expect(user.onboarded).toBe(false);
     completeOnboarding(user);
     expect(user.onboarded).toBe(true);
+  });
+});
+
+describe('symmetric partners', () => {
+  it('lets either partner create tasks, submit, and approve the other', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    addTask(state, boyfriend, { title: 'Plan date night', emoji: '🌙', points: 40 });
+    const task = tasksForUser(state, wife).find((t) => t.wifeId === boyfriend.id);
+    expect(task?.title).toBe('Plan date night');
+
+    createSubmission(state, wife, { title: 'Plan date night', points: 40 });
+    expect(() =>
+      approveSubmission(state, wife, state.submissions.at(-1)!.id),
+    ).toThrow(/your own request/i);
+    approveSubmission(state, boyfriend, state.submissions.at(-1)!.id);
+    expect(wife.points).toBe(40);
+  });
+
+  it('lets either partner add prizes and blocks self-redeem', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    const prize = addPrize(state, boyfriend, { title: 'Breakfast in bed', cost: 30 });
+    expect(() => redeemPrize(state, boyfriend, prize.id)).toThrow(/your own prize/i);
+
+    createSubmission(state, wife, { title: 'Took out trash', points: 30 });
+    approveSubmission(state, boyfriend, state.submissions.at(-1)!.id);
+    const { redemption } = redeemPrize(state, wife, prize.id);
+    expect(redemption.wifeId).toBe(boyfriend.id);
+    expect(wife.points).toBe(0);
+    expect(pendingRedemptionsForUser(state, boyfriend)).toHaveLength(1);
+    expect(pendingRedemptionsForUser(state, wife)).toHaveLength(1);
   });
 });
 

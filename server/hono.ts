@@ -25,7 +25,6 @@ import {
   logout,
   PRIZE_SUGGESTIONS,
   pendingRedemptionsForUser,
-  pendingSubmissionsForWife,
   prizesForUser,
   publicUser,
   requestFriendByCode,
@@ -43,7 +42,7 @@ import {
   joinWithInviteCode,
   switchRole,
   updateProfile,
-  submissionsForBoyfriend,
+  submissionsForUser,
   TASK_SUGGESTIONS,
   tasksForUser,
   toggleLike,
@@ -56,7 +55,7 @@ import {
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
-import { notifyUser, userById } from './push.ts';
+import { notifyOwners, notifyUser, userById } from './push.ts';
 import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
 
 export type WorkerEnv = {
@@ -362,7 +361,6 @@ export function createApiApp() {
   app.post('/api/onboarding/boyfriend', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const body = await c.req.json<{
         name?: string;
@@ -391,7 +389,6 @@ export function createApiApp() {
   app.delete('/api/partner', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       removePartner(c.get('state'), wife);
       markDirty(c);
@@ -404,7 +401,6 @@ export function createApiApp() {
   app.post('/api/onboarding/friend', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const body = await c.req.json<{ name?: string; email?: string }>();
       const friend = addFriend(c.get('state'), wife, {
@@ -421,7 +417,6 @@ export function createApiApp() {
   app.get('/api/friends', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     return c.json(listFriends(c.get('state'), wife));
   });
 
@@ -509,7 +504,6 @@ export function createApiApp() {
   app.post('/api/friends', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const body = await c.req.json<{ name?: string; email?: string }>();
       const friend = addFriend(c.get('state'), wife, {
@@ -540,7 +534,6 @@ export function createApiApp() {
   app.post('/api/prizes', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const body = await c.req.json<{
         title?: string;
@@ -567,7 +560,6 @@ export function createApiApp() {
   app.delete('/api/prizes/:id', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     if (!removePrize(c.get('state'), wife, c.req.param('id'))) {
       return c.json({ error: 'Prize not found' }, 404);
     }
@@ -584,7 +576,6 @@ export function createApiApp() {
   app.post('/api/tasks', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const body = await c.req.json<{
         title?: string;
@@ -606,7 +597,6 @@ export function createApiApp() {
   app.delete('/api/tasks/:id', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     if (!removeTask(c.get('state'), wife, c.req.param('id'))) {
       return c.json({ error: 'Task not found' }, 404);
     }
@@ -618,11 +608,7 @@ export function createApiApp() {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     const state = c.get('state');
-    return c.json(
-      user.role === 'wife'
-        ? pendingSubmissionsForWife(state, user)
-        : submissionsForBoyfriend(state, user),
-    );
+    return c.json(submissionsForUser(state, user));
   });
 
   app.post('/api/submissions', async (c) => {
@@ -660,7 +646,6 @@ export function createApiApp() {
   app.post('/api/submissions/:id/approve', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const body = await c.req.json<{ points?: number }>().catch(() => ({}));
       const revised =
@@ -688,7 +673,6 @@ export function createApiApp() {
   app.post('/api/submissions/:id/deny', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const submission = denySubmission(
         c.get('state'),
@@ -754,7 +738,6 @@ export function createApiApp() {
   app.post('/api/redemptions/:id/fulfill', (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
-    if (wife.role !== 'wife') return c.json({ error: 'Only a wife can do that' }, 403);
     try {
       const redemption = fulfillRedemption(
         c.get('state'),
@@ -817,13 +800,28 @@ export function createApiApp() {
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     try {
       const body = await c.req.json<{ emoji?: string }>();
-      const event = reactToFeed(
-        c.get('state'),
-        user,
-        c.req.param('id'),
-        String(body?.emoji ?? ''),
+      const emoji = String(body?.emoji ?? '').trim().slice(0, 8);
+      const state = c.get('state');
+      const existing = state.feed.find((item) => item.id === c.req.param('id'));
+      const had = Boolean(
+        existing?.reactions?.some(
+          (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
+        ),
       );
+      const event = reactToFeed(state, user, c.req.param('id'), emoji);
       markDirty(c);
+      const has = event.reactions.some(
+        (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
+      );
+      if (has && !had) {
+        notifyOwners(
+          state,
+          event,
+          user.id,
+          `${user.name} reacted`,
+          `${event.emoji} ${event.title}`,
+        );
+      }
       return c.json({ id: event.id, reactions: event.reactions });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -835,13 +833,22 @@ export function createApiApp() {
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     try {
       const body = await c.req.json<{ text?: string }>();
+      const state = c.get('state');
       const event = addComment(
-        c.get('state'),
+        state,
         user,
         c.req.param('id'),
         String(body?.text ?? ''),
       );
       markDirty(c);
+      const last = event.comments[event.comments.length - 1];
+      notifyOwners(
+        state,
+        event,
+        user.id,
+        `${user.name} commented`,
+        last ? `“${last.text}”` : `${event.emoji} ${event.title}`,
+      );
       return c.json({ id: event.id, comments: event.comments });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);

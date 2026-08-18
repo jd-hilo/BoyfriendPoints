@@ -44,20 +44,34 @@ async function request<T>(
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
-  let res: Response;
-  try {
-    res = await fetch(`${API_BASE_URL}${path}`, {
-      method: options.method ?? 'GET',
-      headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    });
-  } catch {
-    throw new ApiError(
-      `Could not reach API at ${API_BASE_URL}.`,
-      { unreachable: true },
-    );
+  const body = options.body !== undefined ? JSON.stringify(options.body) : undefined;
+  let res: Response | undefined;
+  const retryAuth = Boolean(token) && !path.startsWith('/auth/');
+  const delays = retryAuth ? [0, 600, 1_400] : [0];
+
+  for (const delay of delays) {
+    if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      res = await fetch(`${API_BASE_URL}${path}`, {
+        method: options.method ?? 'GET',
+        headers,
+        body,
+      });
+    } catch {
+      if (delay !== delays.at(-1)) continue;
+      throw new ApiError(
+        `Could not reach API at ${API_BASE_URL}.`,
+        { unreachable: true },
+      );
+    }
+    if (res.status !== 401 || delay === delays.at(-1)) break;
   }
 
+  if (!res) {
+    throw new ApiError(`Could not reach API at ${API_BASE_URL}.`, {
+      unreachable: true,
+    });
+  }
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     throw new ApiError(data.error ?? `Request failed (${res.status})`, {

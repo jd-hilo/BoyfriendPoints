@@ -6,21 +6,19 @@ import { haptic } from '../utils.ts';
 import Feed from './Feed.tsx';
 import Submit from './Submit.tsx';
 import Redeem from './Redeem.tsx';
-import WifeRequests from './WifeRequests.tsx';
-import WifeManage from './WifeManage.tsx';
 import Notifications from './Notifications.tsx';
+import Profile from './Profile.tsx';
 
-type Tab = 'feed' | 'submit' | 'redeem' | 'requests' | 'manage';
+type Tab = 'feed' | 'submit' | 'redeem';
 
 export default function MainApp() {
-  const { user, logout, refresh } = useAuth();
+  const { user, refresh } = useAuth();
   const [tab, setTab] = useState<Tab>('feed');
   const [tick, setTick] = useState(0);
   const [pending, setPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [booted, setBooted] = useState(false);
-
-  const isWife = user?.role === 'wife';
 
   const bump = useCallback(() => {
     setTick((t) => t + 1);
@@ -28,13 +26,17 @@ export default function MainApp() {
   }, [refresh]);
 
   const loadPending = useCallback(async () => {
-    if (!isWife) return;
+    if (!user) return;
     const [subs, redemptions] = await Promise.all([
       api.submissions(),
       api.redemptions(),
     ]);
-    setPending(subs.length + redemptions.length);
-  }, [isWife]);
+    setPending(
+      subs.filter((s) => s.wifeId === user.id && s.status === 'pending').length +
+        redemptions.filter((r) => r.wifeId === user.id && r.status === 'pending')
+          .length,
+    );
+  }, [user]);
 
   useEffect(() => {
     void loadPending();
@@ -44,16 +46,16 @@ export default function MainApp() {
     if (!user || booted) return;
     let cancelled = false;
     void (async () => {
-      if (user.role === 'wife') {
-        const [subs, redemptions] = await Promise.all([
-          api.submissions(),
-          api.redemptions(),
-        ]);
-        if (cancelled) return;
-        const count = subs.length + redemptions.length;
-        setPending(count);
-        if (count > 0) setTab('requests');
-      }
+      const [subs, redemptions] = await Promise.all([
+        api.submissions(),
+        api.redemptions(),
+      ]);
+      if (cancelled) return;
+      setPending(
+        subs.filter((s) => s.wifeId === user.id && s.status === 'pending').length +
+          redemptions.filter((r) => r.wifeId === user.id && r.status === 'pending')
+            .length,
+      );
       if (!cancelled) setBooted(true);
     })();
     return () => {
@@ -62,11 +64,6 @@ export default function MainApp() {
   }, [user, booted]);
 
   if (!user) return null;
-
-  const midTab: Tab = isWife ? 'requests' : 'submit';
-  const rightTab: Tab = isWife ? 'manage' : 'redeem';
-  const midLabel = isWife ? 'Review' : 'Submit';
-  const rightLabel = isWife ? 'Manage' : 'Redeem';
 
   function go(next: Tab) {
     haptic(10);
@@ -82,11 +79,9 @@ export default function MainApp() {
             💎
           </span>
           <span className="wordmark sm">LoveReceipts</span>
-          {!isWife && (
-            <span className="search-meta">
-              <Xp value={user.points} size={15} />
-            </span>
-          )}
+          <span className="search-meta">
+            <Xp value={user.points} size={15} />
+          </span>
         </div>
         <button
           className="header-icon-btn"
@@ -98,15 +93,16 @@ export default function MainApp() {
           title="Notifications"
         >
           <BellIcon />
-          {isWife && pending > 0 && (
-            <span className="icon-badge">{pending}</span>
-          )}
+          {pending > 0 && <span className="icon-badge">{pending}</span>}
         </button>
         <button
           className="header-icon-btn"
-          onClick={() => void logout()}
-          aria-label="Switch persona"
-          title="Switch persona"
+          onClick={() => {
+            haptic(10);
+            setProfileOpen(true);
+          }}
+          aria-label="Profile"
+          title="Profile"
         >
           <Avatar
             name={user.name}
@@ -117,7 +113,7 @@ export default function MainApp() {
         </button>
       </header>
 
-      <main className="app-main">
+      <main className={`app-main ${tab === 'feed' ? 'home-main' : ''}`}>
         {tab === 'feed' && <Feed key={`feed-${tick}`} />}
         {tab === 'submit' && (
           <Submit key={`submit-${tick}`} onDone={bump} />
@@ -125,8 +121,6 @@ export default function MainApp() {
         {tab === 'redeem' && (
           <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />
         )}
-        {tab === 'requests' && <WifeRequests onChange={bump} />}
-        {tab === 'manage' && <WifeManage key={`man-${tick}`} />}
       </main>
 
       <nav className="tab-bar" aria-label="Main">
@@ -139,44 +133,27 @@ export default function MainApp() {
           <span className="tab-label">Home</span>
         </button>
 
-        <div className="tab-fab-slot">
-          <button
-            type="button"
-            className={`fab ${tab === midTab ? 'active' : ''}`}
-            onClick={() => go(midTab)}
-            aria-label={midLabel}
-          >
-            {isWife ? (
-              pending > 0 ? (
-                <span className="fab-count">{pending}</span>
-              ) : (
-                <CheckIcon />
-              )
-            ) : (
-              <span className="fab-plus-gem">
-                <PlusIcon />
-                <span className="fab-gem" aria-hidden>
-                  💎
-                </span>
-              </span>
-            )}
-          </button>
-          <span className={`fab-label ${tab === midTab ? 'active' : ''}`}>
-            {midLabel}
-          </span>
-        </div>
+        <button
+          type="button"
+          className={`tab ${tab === 'submit' ? 'active' : ''}`}
+          onClick={() => go('submit')}
+        >
+          <TasksIcon active={tab === 'submit'} />
+          <span className="tab-label">Tasks</span>
+        </button>
 
         <button
           type="button"
-          className={`tab ${tab === rightTab ? 'active' : ''}`}
-          onClick={() => go(rightTab)}
+          className={`tab ${tab === 'redeem' ? 'active' : ''}`}
+          onClick={() => go('redeem')}
         >
-          <GiftIcon active={tab === rightTab} />
-          <span className="tab-label">{rightLabel}</span>
+          <GiftIcon active={tab === 'redeem'} />
+          <span className="tab-label">Rewards</span>
         </button>
       </nav>
 
       {notifOpen && <Notifications onClose={() => setNotifOpen(false)} />}
+      {profileOpen && <Profile onClose={() => setProfileOpen(false)} />}
     </div>
   );
 }
@@ -189,6 +166,31 @@ function HomeIcon({ active }: { active: boolean }) {
         fill={active ? 'currentColor' : 'none'}
         stroke="currentColor"
         strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TasksIcon({ active }: { active: boolean }) {
+  return (
+    <svg className="tab-svg" viewBox="0 0 24 24" aria-hidden>
+      <rect
+        x="3.5"
+        y="4"
+        width="17"
+        height="16"
+        rx="3"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="m8 12 2.6 2.6L16 9.4"
+        fill="none"
+        stroke={active ? '#fff' : 'currentColor'}
+        strokeWidth="1.8"
+        strokeLinecap="round"
         strokeLinejoin="round"
       />
     </svg>
@@ -236,34 +238,6 @@ function BellIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden>
-      <path
-        d="M12 5v14M5 12h14"
-        stroke="#fff"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden>
-      <path
-        d="m5 12 5 5L19 7"
-        fill="none"
-        stroke="#fff"
-        strokeWidth="2.6"
-        strokeLinecap="round"
-        strokeLinejoin="round"
       />
     </svg>
   );

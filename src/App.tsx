@@ -20,7 +20,7 @@ function Router() {
     );
   }
   if (!user) return <AuthScreen />;
-  if (user.role === 'wife' && !user.onboarded) return <Onboarding />;
+  if (!user.onboarded) return <Onboarding />;
   return <MainApp />;
 }
 
