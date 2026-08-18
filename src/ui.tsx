@@ -134,7 +134,7 @@ function latestEmoji(next: string, fallback: string): string {
   return parts[parts.length - 1] ?? fallback;
 }
 
-/** Opens the system emoji keyboard (Apple Character Viewer / iOS emoji panel). */
+/** Opens the system keyboard so the user can pick an emoji. */
 export function EmojiField({
   value,
   onChange,
@@ -146,22 +146,17 @@ export function EmojiField({
 }) {
   return (
     <label className="emoji-field">
-      <span className="emoji-field-glyph" aria-hidden>
-        {value || '⭐'}
-      </span>
       <input
         className="emoji-field-input"
-        value=""
+        value={value || '⭐'}
         autoFocus={autoFocus}
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
+        maxLength={16}
         inputMode="text"
         aria-label="Choose emoji"
-        onChange={(e) => {
-          onChange(latestEmoji(e.target.value, value));
-          e.target.value = '';
-        }}
+        onChange={(e) => onChange(latestEmoji(e.target.value, value || '⭐'))}
       />
     </label>
   );

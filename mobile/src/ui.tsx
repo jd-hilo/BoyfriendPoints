@@ -1122,7 +1122,7 @@ function latestEmoji(next: string, fallback: string): string {
   return parts[parts.length - 1] ?? fallback;
 }
 
-/** Opens the system emoji keyboard (Apple emoji panel on iOS). */
+/** Opens the system keyboard so the user can pick an emoji. */
 export function EmojiField({
   value,
   onChange,
@@ -1132,56 +1132,38 @@ export function EmojiField({
   onChange: (next: string) => void;
   autoFocus?: boolean;
 }) {
-  const ref = useRef<TextInput>(null);
   return (
-    <Pressable
-      style={emojiStyles.wrap}
-      onPress={() => ref.current?.focus()}
-      accessibilityRole="button"
+    <TextInput
+      value={value || '⭐'}
+      onChangeText={(text) => onChange(latestEmoji(text, value || '⭐'))}
+      autoFocus={autoFocus}
+      autoCorrect={false}
+      autoComplete="off"
+      spellCheck={false}
+      caretHidden
+      contextMenuHidden
+      keyboardType="default"
+      textContentType="none"
+      importantForAutofill="no"
+      textAlign="center"
+      maxLength={16}
+      showSoftInputOnFocus
+      style={emojiStyles.input}
       accessibilityLabel="Choose emoji"
-    >
-      <Text style={emojiStyles.glyph} pointerEvents="none">
-        {value || '⭐'}
-      </Text>
-      <TextInput
-        ref={ref}
-        value=""
-        onChangeText={(text) => onChange(latestEmoji(text, value))}
-        autoFocus={autoFocus}
-        autoCorrect={false}
-        autoComplete="off"
-        spellCheck={false}
-        caretHidden
-        contextMenuHidden
-        keyboardType="default"
-        textContentType="none"
-        importantForAutofill="no"
-        style={emojiStyles.input}
-        accessibilityLabel="Emoji keyboard"
-      />
-    </Pressable>
+    />
   );
 }
 
 const emojiStyles = StyleSheet.create({
-  wrap: {
+  input: {
     width: 52,
     height: 52,
     borderRadius: 14,
     backgroundColor: colors.bg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  glyph: { fontSize: 26, lineHeight: 32 },
-  input: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    opacity: 0.02,
-    fontSize: 1,
+    fontSize: 26,
+    lineHeight: 32,
+    color: colors.ink,
+    padding: 0,
   },
 });
 
