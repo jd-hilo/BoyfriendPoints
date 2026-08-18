@@ -15,8 +15,10 @@ interface SuccessInfo {
 
 export default function Submit({
   onDone,
+  onEnterCode,
 }: {
   onDone: () => void;
+  onEnterCode?: () => void;
 }) {
   const { user } = useAuth();
   const [scope, setScope] = useState<'you' | 'them'>('you');
@@ -165,7 +167,7 @@ export default function Submit({
             <div className="card" style={{ textAlign: 'center' }}>
               <p className="coach-title">Add your partner first</p>
               <p className="muted small">
-                Once you’re linked, you can submit wins for points.
+                Invite them, or enter their code if they already signed up.
               </p>
               <Button
                 block
@@ -176,6 +178,15 @@ export default function Submit({
               >
                 Invite partner
               </Button>
+              {onEnterCode ? (
+                <button
+                  type="button"
+                  className="quiet-link"
+                  onClick={onEnterCode}
+                >
+                  Have their code?
+                </button>
+              ) : null}
             </div>
           )}
 

@@ -25,6 +25,7 @@ import {
   signupWife,
   signup,
   switchRole,
+  isCoupleUsernameTaken,
   tasksForUser,
   joinWithInviteCode,
   login,
@@ -394,6 +395,27 @@ describe('the social feed', () => {
 });
 
 describe('couple discovery', () => {
+  it('rejects a couple username that is already taken', () => {
+    const state = createEmptyState();
+    signup(state, {
+      name: 'Emma',
+      email: 'emma@x.com',
+      password: 'secret',
+      role: 'wife',
+      coupleUsername: 'emmaandnoah',
+    });
+    expect(isCoupleUsernameTaken(state, 'EmmaAndNoah')).toBe(true);
+    expect(() =>
+      signup(state, {
+        name: 'Mia',
+        email: 'mia@x.com',
+        password: 'secret',
+        role: 'wife',
+        coupleUsername: 'emmaandnoah',
+      }),
+    ).toThrow(/already taken/i);
+  });
+
   it('lets one person search and request before their partner joins', () => {
     const state = createEmptyState();
     const wife = signup(state, {

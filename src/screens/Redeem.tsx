@@ -14,9 +14,11 @@ interface SuccessInfo {
 export default function Redeem({
   user,
   onChange,
+  onEnterCode,
 }: {
   user: PublicUser;
   onChange: () => void;
+  onEnterCode?: () => void;
 }) {
   const [prizes, setPrizes] = useState<Prize[]>([]);
   const [created, setCreated] = useState<Prize[]>([]);
@@ -135,7 +137,7 @@ export default function Redeem({
             <div className="card" style={{ textAlign: 'center' }}>
               <p className="coach-title">Add your partner first</p>
               <p className="muted small">
-                Once you’re linked, you can cash points in for rewards.
+                Invite them, or enter their code if they already signed up.
               </p>
               <Button
                 block
@@ -146,6 +148,15 @@ export default function Redeem({
               >
                 Invite partner
               </Button>
+              {onEnterCode ? (
+                <button
+                  type="button"
+                  className="quiet-link"
+                  onClick={onEnterCode}
+                >
+                  Have their code?
+                </button>
+              ) : null}
             </div>
           )
         ) : (

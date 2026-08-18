@@ -19,6 +19,8 @@ import {
   feedForUser,
   friendRequestsForUser,
   findByEmail,
+  isCoupleUsernameTaken,
+  normalizeCoupleUsername,
   findByToken,
   listPersonas,
   fulfillRedemption,
@@ -193,6 +195,15 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
       return;
     }
     res.json({ available: !findByEmail(state, email) });
+  });
+
+  app.get('/api/auth/couple-username-available', (req, res) => {
+    const username = normalizeCoupleUsername(String(req.query.username ?? ''));
+    if (username.length < 3) {
+      res.status(400).json({ error: 'Couple username must be at least 3 characters' });
+      return;
+    }
+    res.json({ available: !isCoupleUsernameTaken(state, username) });
   });
 
   app.post('/api/auth/signup', (req, res) => {

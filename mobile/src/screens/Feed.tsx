@@ -79,9 +79,11 @@ function PhotoCarousel({ images }: { images: string[] }) {
 export default function Feed({
   openFirstReact,
   onInvitePartner,
+  onEnterCode,
 }: {
   openFirstReact?: boolean;
   onInvitePartner?: () => void;
+  onEnterCode?: () => void;
 } = {}) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
@@ -227,6 +229,7 @@ export default function Feed({
         <EmptyHome
           onAddCouples={() => setAddCouplesOpen(true)}
           onInvitePartner={onInvitePartner}
+          onEnterCode={onEnterCode}
           bottomClearance={tabClearance}
         />
         <AddFriendPill
@@ -427,10 +430,12 @@ function CoupleAvatars({
 function EmptyHome({
   onAddCouples,
   onInvitePartner,
+  onEnterCode,
   bottomClearance,
 }: {
   onAddCouples: () => void;
   onInvitePartner?: () => void;
+  onEnterCode?: () => void;
   bottomClearance: number;
 }) {
   // The feed stays empty until both partners are in, so say that instead of
@@ -452,6 +457,11 @@ function EmptyHome({
           {unlinked ? 'Invite partner' : 'Add couples'}
         </Text>
       </Pressable>
+      {unlinked && onEnterCode ? (
+        <Pressable onPress={onEnterCode} hitSlop={8} style={styles.codeLink}>
+          <Text style={styles.codeLinkText}>Have their code?</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -871,6 +881,12 @@ const styles = StyleSheet.create({
     marginHorizontal: 24,
   },
   addFriendText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  codeLink: { alignItems: 'center', marginTop: 10 },
+  codeLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.inkMuted,
+  },
   demoWrap: {
     marginHorizontal: 4,
     paddingTop: 28,

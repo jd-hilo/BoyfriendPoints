@@ -4,9 +4,16 @@ import { useAuth } from '../auth.tsx';
 import { Avatar, Button, Xp } from '../ui.tsx';
 import { haptic } from '../utils.ts';
 
-export default function Profile({ onClose }: { onClose: () => void }) {
+export default function Profile({
+  onClose,
+  focusJoin,
+}: {
+  onClose: () => void;
+  focusJoin?: boolean;
+}) {
   const { user, applyUser, logout, refresh } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
+  const [joinCode, setJoinCode] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +150,52 @@ export default function Profile({ onClose }: { onClose: () => void }) {
               </Button>
             </>
           ) : (
-            <p className="muted">No partner linked yet.</p>
+            <>
+              <p className="muted">
+                If they already signed up, enter their household code.
+              </p>
+              <form
+                className="form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void (async () => {
+                    setSaving(true);
+                    setError(null);
+                    try {
+                      await api.joinWithCode(joinCode);
+                      await refresh();
+                      haptic(10);
+                    } catch (err) {
+                      setError((err as Error).message);
+                    } finally {
+                      setSaving(false);
+                    }
+                  })();
+                }}
+              >
+                <input
+                  value={joinCode}
+                  onChange={(e) =>
+                    setJoinCode(
+                      e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                    )
+                  }
+                  placeholder="Their household code"
+                  aria-label="Household code"
+                  autoCapitalize="characters"
+                  autoFocus={focusJoin}
+                  maxLength={8}
+                />
+                {error && <p className="error">{error}</p>}
+                <Button
+                  type="submit"
+                  block
+                  disabled={saving || joinCode.length < 4}
+                >
+                  Join household
+                </Button>
+              </form>
+            </>
           )}
         </div>
 

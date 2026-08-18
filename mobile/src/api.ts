@@ -98,6 +98,10 @@ export const api = {
     request<{ available: boolean }>(
       `/auth/email-available?email=${encodeURIComponent(email.trim())}`,
     ),
+  coupleUsernameAvailable: (username: string) =>
+    request<{ available: boolean }>(
+      `/auth/couple-username-available?username=${encodeURIComponent(username.trim())}`,
+    ),
   signup: (
     name: string,
     email: string,

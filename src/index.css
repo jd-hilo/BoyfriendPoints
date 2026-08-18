@@ -226,6 +226,19 @@ input:focus {
   background: var(--blue-soft);
   color: var(--blue);
 }
+.quiet-link {
+  border: none;
+  background: none;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 0 0;
+}
+.quiet-link:hover {
+  color: var(--ink);
+}
 .btn-danger {
   background: #fdeaea;
   color: var(--red);

@@ -30,9 +30,11 @@ interface SuccessInfo {
 export default function Redeem({
   user,
   onChange,
+  onEnterCode,
 }: {
   user: PublicUser;
   onChange: () => void;
+  onEnterCode?: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const [prizes, setPrizes] = useState<Prize[]>([]);
@@ -183,16 +185,30 @@ export default function Redeem({
           <Text style={styles.emptyBody}>
             {linked
               ? `Ask ${partner} to add rewards you can cash points in for.`
-              : 'Once you’re linked, you can cash points in for rewards.'}
+              : 'Invite them, or enter their code if they already signed up.'}
           </Text>
           {linked ? null : (
-            <Button
-              block
-              disabled={!user.inviteCode}
-              onPress={() => void invitePartner()}
-            >
-              Invite partner
-            </Button>
+            <>
+              <Button
+                block
+                disabled={!user.inviteCode}
+                onPress={() => void invitePartner()}
+              >
+                Invite partner
+              </Button>
+              {onEnterCode ? (
+                <Pressable
+                  onPress={() => {
+                    haptic(8);
+                    onEnterCode();
+                  }}
+                  hitSlop={8}
+                  style={styles.codeLink}
+                >
+                  <Text style={styles.codeLinkText}>Have their code?</Text>
+                </Pressable>
+              ) : null}
+            </>
           )}
         </View>
       ) : (
@@ -487,6 +503,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
     marginHorizontal: 18,
+  },
+  codeLink: { paddingVertical: 6 },
+  codeLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.inkMuted,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {

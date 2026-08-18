@@ -16,6 +16,8 @@ import {
   friendRequestsForUser,
   findByEmail,
   findByToken,
+  isCoupleUsernameTaken,
+  normalizeCoupleUsername,
   fulfillRedemption,
   inviteBoyfriend,
   listFriends,
@@ -237,6 +239,16 @@ export function createApiApp() {
       return c.json({ error: 'Enter a valid email' }, 400);
     }
     return c.json({ available: !findByEmail(c.get('state'), email) });
+  });
+
+  app.get('/api/auth/couple-username-available', (c) => {
+    const username = normalizeCoupleUsername(String(c.req.query('username') ?? ''));
+    if (username.length < 3) {
+      return c.json({ error: 'Couple username must be at least 3 characters' }, 400);
+    }
+    return c.json({
+      available: !isCoupleUsernameTaken(c.get('state'), username),
+    });
   });
 
   app.post('/api/auth/signup', async (c) => {

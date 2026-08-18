@@ -38,8 +38,10 @@ interface SuccessInfo {
 
 export default function Submit({
   onDone,
+  onEnterCode,
 }: {
   onDone: () => void;
+  onEnterCode?: () => void;
 }) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
@@ -257,7 +259,7 @@ export default function Submit({
               <Text style={styles.emptyBody}>
                 {user?.partnerId
                   ? 'You can still send a custom request for points.'
-                  : 'Once you’re linked, you can submit wins for points.'}
+                  : 'Invite them, or enter their code if they already signed up.'}
               </Text>
               {user?.partnerId ? (
                 <Button
@@ -272,13 +274,27 @@ export default function Submit({
                   Submit a task for points
                 </Button>
               ) : (
-                <Button
-                  block
-                  disabled={!user?.inviteCode}
-                  onPress={() => void invitePartner()}
-                >
-                  Invite partner
-                </Button>
+                <>
+                  <Button
+                    block
+                    disabled={!user?.inviteCode}
+                    onPress={() => void invitePartner()}
+                  >
+                    Invite partner
+                  </Button>
+                  {onEnterCode ? (
+                    <Pressable
+                      onPress={() => {
+                        haptic(8);
+                        onEnterCode();
+                      }}
+                      hitSlop={8}
+                      style={styles.codeLink}
+                    >
+                      <Text style={styles.codeLinkText}>Have their code?</Text>
+                    </Pressable>
+                  ) : null}
+                </>
               )}
             </View>
           ) : (
@@ -686,6 +702,12 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
     marginHorizontal: 18,
+  },
+  codeLink: { paddingVertical: 6 },
+  codeLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.inkMuted,
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   tile: {

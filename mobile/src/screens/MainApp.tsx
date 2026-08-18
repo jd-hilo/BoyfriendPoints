@@ -37,6 +37,7 @@ export default function MainApp({
   const [pending, setPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileFocusJoin, setProfileFocusJoin] = useState(false);
   const [unreadNotifs, setUnreadNotifs] = useState(false);
   const [approval, setApproval] = useState<Submission | null>(null);
   const [booted, setBooted] = useState(false);
@@ -180,6 +181,7 @@ export default function MainApp({
           <Pressable
             onPress={() => {
               haptic(10);
+              setProfileFocusJoin(false);
               setProfileOpen(true);
             }}
             hitSlop={6}
@@ -195,12 +197,40 @@ export default function MainApp({
             key={`feed-${tick}`}
             openFirstReact={openFirstReact}
             onInvitePartner={linked ? undefined : () => go('submit')}
+            onEnterCode={
+              linked
+                ? undefined
+                : () => {
+                    haptic(10);
+                    setProfileFocusJoin(true);
+                    setProfileOpen(true);
+                  }
+            }
           />
         )}
         {tab === 'submit' && (
-          <Submit key={`submit-${tick}`} onDone={bump} />
+          <Submit
+            key={`submit-${tick}`}
+            onDone={bump}
+            onEnterCode={() => {
+              haptic(10);
+              setProfileFocusJoin(true);
+              setProfileOpen(true);
+            }}
+          />
         )}
-        {tab === 'redeem' && <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />}
+        {tab === 'redeem' && (
+          <Redeem
+            key={`redeem-${tick}`}
+            user={user}
+            onChange={bump}
+            onEnterCode={() => {
+              haptic(10);
+              setProfileFocusJoin(true);
+              setProfileOpen(true);
+            }}
+          />
+        )}
       </View>
 
       <View
@@ -244,7 +274,15 @@ export default function MainApp({
           onChanged={() => void loadPending()}
         />
       )}
-      {profileOpen && <Profile onClose={() => setProfileOpen(false)} />}
+      {profileOpen && (
+        <Profile
+          focusJoin={profileFocusJoin}
+          onClose={() => {
+            setProfileOpen(false);
+            setProfileFocusJoin(false);
+          }}
+        />
+      )}
       {approval && user && (
         <ReceiptModal
           kind="approve"

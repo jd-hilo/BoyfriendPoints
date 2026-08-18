@@ -115,6 +115,21 @@ export function normalizeCoupleUsername(value: string): string {
   return value.trim().toLowerCase().replace(/^@/, '').replace(/[^a-z0-9_]/g, '');
 }
 
+export function isCoupleUsernameTaken(
+  state: State,
+  rawUsername: string,
+  exceptUserId?: string,
+): boolean {
+  const username = normalizeCoupleUsername(rawUsername);
+  if (username.length < 3) return false;
+  return state.users.some(
+    (user) =>
+      user.id !== exceptUserId &&
+      Boolean(user.coupleUsername) &&
+      normalizeCoupleUsername(user.coupleUsername) === username,
+  );
+}
+
 function availableCoupleUsername(state: State, seed: string): string {
   const normalized = normalizeCoupleUsername(seed);
   const base = (normalized.length >= 3 ? normalized : `${normalized}couple`).slice(
@@ -123,11 +138,7 @@ function availableCoupleUsername(state: State, seed: string): string {
   );
   let candidate = base;
   let suffix = 2;
-  while (
-    state.users.some(
-      (user) => user.coupleUsername?.toLowerCase() === candidate.toLowerCase(),
-    )
-  ) {
+  while (isCoupleUsernameTaken(state, candidate)) {
     candidate = `${base.slice(0, 20 - String(suffix).length)}${suffix++}`;
   }
   return candidate;
@@ -141,12 +152,9 @@ export function setCoupleUsername(
   const username = normalizeCoupleUsername(rawUsername);
   if (username.length < 3) throw new Error('Couple username must be at least 3 characters');
   if (username.length > 24) throw new Error('Couple username must be 24 characters or less');
-  const taken = state.users.some(
-    (user) =>
-      user.id !== wife.id &&
-      user.coupleUsername?.toLowerCase() === username.toLowerCase(),
-  );
-  if (taken) throw new Error('That couple username is already taken');
+  if (isCoupleUsernameTaken(state, username, wife.id)) {
+    throw new Error('That couple username is already taken');
+  }
   wife.coupleUsername = username;
   return username;
 }
@@ -243,10 +251,7 @@ export function signup(
   }
   if (
     requestedCoupleUsername &&
-    state.users.some(
-      (candidate) =>
-        candidate.coupleUsername?.toLowerCase() === requestedCoupleUsername,
-    )
+    isCoupleUsernameTaken(state, requestedCoupleUsername)
   ) {
     throw new Error('That couple username is already taken');
   }

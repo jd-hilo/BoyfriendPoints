@@ -26,7 +26,13 @@ import { colors, radius, shadow } from '../theme';
 import { Avatar, Button, CoupleLockup } from '../ui';
 import { haptic } from '../utils';
 
-export default function Profile({ onClose }: { onClose: () => void }) {
+export default function Profile({
+  onClose,
+  focusJoin,
+}: {
+  onClose: () => void;
+  focusJoin?: boolean;
+}) {
   const { user, applyUser, logout, refresh } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
   const [joinCode, setJoinCode] = useState('');
@@ -255,17 +261,20 @@ export default function Profile({ onClose }: { onClose: () => void }) {
                 </>
               ) : (
                 <>
-                  <Text style={styles.muted}>No partner linked yet.</Text>
+                  <Text style={styles.muted}>
+                    If they already signed up, enter their household code.
+                  </Text>
                   <TextInput
                     style={styles.input}
                     value={joinCode}
                     onChangeText={(t) =>
                       setJoinCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))
                     }
-                    placeholder="Enter their household code"
+                    placeholder="Their household code"
                     placeholderTextColor={colors.inkMuted}
                     autoCapitalize="characters"
                     autoCorrect={false}
+                    autoFocus={focusJoin}
                     maxLength={8}
                   />
                   <Button

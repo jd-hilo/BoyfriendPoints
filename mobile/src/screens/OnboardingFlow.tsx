@@ -219,6 +219,24 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
     setStep((current) => (current < 5 ? resumeStepFor(user) : current));
   }, [user]);
 
+  useEffect(() => {
+    if (step !== 4 || coupleUsername.length < 3) return;
+    let cancelled = false;
+    const handle = setTimeout(() => {
+      void api
+        .coupleUsernameAvailable(coupleUsername)
+        .then(({ available }) => {
+          if (cancelled || available) return;
+          setError('That couple username is already taken');
+        })
+        .catch(() => undefined);
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [coupleUsername, step]);
+
   const totalSteps = TOTAL_STEPS;
   const progressStep =
     step <= 2
@@ -255,6 +273,18 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
     setError(null);
     setBusy(true);
     try {
+      if (coupleUsername.trim().length >= 3) {
+        try {
+          const { available } = await api.coupleUsernameAvailable(coupleUsername);
+          if (!available) {
+            setError('That couple username is already taken');
+            setStep(4);
+            return;
+          }
+        } catch {
+          // Signup still rejects duplicates if this endpoint is unavailable.
+        }
+      }
       await signUpWithPassword(
         name.trim(),
         email.trim(),
@@ -502,7 +532,11 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
             <PrimaryButton
               label={busy ? undefined : 'Create our couple'}
               busy={busy}
-              disabled={coupleUsername.length < 3 || busy}
+              disabled={
+                coupleUsername.length < 3 ||
+                busy ||
+                /already taken/i.test(error ?? '')
+              }
               onPress={() => void createAccount()}
             />
           </StepShell>

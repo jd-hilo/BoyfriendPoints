@@ -18,6 +18,7 @@ export default function MainApp() {
   const [pending, setPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileFocusJoin, setProfileFocusJoin] = useState(false);
   const [booted, setBooted] = useState(false);
 
   const bump = useCallback(() => {
@@ -99,6 +100,7 @@ export default function MainApp() {
           className="header-icon-btn"
           onClick={() => {
             haptic(10);
+            setProfileFocusJoin(false);
             setProfileOpen(true);
           }}
           aria-label="Profile"
@@ -116,10 +118,27 @@ export default function MainApp() {
       <main className={`app-main ${tab === 'feed' ? 'home-main' : ''}`}>
         {tab === 'feed' && <Feed key={`feed-${tick}`} />}
         {tab === 'submit' && (
-          <Submit key={`submit-${tick}`} onDone={bump} />
+          <Submit
+            key={`submit-${tick}`}
+            onDone={bump}
+            onEnterCode={() => {
+              haptic(10);
+              setProfileFocusJoin(true);
+              setProfileOpen(true);
+            }}
+          />
         )}
         {tab === 'redeem' && (
-          <Redeem key={`redeem-${tick}`} user={user} onChange={bump} />
+          <Redeem
+            key={`redeem-${tick}`}
+            user={user}
+            onChange={bump}
+            onEnterCode={() => {
+              haptic(10);
+              setProfileFocusJoin(true);
+              setProfileOpen(true);
+            }}
+          />
         )}
       </main>
 
@@ -153,7 +172,15 @@ export default function MainApp() {
       </nav>
 
       {notifOpen && <Notifications onClose={() => setNotifOpen(false)} />}
-      {profileOpen && <Profile onClose={() => setProfileOpen(false)} />}
+      {profileOpen && (
+        <Profile
+          focusJoin={profileFocusJoin}
+          onClose={() => {
+            setProfileOpen(false);
+            setProfileFocusJoin(false);
+          }}
+        />
+      )}
     </div>
   );
 }
