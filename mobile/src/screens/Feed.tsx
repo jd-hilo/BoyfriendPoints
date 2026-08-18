@@ -21,7 +21,7 @@ import type { FeedComment, FeedEventView, FriendRequestView } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors, shadow } from '../theme';
-import { Avatar } from '../ui';
+import { Avatar, Xp } from '../ui';
 import { haptic, timeAgo } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,14 +29,12 @@ import { Ionicons } from '@expo/vector-icons';
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_WIDTH = SCREEN_WIDTH - 28;
-const RECEIPT_CONTENT_WIDTH = CARD_WIDTH - 36;
-const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
 
 function PhotoCarousel({ images }: { images: string[] }) {
   const [active, setActive] = useState(0);
 
   function onScroll(e: { nativeEvent: { contentOffset: { x: number } } }) {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / RECEIPT_CONTENT_WIDTH);
+    const idx = Math.round(e.nativeEvent.contentOffset.x / CARD_WIDTH);
     setActive(Math.max(0, Math.min(images.length - 1, idx)));
   }
 
@@ -230,19 +228,22 @@ export default function Feed({
         ListHeaderComponent={requestBanner}
         renderItem={({ item: e }) => (
           <View style={styles.feedCard}>
-            <FeedReceipt
-              type={e.type}
-              boyfriendName={e.boyfriendName}
-              boyfriendColor={e.boyfriendColor}
-              boyfriendAvatar={e.boyfriendAvatar}
-              wifeName={e.wifeName}
-              wifeColor={e.wifeColor}
-              wifeAvatar={e.wifeAvatar}
+            <View style={styles.feedCardTop}>
+              <Text style={styles.feedTime}>{timeAgo(e.createdAt)} ago</Text>
+              <Xp value={e.points} sign={e.type === 'earn' ? '+' : '−'} size={13} />
+            </View>
+
+            <StoryLine
+              leftName={e.boyfriendName}
+              leftColor={e.boyfriendColor}
+              leftAvatar={e.boyfriendAvatar}
+              verb={e.type === 'earn' ? 'earned from' : 'redeemed with'}
+              rightName={e.wifeName}
+              rightColor={e.wifeColor}
+              rightAvatar={e.wifeAvatar}
               emoji={e.emoji}
               title={e.title}
               note={e.note}
-              points={e.points}
-              createdAt={e.createdAt}
             />
 
             {e.images.length > 0 && <PhotoCarousel images={e.images} />}
@@ -296,7 +297,6 @@ export default function Feed({
                 />
               )}
             </View>
-            <ReceiptTear />
           </View>
         )}
       />
@@ -317,95 +317,47 @@ export default function Feed({
   );
 }
 
-function FeedReceipt({
-  type,
-  boyfriendName,
-  boyfriendColor,
-  boyfriendAvatar,
-  wifeName,
-  wifeColor,
-  wifeAvatar,
+function StoryLine({
+  leftName,
+  leftColor,
+  leftAvatar,
+  verb,
+  rightName,
+  rightColor,
+  rightAvatar,
   emoji,
   title,
   note,
-  points,
-  createdAt,
 }: {
-  type: 'earn' | 'redeem';
-  boyfriendName: string;
-  boyfriendColor: string;
-  boyfriendAvatar?: string | number;
-  wifeName: string;
-  wifeColor: string;
-  wifeAvatar?: string | number;
-  emoji: string;
-  title: string;
-  note: string;
-  points: number;
-  createdAt: string;
+  leftName: string;
+  leftColor: string;
+  leftAvatar?: string | number;
+  verb: string;
+  rightName: string;
+  rightColor: string;
+  rightAvatar?: string | number;
+  emoji?: string;
+  title?: string;
+  note?: string;
 }) {
-  const sign = type === 'earn' ? '+' : '−';
   return (
-    <View style={styles.receiptBody}>
-      <View style={styles.receiptBrandRow}>
-        <View style={styles.receiptBrand}>
-          <Text style={styles.receiptIcon}>🧾</Text>
-          <Text style={styles.receiptBrandText}>LoveReceipts</Text>
-        </View>
-        <Text style={styles.feedTime}>{timeAgo(createdAt)} ago</Text>
+    <View style={styles.storyLine}>
+      <View style={styles.storyPerson}>
+        <Avatar name={leftName} color={leftColor} src={leftAvatar} size={22} />
+        <Text style={styles.name}>{leftName}</Text>
       </View>
-
-      <View style={styles.receiptDash} />
-
-      <View style={styles.receiptItemRow}>
-        <Text style={styles.receiptItemLabel}>
-          {type === 'earn' ? 'POINTS EARNED' : 'PRIZE REDEEMED'}
+      <Text style={styles.verb}>{verb}</Text>
+      <View style={styles.storyPerson}>
+        <Avatar name={rightName} color={rightColor} src={rightAvatar} size={22} />
+        <Text style={styles.name}>{rightName}</Text>
+      </View>
+      {emoji || title ? (
+        <Text style={styles.storyReason}>
+          {emoji ? `${emoji} ` : ''}
+          {title}
+          {note ? ` — ${note}` : ''}
         </Text>
-        <Text style={styles.receiptItemPoints}>{sign}{points} pts</Text>
-      </View>
-      <Text style={styles.receiptTitle}>{emoji} {title}</Text>
-      {note ? <Text style={styles.receiptNote}>{note}</Text> : null}
-
-      <View style={styles.receiptDash} />
-
-      <View style={styles.receiptPeopleRow}>
-        <Text style={styles.receiptKey}>FROM</Text>
-        <View style={styles.receiptPerson}>
-          <Avatar
-            name={boyfriendName}
-            color={boyfriendColor}
-            src={boyfriendAvatar}
-            size={24}
-          />
-          <Text style={styles.receiptPersonName}>{boyfriendName}</Text>
-        </View>
-      </View>
-      <View style={styles.receiptPeopleRow}>
-        <Text style={styles.receiptKey}>TO</Text>
-        <View style={styles.receiptPerson}>
-          <Avatar name={wifeName} color={wifeColor} src={wifeAvatar} size={24} />
-          <Text style={styles.receiptPersonName}>{wifeName}</Text>
-        </View>
-      </View>
-
-      <View style={styles.receiptDash} />
-
-      <View style={styles.receiptTotalRow}>
-        <Text style={styles.receiptTotalLabel}>
-          TOTAL {type === 'earn' ? 'EARNED' : 'SPENT'}
-        </Text>
-        <Text style={styles.receiptTotalValue}>{sign}{points} 💎</Text>
-      </View>
-    </View>
-  );
-}
-
-function ReceiptTear() {
-  return (
-    <View pointerEvents="none" style={styles.receiptTear}>
-      {Array.from({ length: 24 }, (_, index) => (
-        <View key={index} style={styles.receiptTearCutout} />
-      ))}
+      ) : null}
     </View>
   );
 }
@@ -524,19 +476,20 @@ function DemoPost() {
   return (
     <View style={styles.demoWrap}>
       <View style={styles.demoCard}>
-        <FeedReceipt
-          type="earn"
-          boyfriendName="Alex"
-          boyfriendColor="#2383e2"
-          boyfriendAvatar={require('../../assets/demo-alex.png')}
-          wifeName="Maya"
-          wifeColor="#d9730d"
-          wifeAvatar={require('../../assets/demo-maya.png')}
+        <View style={styles.feedCardTop}>
+          <Text style={styles.feedTime}>just now</Text>
+          <Xp value={15} sign="+" size={13} />
+        </View>
+        <StoryLine
+          leftName="Alex"
+          leftColor="#2383e2"
+          leftAvatar={require('../../assets/demo-alex.png')}
+          verb="earned from"
+          rightName="Maya"
+          rightColor="#d9730d"
+          rightAvatar={require('../../assets/demo-maya.png')}
           emoji="🌿"
           title="Mowed the lawn"
-          note=""
-          points={15}
-          createdAt={new Date().toISOString()}
         />
 
         <View style={styles.demoReactions}>
@@ -544,7 +497,6 @@ function DemoPost() {
           <DemoPill emoji="🔥" count="2" progress={fire} />
           <DemoPill emoji="👏" count="1" progress={clap} />
         </View>
-        <ReceiptTear />
       </View>
 
       {DEMO_BURST.map((item) => (
@@ -785,7 +737,7 @@ function CommentSheet({
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   centerMuted: { textAlign: 'center', color: colors.inkMuted, padding: 16 },
-  feedList: { paddingTop: 4, paddingBottom: 24 },
+  feedList: { gap: 12, paddingTop: 4, paddingBottom: 24 },
   requestList: { gap: 8, marginBottom: 8 },
   requestCard: {
     flexDirection: 'row',
@@ -809,140 +761,37 @@ const styles = StyleSheet.create({
   requestAcceptText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   requestDecline: { color: colors.inkMuted, fontSize: 17, paddingHorizontal: 3 },
   feedCard: {
-    backgroundColor: '#fffdf7',
-    borderRadius: 5,
+    backgroundColor: '#f3f3f2',
+    borderRadius: 28,
     padding: 18,
-    paddingBottom: 18,
-    marginBottom: 18,
+    paddingBottom: 16,
+    marginBottom: 12,
     overflow: 'visible',
-    shadowColor: '#463f2f',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.09,
-    shadowRadius: 10,
-    elevation: 2,
   },
-  receiptBody: { gap: 10 },
-  receiptBrandRow: {
+  feedCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: 14,
   },
-  receiptBrand: {
+  feedTime: { fontSize: 13, color: colors.inkMuted, fontWeight: '500' },
+  storyLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    columnGap: 6,
+    rowGap: 8,
+  },
+  storyPerson: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 7,
+    gap: 6,
   },
-  receiptIcon: { fontSize: 18 },
-  receiptBrandText: {
-    fontFamily: MONO,
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.ink,
-    letterSpacing: 0.3,
-  },
-  feedTime: {
-    fontFamily: MONO,
-    fontSize: 11,
-    color: colors.inkMuted,
-    fontWeight: '500',
-  },
-  receiptDash: {
-    borderTopWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#c9c4b8',
-    height: 1,
-  },
-  receiptItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  receiptItemLabel: {
-    fontFamily: MONO,
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.inkMuted,
-    letterSpacing: 0.8,
-  },
-  receiptItemPoints: {
-    fontFamily: MONO,
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.ink2,
-  },
-  receiptTitle: {
+  storyReason: {
     fontSize: 16,
-    lineHeight: 23,
+    lineHeight: 22,
     color: colors.ink,
-    fontWeight: '800',
-  },
-  receiptNote: {
-    marginTop: -4,
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.ink2,
-  },
-  receiptPeopleRow: {
-    minHeight: 26,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  receiptKey: {
-    fontFamily: MONO,
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.inkMuted,
-    letterSpacing: 0.8,
-  },
-  receiptPerson: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    flexShrink: 1,
-  },
-  receiptPersonName: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.ink,
-    flexShrink: 1,
-  },
-  receiptTotalRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  receiptTotalLabel: {
-    fontFamily: MONO,
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.ink,
-    letterSpacing: 0.6,
-  },
-  receiptTotalValue: {
-    fontFamily: MONO,
-    fontSize: 18,
-    fontWeight: '800',
-    color: colors.ink,
-  },
-  receiptTear: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: -7,
-    height: 14,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    overflow: 'hidden',
-  },
-  receiptTearCutout: {
-    width: 13,
-    height: 13,
-    borderRadius: 7,
-    backgroundColor: colors.bg,
+    fontWeight: '500',
   },
   feedStory: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
   coupleAvatars: {
@@ -994,16 +843,10 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   demoCard: {
-    backgroundColor: '#fffdf7',
-    borderRadius: 5,
+    backgroundColor: '#f3f3f2',
+    borderRadius: 28,
     padding: 18,
-    paddingBottom: 18,
-    overflow: 'visible',
-    shadowColor: '#463f2f',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.09,
-    shadowRadius: 10,
-    elevation: 2,
+    paddingBottom: 16,
   },
   demoReactions: {
     flexDirection: 'row',
@@ -1019,7 +862,7 @@ const styles = StyleSheet.create({
   },
   carousel: { marginTop: 12, marginBottom: 4 },
   carouselImg: {
-    width: RECEIPT_CONTENT_WIDTH,
+    width: CARD_WIDTH,
     aspectRatio: 3 / 2,
     borderRadius: 16,
     backgroundColor: '#eef1f4',
@@ -1055,7 +898,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: '#f1eee6',
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
