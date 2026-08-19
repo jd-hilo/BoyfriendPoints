@@ -2,8 +2,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { PostHogErrorBoundary, PostHogProvider } from 'posthog-react-native';
 import { AuthProvider, useAuth } from './src/auth';
 import { api } from './src/api';
+import { posthog } from './src/posthog';
 import { getToken } from './src/storage';
 import { colors } from './src/theme';
 import AuthScreen from './src/screens/AuthScreen';
@@ -102,10 +104,22 @@ function Router() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <StatusBar style="dark" />
-        <Router />
-      </AuthProvider>
+      <PostHogProvider
+        client={posthog}
+        autocapture={{
+          captureScreens: false,
+          // Touch heatmaps need react-native-svg native views, which Expo Go
+          // may not have linked. Screens/lifecycle still capture without it.
+          captureTouches: false,
+        }}
+      >
+        <PostHogErrorBoundary>
+          <AuthProvider>
+            <StatusBar style="dark" />
+            <Router />
+          </AuthProvider>
+        </PostHogErrorBoundary>
+      </PostHogProvider>
     </SafeAreaProvider>
   );
 }

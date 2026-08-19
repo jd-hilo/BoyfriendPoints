@@ -239,6 +239,8 @@ export async function canvasToPngFile(
   return new File([blob], filename, { type: 'image/png' });
 }
 
+import posthog from 'posthog-js';
+
 /** Share receipt image via Web Share API, or download as fallback. */
 export async function shareReceiptImage(data: ReceiptData): Promise<void> {
   const canvas = renderReceiptCanvas(data);
@@ -253,6 +255,7 @@ export async function shareReceiptImage(data: ReceiptData): Promise<void> {
     if (!nav.canShare || nav.canShare(payload)) {
       try {
         await nav.share(payload);
+        posthog.capture('receipt_image_shared', { kind: data.kind });
         return;
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
@@ -260,6 +263,7 @@ export async function shareReceiptImage(data: ReceiptData): Promise<void> {
     }
     try {
       await nav.share({ title: 'LoveReceipts', text });
+      posthog.capture('receipt_image_shared', { kind: data.kind });
       return;
     } catch (err) {
       if ((err as Error).name === 'AbortError') return;
@@ -272,4 +276,5 @@ export async function shareReceiptImage(data: ReceiptData): Promise<void> {
   a.download = file.name;
   a.click();
   URL.revokeObjectURL(url);
+  posthog.capture('receipt_image_shared', { kind: data.kind, method: 'download' });
 }

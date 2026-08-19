@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { AppState } from 'react-native';
 import type { PublicUser } from './types';
+import { identifyPerson, resetPerson } from './analytics';
 import { api, ApiError } from './api';
 import { configurePushHandler, refreshPushTokenIfEnabled } from './push';
 import {
@@ -55,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const me = await api.me();
+      identifyPerson(me);
       setUser(me);
       await setCachedUser(me);
     } catch (err) {
@@ -70,6 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await new Promise((r) => setTimeout(r, 800));
         try {
           const me = await api.me();
+          identifyPerson(me);
           setUser(me);
           await setCachedUser(me);
         } catch {
@@ -82,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const applyUser = useCallback(async (next: PublicUser) => {
+    identifyPerson(next);
     await setCachedUser(next);
     setUser(next);
   }, []);
@@ -121,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const enterAs = useCallback(async (userId: string) => {
     const res = await api.enterAs(userId);
     await setSession(res.token, res.user);
+    identifyPerson(res.user);
     setUser(res.user);
   }, []);
 
@@ -128,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (email: string, password: string) => {
       const res = await api.login(email, password);
       await setSession(res.token, res.user);
+      identifyPerson(res.user);
       setUser(res.user);
     },
     [],
@@ -150,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       );
       if (!res.token) throw new Error('Signup succeeded but no session token');
       await setSession(res.token, res.user);
+      identifyPerson(res.user);
       setUser(res.user);
     },
     [],
@@ -159,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (idToken: string, name?: string) => {
       const res = await api.appleSession(idToken, name);
       await setSession(res.token, res.user);
+      identifyPerson(res.user);
       setUser(res.user);
     },
     [],
@@ -166,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined);
+    resetPerson();
     await setToken(null);
     await setCachedUser(null);
     setUser(null);

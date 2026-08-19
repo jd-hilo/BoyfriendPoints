@@ -115,6 +115,21 @@ export const redemptions = pgTable('redemptions', {
   resolvedAt: timestamp('resolved_at', { withTimezone: true, mode: 'string' }),
 });
 
+/**
+ * Per-device session tokens. Written directly on login/logout (never part of
+ * the wipe-and-rewrite state snapshot), so a restart, rolling deploy, or a
+ * sign-out on another device can't invalidate this device's session.
+ */
+export const sessions = pgTable('sessions', {
+  token: text('token').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+    .notNull()
+    .defaultNow(),
+});
+
 /** Uploaded photos. Kept out of the wipe-and-rewrite state snapshot. */
 export const media = pgTable('media', {
   id: text('id').primaryKey(),

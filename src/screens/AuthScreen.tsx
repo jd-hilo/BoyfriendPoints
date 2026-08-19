@@ -1,24 +1,25 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { PublicUser } from '../../shared/types.ts';
 import { api } from '../api.ts';
-import { isAppleSignInAvailable, signInWithApple } from '../appleAuth.ts';
 import { useAuth } from '../auth.tsx';
 import { neonSignIn, neonSignUp } from '../neonAuth.ts';
 import { Avatar, Xp } from '../ui.tsx';
 
 type Mode = 'signin' | 'signup';
+type Step = 'email' | 'password' | 'reset-code' | 'new-password';
 
 export default function AuthScreen() {
-  const { enterAs, signInWithNeonToken, signInWithAppleToken } = useAuth();
+  const { enterAs, signInWithNeonToken } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
+  const [step, setStep] = useState<Step>('email');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [personas, setPersonas] = useState<PublicUser[]>([]);
   const [showDemo, setShowDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const appleReady = isAppleSignInAvailable();
 
   useEffect(() => {
     void api
@@ -27,8 +28,75 @@ export default function AuthScreen() {
       .catch(() => undefined);
   }, []);
 
+  const resetting = step === 'reset-code' || step === 'new-password';
+  const onPassword = mode === 'signin' && step === 'password';
+  const totalSteps = mode === 'signup' ? 1 : 2;
+  const stepIndex = onPassword || step === 'new-password' ? 1 : 0;
+
+  function goToPassword() {
+    if (!email.includes('@')) return;
+    setError(null);
+    setStep('password');
+  }
+
+  function backToEmail() {
+    setError(null);
+    setPassword('');
+    setOtp('');
+    setStep('email');
+  }
+
+  function backFromReset() {
+    setError(null);
+    setOtp('');
+    setPassword('');
+    setStep(step === 'new-password' ? 'reset-code' : 'password');
+  }
+
+  async function sendResetCode() {
+    setError(null);
+    setBusy('reset');
+    try {
+      await api.forgotPassword(email);
+      setOtp('');
+      setPassword('');
+      setStep('reset-code');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (mode === 'signin' && step === 'email') {
+      goToPassword();
+      return;
+    }
+    if (step === 'reset-code') {
+      if (otp.trim().length < 4) {
+        setError('Enter the code from your email');
+        return;
+      }
+      setError(null);
+      setPassword('');
+      setStep('new-password');
+      return;
+    }
+    if (step === 'new-password') {
+      setError(null);
+      setBusy('reset');
+      try {
+        await api.resetPassword(email, otp, password);
+        await neonSignIn({ email, password });
+        await signInWithNeonToken();
+      } catch (err) {
+        setError((err as Error).message);
+        setBusy(null);
+      }
+      return;
+    }
     setError(null);
     setBusy('email');
     try {
@@ -38,18 +106,6 @@ export default function AuthScreen() {
         await neonSignIn({ email, password });
       }
       await signInWithNeonToken();
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(null);
-    }
-  }
-
-  async function onApple() {
-    setError(null);
-    setBusy('apple');
-    try {
-      const { idToken, name: appleName } = await signInWithApple();
-      await signInWithAppleToken(idToken, appleName);
     } catch (err) {
       setError((err as Error).message);
       setBusy(null);
@@ -69,119 +125,192 @@ export default function AuthScreen() {
 
   const household = personas.filter((p) => !p.demo);
   const community = personas.filter((p) => p.demo);
+  const title =
+    mode === 'signup'
+      ? 'Create your household account'
+      : step === 'reset-code'
+        ? 'Enter the code we emailed'
+        : step === 'new-password'
+          ? 'Choose a new password'
+          : onPassword
+            ? 'Enter your password'
+            : "What's your email?";
+  const sub =
+    mode === 'signup'
+      ? "You'll use this to sign in."
+      : step === 'reset-code' || step === 'new-password' || onPassword
+        ? email.trim()
+        : "You'll use this to sign in.";
 
   return (
-    <div className="auth">
-      <div className="auth-hero">
-        <span className="brand-lockup">
-          <span className="brand-gem big" aria-hidden>
-            💎
+    <div className="auth auth-steps">
+      <header className="ob-step-header">
+        <div className="ob-step-header-row">
+          {onPassword || resetting ? (
+            <button
+              type="button"
+              className="ob-back"
+              onClick={resetting ? backFromReset : backToEmail}
+            >
+              ←
+            </button>
+          ) : (
+            <span className="ob-back-spacer" />
+          )}
+          <span className="ob-step-count">
+            Step {stepIndex + 1} of {totalSteps}
           </span>
-          <span className="wordmark big">LoveReceipts</span>
-        </span>
-        <p className="auth-tag">
-          {mode === 'signup'
-            ? 'Create your household account.'
-            : 'Sign in to your household.'}
-        </p>
-      </div>
+          <span className="ob-back-spacer" />
+        </div>
+        <div className="ob-progress-track">
+          <div
+            className="ob-progress-fill"
+            style={{ width: `${((stepIndex + 1) / totalSteps) * 100}%` }}
+          />
+        </div>
+      </header>
+
+      <h1 className="ob-title">{title}</h1>
+      <p className="ob-sub">{sub}</p>
 
       {error && <p className="error">{error}</p>}
 
       <form className="auth-form" onSubmit={onSubmit}>
         {mode === 'signup' && (
-          <label className="auth-field">
-            <span>Name</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              autoComplete="name"
-            />
-          </label>
-        )}
-        <label className="auth-field">
-          <span>Email</span>
           <input
+            className="ob-big-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your name"
+            autoComplete="name"
+          />
+        )}
+        {!onPassword && !resetting && (
+          <input
+            className="ob-big-input"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              if (error) setError(null);
+            }}
             placeholder="you@email.com"
-            autoComplete="email"
+            autoComplete="username"
+            autoFocus
             required
           />
-        </label>
-        <label className="auth-field">
-          <span>Password</span>
+        )}
+        {step === 'reset-code' && (
           <input
+            className="ob-big-input ob-otp-input"
+            value={otp}
+            onChange={(e) => {
+              setOtp(e.target.value.replace(/\D/g, '').slice(0, 6));
+              if (error) setError(null);
+            }}
+            placeholder="123456"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            required
+          />
+        )}
+        {(mode === 'signup' || onPassword || step === 'new-password') && (
+          <input
+            className="ob-big-input"
             type="password"
             value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 8 characters"
-            autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              if (error) setError(null);
+            }}
+            placeholder="••••••••"
+            autoComplete={
+              mode === 'signup' || step === 'new-password'
+                ? 'new-password'
+                : 'current-password'
+            }
             minLength={8}
+            autoFocus={onPassword || step === 'new-password'}
             required
           />
-        </label>
+        )}
+        {onPassword && (
+          <p className="auth-forgot">
+            <button
+              type="button"
+              className="linkish"
+              disabled={!!busy}
+              onClick={() => void sendResetCode()}
+            >
+              {busy === 'reset' ? 'Sending code…' : 'Forgot password?'}
+            </button>
+          </p>
+        )}
+        {step === 'reset-code' && (
+          <p className="auth-forgot">
+            <button
+              type="button"
+              className="linkish"
+              disabled={!!busy}
+              onClick={() => void sendResetCode()}
+            >
+              {busy === 'reset' ? 'Sending…' : 'Resend code'}
+            </button>
+          </p>
+        )}
         <button className="btn primary auth-submit" type="submit" disabled={!!busy}>
-          {busy === 'email'
+          {busy === 'email' || busy === 'reset'
             ? '…'
             : mode === 'signup'
               ? 'Create account'
-              : 'Sign in'}
+              : step === 'new-password'
+                ? 'Reset password'
+                : onPassword
+                  ? 'Sign in'
+                  : 'Continue'}
         </button>
       </form>
 
-      <div className="auth-divider">
-        <span>or</span>
-      </div>
+      {!onPassword && !resetting && (
+        <>
+          <p className="auth-switch">
+            {mode === 'signup' ? (
+              <>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => {
+                    setMode('signin');
+                    setStep('email');
+                    setError(null);
+                  }}
+                >
+                  Sign in
+                </button>
+              </>
+            ) : (
+              <>
+                New here?{' '}
+                <button type="button" className="linkish" onClick={() => setMode('signup')}>
+                  Create an account
+                </button>
+              </>
+            )}
+          </p>
 
-      <button
-        type="button"
-        className="btn apple-btn"
-        onClick={() => void onApple()}
-        disabled={!!busy || !appleReady}
-        title={
-          appleReady
-            ? 'Continue with Apple'
-            : 'Add VITE_APPLE_CLIENT_ID to enable Apple Sign In'
-        }
-      >
-        <AppleMark />
-        {busy === 'apple'
-          ? '…'
-          : appleReady
-            ? 'Continue with Apple'
-            : 'Apple Sign In (configure .env)'}
-      </button>
+          <button
+            type="button"
+            className="linkish demo-toggle"
+            onClick={() => setShowDemo((v) => !v)}
+          >
+            {showDemo ? 'Hide demo' : 'Try the demo'}
+          </button>
+        </>
+      )}
 
-      <p className="auth-switch">
-        {mode === 'signup' ? (
-          <>
-            Already have an account?{' '}
-            <button type="button" className="linkish" onClick={() => setMode('signin')}>
-              Sign in
-            </button>
-          </>
-        ) : (
-          <>
-            New here?{' '}
-            <button type="button" className="linkish" onClick={() => setMode('signup')}>
-              Create an account
-            </button>
-          </>
-        )}
-      </p>
-
-      <button
-        type="button"
-        className="linkish demo-toggle"
-        onClick={() => setShowDemo((v) => !v)}
-      >
-        {showDemo ? 'Hide demo personas' : 'Try the demo instead'}
-      </button>
-
-      {showDemo && (
+      {showDemo && !onPassword && !resetting && (
         <>
           <p className="section-label">This household</p>
           <div className="persona-list">
@@ -213,17 +342,6 @@ export default function AuthScreen() {
         </>
       )}
     </div>
-  );
-}
-
-function AppleMark() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M12.7 8.3c0-1.7 1.4-2.5 1.4-2.5s-1.1-1.7-2.9-1.7c-1.2 0-1.7.6-2.6.6-.9 0-1.7-.6-2.6-.6C4 4.1 2.4 5.4 2.4 7.9c0 2.9 2.3 6.3 4.1 6.3.7 0 1.2-.5 2.1-.5.9 0 1.3.5 2.1.5 1.8 0 3.3-3.2 3.3-3.2s-2.1-.8-2.1-2.7zM10.4 3.4c.7-.8 1.1-1.8 1-2.9-1 .1-2.1.7-2.7 1.5-.6.7-1.1 1.8-1 2.8 1.1.1 2.1-.7 2.7z"
-      />
-    </svg>
   );
 }
 

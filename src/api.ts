@@ -12,6 +12,7 @@ import type {
   Submission,
   Suggestion,
 } from '../shared/types.ts';
+import { captureAppException, posthogHeaders } from './analytics.ts';
 
 const TOKEN_KEY = 'bp_token';
 const USER_KEY = 'bp_user';
@@ -47,20 +48,30 @@ async function request<T>(
   path: string,
   options: { method?: string; body?: unknown } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = {};
+  const headers: Record<string, string> = { ...posthogHeaders() };
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
 
-  const res = await fetch(`/api${path}`, {
-    method: options.method ?? 'GET',
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    });
+  } catch (err) {
+    captureAppException(err, { path, kind: 'network' });
+    throw err;
+  }
 
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(data.error ?? `Request failed (${res.status})`);
+    const error = new Error(data.error ?? `Request failed (${res.status})`);
+    if (res.status >= 500) {
+      captureAppException(error, { path, status: res.status });
+    }
+    throw error;
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -82,6 +93,16 @@ export const api = {
     request<AuthResult>('/auth/neon', {
       method: 'POST',
       body: { idToken },
+    }),
+  forgotPassword: (email: string) =>
+    request<{ ok: true }>('/auth/forgot-password', {
+      method: 'POST',
+      body: { email: email.trim() },
+    }),
+  resetPassword: (email: string, otp: string, password: string) =>
+    request<{ ok: true }>('/auth/reset-password', {
+      method: 'POST',
+      body: { email: email.trim(), otp: otp.trim(), password },
     }),
   appleSession: (idToken: string, name?: string) =>
     request<AuthResult>('/auth/apple', {

@@ -7,6 +7,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Switch,
   Text,
@@ -24,7 +25,7 @@ import {
 } from '../push';
 import { colors, radius, shadow } from '../theme';
 import { Avatar, Button, CoupleLockup } from '../ui';
-import { haptic } from '../utils';
+import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 
 export default function Profile({
   onClose,
@@ -97,7 +98,7 @@ export default function Profile({
     haptic(10);
     Alert.alert(
       'Sign out?',
-      'You’ll need your email and password to get back in.',
+      'You’ll need this email and password to sign back in.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -124,6 +125,30 @@ export default function Profile({
       setLeaveOpen(false);
     } finally {
       setLeaveBusy(false);
+    }
+  }
+
+  async function shareInvite() {
+    if (!me.inviteCode) return;
+    haptic(10);
+    await Share.share({
+      message: partnerWaitingShareMessage(me.name, me.inviteCode),
+      url: APP_SHARE_URL,
+    });
+  }
+
+  async function joinHousehold() {
+    if (saving || joinCode.length < 4) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.joinWithCode(joinCode);
+      await refresh();
+      haptic(10);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -215,7 +240,7 @@ export default function Profile({
 
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            <Text style={styles.section}>YOUR NAME</Text>
+            <Text style={styles.section}>YOU</Text>
             <View style={styles.card}>
               <TextInput
                 style={styles.input}
@@ -239,15 +264,31 @@ export default function Profile({
               </Button>
             </View>
 
-            <Text style={styles.section}>ACCOUNT</Text>
+            <Text style={styles.section}>YOUR PERSON</Text>
             <View style={styles.card}>
-              <Row label="Email" value={user.email} />
-              {user.inviteCode ? (
-                <Row label="Household code" value={user.inviteCode} />
-              ) : null}
               {partnered ? (
                 <>
-                  <Row label="Partner" value={user.partnerName ?? ''} />
+                  <Text style={styles.rowValueLeft}>
+                    Linked with {user.partnerName}
+                  </Text>
+                  {user.inviteCode ? (
+                    <View style={styles.codeBox}>
+                      <Text style={styles.codeLabel}>Invite code</Text>
+                      <Text style={styles.codeValue} selectable>
+                        {user.inviteCode}
+                      </Text>
+                      <Text style={styles.muted}>
+                        They can use this if they reinstall the app.
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Button
+                    block
+                    disabled={!user.inviteCode}
+                    onPress={() => void shareInvite()}
+                  >
+                    Share invite
+                  </Button>
                   <Button
                     block
                     variant="ghost"
@@ -256,13 +297,31 @@ export default function Profile({
                       setLeaveOpen(true);
                     }}
                   >
-                    Leave relationship
+                    Unlink from {user.partnerName}
                   </Button>
                 </>
               ) : (
                 <>
-                  <Text style={styles.muted}>
-                    If they already signed up, enter their household code.
+                  <Text style={styles.lead}>
+                    Share your invite code so they can join you.
+                  </Text>
+                  {user.inviteCode ? (
+                    <View style={styles.codeBox}>
+                      <Text style={styles.codeLabel}>Your invite code</Text>
+                      <Text style={styles.codeValue} selectable>
+                        {user.inviteCode}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Button
+                    block
+                    disabled={!user.inviteCode}
+                    onPress={() => void shareInvite()}
+                  >
+                    Share invite
+                  </Button>
+                  <Text style={styles.or}>
+                    If your partner has already started, enter theirs
                   </Text>
                   <TextInput
                     style={styles.input}
@@ -270,7 +329,7 @@ export default function Profile({
                     onChangeText={(t) =>
                       setJoinCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))
                     }
-                    placeholder="Their household code"
+                    placeholder="Their invite code"
                     placeholderTextColor={colors.inkMuted}
                     autoCapitalize="characters"
                     autoCorrect={false}
@@ -280,35 +339,21 @@ export default function Profile({
                   <Button
                     block
                     disabled={saving || joinCode.length < 4}
-                    onPress={() =>
-                      void (async () => {
-                        setSaving(true);
-                        setError(null);
-                        try {
-                          await api.joinWithCode(joinCode);
-                          await refresh();
-                          haptic(10);
-                        } catch (err) {
-                          setError((err as Error).message);
-                        } finally {
-                          setSaving(false);
-                        }
-                      })()
-                    }
+                    onPress={() => void joinHousehold()}
                   >
-                    Join household
+                    Link with them
                   </Button>
                 </>
               )}
             </View>
 
-            <Text style={styles.section}>SETTINGS</Text>
+            <Text style={styles.section}>NOTIFICATIONS</Text>
             <View style={styles.card}>
               <View style={styles.row}>
                 <View style={styles.grow}>
                   <Text style={styles.rowValueLeft}>Push notifications</Text>
                   <Text style={styles.muted}>
-                    A ping whenever something lands in your inbox.
+                    Ping when they send a receipt, approve one, or cash in.
                   </Text>
                 </View>
                 <Switch
@@ -319,13 +364,11 @@ export default function Profile({
                   thumbColor={colors.white}
                 />
               </View>
-              <Button
-                block
-                variant="ghost"
-                onPress={() => void refresh()}
-              >
-                Refresh
-              </Button>
+            </View>
+
+            <Text style={styles.section}>ACCOUNT</Text>
+            <View style={styles.card}>
+              <Row label="Signed in as" value={user.email} />
               <Button block variant="danger" onPress={confirmSignOut}>
                 Sign out
               </Button>
@@ -341,11 +384,12 @@ export default function Profile({
       >
         <Pressable style={styles.leaveBackdrop} onPress={() => setLeaveOpen(false)}>
           <Pressable style={styles.leaveCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={styles.leaveTitle}>Leave this relationship?</Text>
+            <Text style={styles.leaveTitle}>
+              Unlink from {user.partnerName}?
+            </Text>
             <Text style={styles.leaveBody}>
               You’ll lose all {user.points} of your points. Tasks and prizes stay
-              saved if you and {user.partnerName} link back up — not if you join
-              someone else.
+              saved if you two link back up later — not if you join someone else.
             </Text>
             <Button
               block
@@ -353,7 +397,7 @@ export default function Profile({
               disabled={leaveBusy}
               onPress={() => void leaveRelationship()}
             >
-              {leaveBusy ? 'Leaving…' : 'Leave and lose points'}
+              {leaveBusy ? 'Unlinking…' : 'Unlink and lose points'}
             </Button>
             <Button
               block
@@ -361,7 +405,7 @@ export default function Profile({
               disabled={leaveBusy}
               onPress={() => setLeaveOpen(false)}
             >
-              Stay
+              Stay linked
             </Button>
           </Pressable>
         </Pressable>
@@ -467,7 +511,34 @@ const styles = StyleSheet.create({
   rowValue: { fontSize: 14, color: colors.ink, fontWeight: '700', flexShrink: 1, textAlign: 'right' },
   rowValueLeft: { fontSize: 14, color: colors.ink, fontWeight: '700' },
   grow: { flex: 1, minWidth: 0, gap: 2, paddingRight: 12 },
-  muted: { fontSize: 13, color: colors.inkMuted },
+  muted: { fontSize: 13, color: colors.inkMuted, lineHeight: 18 },
+  lead: { fontSize: 14, color: colors.ink2, lineHeight: 20 },
+  or: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.inkMuted,
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  codeBox: {
+    backgroundColor: colors.panel,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  codeLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: colors.inkMuted,
+  },
+  codeValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 2,
+    color: colors.ink,
+  },
   leaveBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15,20,30,0.45)',

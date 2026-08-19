@@ -1,4 +1,5 @@
 import * as Sharing from 'expo-sharing';
+import { posthog } from './posthog';
 
 export type ReceiptKind = 'request' | 'earn' | 'redeem' | 'fulfill' | 'approve';
 
@@ -39,4 +40,5 @@ export async function shareReceiptImage(
       : 'LoveReceipts',
     UTI: 'public.png',
   });
+  posthog.capture('receipt_image_shared', { kind: data?.kind ?? 'unknown' });
 }

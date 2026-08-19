@@ -31,6 +31,7 @@ import {
   login,
   loginOrCreateFromIdentity,
   completeOnboarding,
+  setPassword,
   type State,
 } from './domain.ts';
 
@@ -542,5 +543,31 @@ describe('loginOrCreateFromIdentity', () => {
     });
     expect(second.id).toBe(first.id);
     expect(second.token).toBeTruthy();
+  });
+});
+
+describe('setPassword', () => {
+  it('updates the password used by login', () => {
+    const state = createEmptyState();
+    const user = signupWife(state, {
+      name: 'Ada',
+      email: 'ada@example.com',
+      password: 'old-pass-word',
+    });
+    setPassword(user, 'new-pass-word');
+    expect(login(state, 'ada@example.com', 'new-pass-word').id).toBe(user.id);
+    expect(() => login(state, 'ada@example.com', 'old-pass-word')).toThrow(
+      /invalid email or password/i,
+    );
+  });
+
+  it('rejects short passwords', () => {
+    const state = createEmptyState();
+    const user = signupWife(state, {
+      name: 'Ada',
+      email: 'ada@example.com',
+      password: 'old-pass-word',
+    });
+    expect(() => setPassword(user, 'short')).toThrow(/at least 8/i);
   });
 });

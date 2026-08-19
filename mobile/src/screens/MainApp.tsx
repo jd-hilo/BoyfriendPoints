@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,13 +34,13 @@ export default function MainApp({
   const { user, refresh } = useAuth();
   const [tab, setTab] = useState<Tab>('feed');
   const [tick, setTick] = useState(0);
-  const [pending, setPending] = useState(0);
   const [notifOpen, setNotifOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileFocusJoin, setProfileFocusJoin] = useState(false);
   const [unreadNotifs, setUnreadNotifs] = useState(false);
   const [approval, setApproval] = useState<Submission | null>(null);
   const [booted, setBooted] = useState(false);
+  const notifOpenRef = useRef(false);
 
   const linked = Boolean(user?.partnerId);
 
@@ -50,22 +50,15 @@ export default function MainApp({
   }, [refresh]);
 
   const loadPending = useCallback(async () => {
+    if (!user) return;
     try {
-      const [subs, redemptions] = await Promise.all([
-        api.submissions(),
-        api.redemptions(),
-      ]);
-      const inbox =
-        subs.filter((s) => s.wifeId === user?.id && s.status === 'pending')
-          .length +
-        redemptions.filter((r) => r.wifeId === user?.id && r.status === 'pending')
-          .length;
-      setPending(inbox);
-      if (user) {
-        const items = await api.notifications();
-        const seen = await getSeenNotificationIds(user.id);
-        setUnreadNotifs(items.some((item) => !seen.includes(item.id)));
+      const items = await api.notifications();
+      const seen = await getSeenNotificationIds(user.id);
+      if (notifOpenRef.current) {
+        setUnreadNotifs(false);
+        return;
       }
+      setUnreadNotifs(items.some((item) => !seen.includes(item.id)));
     } catch {
       /* ignore — e.g. brief auth race */
     }
@@ -86,22 +79,6 @@ export default function MainApp({
     // Nothing to route to before a household exists — stay un-booted so this
     // runs for real the moment a partner links.
     setBooted(true);
-    let cancelled = false;
-    void (async () => {
-      const [subs, redemptions] = await Promise.all([
-        api.submissions(),
-        api.redemptions(),
-      ]);
-      if (cancelled) return;
-      const count =
-        subs.filter((s) => s.wifeId === user.id && s.status === 'pending').length +
-        redemptions.filter((r) => r.wifeId === user.id && r.status === 'pending')
-          .length;
-      setPending(count);
-    })();
-    return () => {
-      cancelled = true;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, booted, initialTab]);
 
@@ -171,12 +148,14 @@ export default function MainApp({
             style={styles.headerIconBtn}
             onPress={() => {
               haptic(10);
+              notifOpenRef.current = true;
+              setUnreadNotifs(false);
               setNotifOpen(true);
             }}
             hitSlop={6}
           >
             <Ionicons name="notifications-sharp" size={20} color={colors.ink} />
-            {(unreadNotifs || pending > 0) && <View style={styles.unreadDot} />}
+            {unreadNotifs && <View style={styles.unreadDot} />}
           </Pressable>
           <Pressable
             onPress={() => {
@@ -267,6 +246,7 @@ export default function MainApp({
       {notifOpen && (
         <Notifications
           onClose={() => {
+            notifOpenRef.current = false;
             setNotifOpen(false);
             setUnreadNotifs(false);
             void loadPending();

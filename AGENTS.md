@@ -46,5 +46,9 @@ BoyfriendPoints is a Venmo-style couples rewards app.
 - Persistence is wipe-and-rewrite of the full in-memory state to Neon on each
   mutation (demo scale). Writes are serialized in `server/index.ts` so overlapping
   saves don't race. Domain unit tests stay in-memory and do not need Neon.
+- Auth tokens are per-device rows in the `sessions` table (`server/db/sessions.ts`),
+  written directly on login/logout and never part of the state snapshot. The legacy
+  shared `users.token` is still accepted for old clients. Without a db (unit tests)
+  the API falls back to the legacy token.
 - Tap the header avatar to switch personas (clears the device token and returns to
   the picker).

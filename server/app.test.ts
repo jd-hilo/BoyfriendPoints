@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { createApp } from './app.ts';
 import { createEmptyState, seedDemoCompat } from './test-helpers.ts';
@@ -9,6 +9,11 @@ function makeClient() {
   const app = createApp({ state });
   return { client: request(app), state };
 }
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+});
 
 describe('BoyfriendPoints API', () => {
   it('reports health', async () => {
@@ -92,5 +97,40 @@ describe('BoyfriendPoints API', () => {
   it('requires auth for protected routes', async () => {
     const { client } = makeClient();
     await client.get('/api/feed').expect(401);
+  });
+
+  it('emails a reset code through Neon Auth', async () => {
+    vi.stubEnv('NEON_AUTH_URL', 'https://auth.example.com/neondb/auth');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), { status: 200 }),
+    );
+    const { client } = makeClient();
+    const res = await client
+      .post('/api/auth/forgot-password')
+      .send({ email: 'emma@boyfriendpoints.app' })
+      .expect(200);
+    expect(res.body.ok).toBe(true);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      '/email-otp/request-password-reset',
+    );
+  });
+
+  it('updates the app password after Neon accepts the code', async () => {
+    vi.stubEnv('NEON_AUTH_URL', 'https://auth.example.com/neondb/auth');
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true }), { status: 200 }),
+    );
+    const { client, state } = makeClient();
+    const emma = state.users.find((u) => u.name === 'Emma');
+    expect(emma).toBeTruthy();
+    await client
+      .post('/api/auth/reset-password')
+      .send({
+        email: emma!.email,
+        otp: '123456',
+        password: 'brand-new-pass',
+      })
+      .expect(200);
+    expect(emma!.password).toBe('brand-new-pass');
   });
 });

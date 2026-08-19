@@ -182,14 +182,25 @@ function notifSeenKey(userId: string): string {
   return `lr_notif_seen_${userId}`;
 }
 
+const seenNotifMemory = new Map<string, string[]>();
+
 export async function getSeenNotificationIds(userId: string): Promise<string[]> {
+  const cached = seenNotifMemory.get(userId);
+  if (cached) return cached;
   try {
     const raw = await AsyncStorage.getItem(notifSeenKey(userId));
-    if (!raw) return [];
+    if (!raw) {
+      seenNotifMemory.set(userId, []);
+      return [];
+    }
     const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
+    const ids = Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === 'string')
+      : [];
+    seenNotifMemory.set(userId, ids);
+    return ids;
   } catch {
-    return [];
+    return seenNotifMemory.get(userId) ?? [];
   }
 }
 
@@ -197,11 +208,21 @@ export async function setSeenNotificationIds(
   userId: string,
   ids: string[],
 ): Promise<void> {
+  const unique = [...new Set(ids)];
+  seenNotifMemory.set(userId, unique);
   try {
-    await AsyncStorage.setItem(notifSeenKey(userId), JSON.stringify(ids));
+    await AsyncStorage.setItem(notifSeenKey(userId), JSON.stringify(unique));
   } catch {
-    /* ignore */
+    /* memory still holds seen ids for this JS runtime */
   }
+}
+
+export async function markNotificationsSeen(
+  userId: string,
+  ids: string[],
+): Promise<void> {
+  const prev = await getSeenNotificationIds(userId);
+  await setSeenNotificationIds(userId, [...prev, ...ids]);
 }
 
 function approvalSeenKey(userId: string): string {

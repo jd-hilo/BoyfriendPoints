@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,63 +11,93 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { PublicUser } from '../types';
 import { api } from '../api';
-import { isAppleSignInAvailable, signInWithApple } from '../appleAuth';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
-import { Avatar, Xp, ReceiptIcon } from '../ui';
+import { Avatar, Xp } from '../ui';
+import {
+  PrimaryButton,
+  SkipLink,
+  StepHeader,
+  StepShell,
+  stepStyles,
+} from '../stepChrome';
 
-type Mode = 'signin' | 'signup';
+type Step = 'email' | 'password' | 'reset-code' | 'new-password';
 
 export default function AuthScreen({
   onCreateAccount,
 }: {
   onCreateAccount?: () => void;
 }) {
-  const { enterAs, signInWithPassword, signUpWithPassword, signInWithAppleToken } =
-    useAuth();
-  const [mode, setMode] = useState<Mode>('signin');
-  const [name, setName] = useState('');
+  const { enterAs, signInWithPassword } = useAuth();
+  const [step, setStep] = useState<Step>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [personas, setPersonas] = useState<PublicUser[]>([]);
   const [showDemo, setShowDemo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [appleReady, setAppleReady] = useState(false);
 
   useEffect(() => {
     void api
       .personas()
       .then(setPersonas)
       .catch(() => undefined);
-    void isAppleSignInAvailable().then(setAppleReady);
   }, []);
+
+  function goToPassword() {
+    if (!email.includes('@')) return;
+    setError(null);
+    setStep('password');
+  }
+
+  function backToEmail() {
+    setError(null);
+    setPassword('');
+    setOtp('');
+    setStep('email');
+  }
+
+  function backFromReset() {
+    setError(null);
+    setOtp('');
+    setPassword('');
+    setStep(step === 'new-password' ? 'reset-code' : 'password');
+  }
+
+  async function sendResetCode() {
+    setError(null);
+    setBusy('reset');
+    try {
+      await api.forgotPassword(email);
+      setOtp('');
+      setPassword('');
+      setStep('reset-code');
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function onSubmit() {
     setError(null);
-    setBusy('email');
+    setBusy('signin');
     try {
-      if (mode === 'signup') {
-        await signUpWithPassword(
-          name.trim() || email.split('@')[0],
-          email,
-          password,
-        );
-      } else {
-        await signInWithPassword(email, password);
-      }
+      await signInWithPassword(email, password);
     } catch (err) {
       setError((err as Error).message);
       setBusy(null);
     }
   }
 
-  async function onApple() {
+  async function onReset() {
     setError(null);
-    setBusy('apple');
+    setBusy('reset');
     try {
-      const { idToken, name: appleName } = await signInWithApple();
-      await signInWithAppleToken(idToken, appleName);
+      await api.resetPassword(email, otp, password);
+      await signInWithPassword(email, password);
     } catch (err) {
       setError((err as Error).message);
       setBusy(null);
@@ -89,150 +117,66 @@ export default function AuthScreen({
 
   const household = personas.filter((p) => !p.demo);
   const community = personas.filter((p) => p.demo);
-  const canSubmit = email.length > 0 && password.length >= 8 && !busy;
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom', 'left', 'right']}>
+    <SafeAreaView style={stepStyles.safe} edges={['top', 'bottom', 'left', 'right']}>
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={stepStyles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView
-          contentContainerStyle={styles.container}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.panel}>
-            <View style={styles.hero}>
-              <View style={styles.brandLockup}>
-                <ReceiptIcon size={30} />
-                <Text style={styles.wordmark}>LoveReceipts</Text>
-              </View>
-              <Text style={styles.tag}>
-                {mode === 'signup'
-                  ? 'Create your household account'
-                  : 'Sign in to your household'}
-              </Text>
-            </View>
+        <StepHeader
+          step={step === 'email' || step === 'reset-code' ? 0 : 1}
+          totalSteps={2}
+          onBack={
+            step === 'password'
+              ? backToEmail
+              : step === 'reset-code' || step === 'new-password'
+                ? backFromReset
+                : undefined
+          }
+        />
 
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-
-            <View style={styles.form}>
-              {mode === 'signup' && (
-                <View style={styles.field}>
-                  <Text style={styles.fieldLabel}>Name</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={name}
-                    onChangeText={setName}
-                    placeholder="Your name"
-                    placeholderTextColor={colors.inkMuted}
-                    autoComplete="name"
-                    autoCapitalize="words"
-                  />
-                </View>
-              )}
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Email</Text>
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="you@email.com"
-                  placeholderTextColor={colors.inkMuted}
-                  autoComplete="email"
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                />
-              </View>
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>Password</Text>
-                <TextInput
-                  style={styles.input}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="At least 8 characters"
-                  placeholderTextColor={colors.inkMuted}
-                  secureTextEntry
-                  autoComplete={mode === 'signup' ? 'password-new' : 'password'}
-                />
-              </View>
-
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primaryBtn,
-                  (!canSubmit || pressed) && styles.btnMuted,
-                ]}
-                onPress={() => void onSubmit()}
-                disabled={!canSubmit}
-              >
-                {busy === 'email' ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.primaryBtnText}>
-                    {mode === 'signup' ? 'Continue' : 'Sign in'}
-                  </Text>
-                )}
-              </Pressable>
-            </View>
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.appleBtn,
-                (!!busy || !appleReady || pressed) && styles.btnMuted,
-              ]}
-              onPress={() => void onApple()}
-              disabled={!!busy || !appleReady}
-            >
-              {busy === 'apple' ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.appleBtnText}>
-                  {appleReady ? 'Continue with Apple' : 'Apple Sign In unavailable'}
+        {step === 'email' ? (
+          <StepShell
+            title="What's your email?"
+            sub="You'll use this to sign in."
+            error={error}
+          >
+            <TextInput
+              style={stepStyles.bigInput}
+              value={email}
+              onChangeText={(t) => {
+                setEmail(t);
+                if (error) setError(null);
+              }}
+              placeholder="you@email.com"
+              placeholderTextColor="#b9b7b3"
+              autoCapitalize="none"
+              autoComplete="email"
+              textContentType="username"
+              keyboardType="email-address"
+              autoFocus
+              returnKeyType="next"
+              onSubmitEditing={goToPassword}
+            />
+            <PrimaryButton
+              label="Continue"
+              disabled={!email.includes('@') || !!busy}
+              onPress={goToPassword}
+            />
+            {onCreateAccount ? (
+              <Text style={stepStyles.switchText}>
+                New here?{' '}
+                <Text style={stepStyles.link} onPress={onCreateAccount}>
+                  Create an account
                 </Text>
-              )}
-            </Pressable>
-
-            <Text style={styles.switchText}>
-              {mode === 'signup' ? (
-                <>
-                  Already have an account?{' '}
-                  <Text style={styles.link} onPress={() => setMode('signin')}>
-                    Sign in
-                  </Text>
-                </>
-              ) : (
-                <>
-                  New here?{' '}
-                  <Text
-                    style={styles.link}
-                    onPress={() =>
-                      onCreateAccount ? onCreateAccount() : setMode('signup')
-                    }
-                  >
-                    Create an account
-                  </Text>
-                </>
-              )}
-            </Text>
-
-            <Pressable
-              onPress={() => setShowDemo((v) => !v)}
-              hitSlop={8}
-              style={styles.demoToggleWrap}
-            >
-              <Text style={styles.demoToggle}>
-                {showDemo ? 'Hide demo' : 'Try the demo'}
               </Text>
-            </Pressable>
-
-            {showDemo && (
+            ) : null}
+            <SkipLink
+              label={showDemo ? 'Hide demo' : 'Try the demo'}
+              onPress={() => setShowDemo((v) => !v)}
+            />
+            {showDemo ? (
               <View style={styles.demoBlock}>
                 <Text style={styles.sectionLabel}>This household</Text>
                 <View style={styles.personaList}>
@@ -245,8 +189,7 @@ export default function AuthScreen({
                     />
                   ))}
                 </View>
-
-                {community.length > 0 && (
+                {community.length > 0 ? (
                   <>
                     <Text style={[styles.sectionLabel, { marginTop: 20 }]}>
                       Community
@@ -262,11 +205,127 @@ export default function AuthScreen({
                       ))}
                     </View>
                   </>
-                )}
+                ) : null}
               </View>
-            )}
-          </View>
-        </ScrollView>
+            ) : null}
+          </StepShell>
+        ) : step === 'password' ? (
+          <StepShell
+            title="Enter your password"
+            sub={email.trim()}
+            error={error}
+          >
+            <TextInput
+              style={stepStyles.bigInput}
+              value={password}
+              onChangeText={(t) => {
+                setPassword(t);
+                if (error) setError(null);
+              }}
+              placeholder="••••••••"
+              placeholderTextColor="#b9b7b3"
+              secureTextEntry
+              autoComplete="password"
+              textContentType="password"
+              autoFocus
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                if (password.length >= 8 && !busy) void onSubmit();
+              }}
+            />
+            <PrimaryButton
+              label={busy === 'signin' ? undefined : 'Sign in'}
+              busy={busy === 'signin'}
+              disabled={password.length < 8 || !!busy}
+              onPress={() => void onSubmit()}
+            />
+            <Pressable
+              onPress={() => void sendResetCode()}
+              disabled={!!busy}
+              hitSlop={8}
+              style={stepStyles.skipWrap}
+            >
+              <Text style={stepStyles.link}>
+                {busy === 'reset' ? 'Sending code…' : 'Forgot password?'}
+              </Text>
+            </Pressable>
+          </StepShell>
+        ) : step === 'reset-code' ? (
+          <StepShell
+            title="Enter the code we emailed"
+            sub={email.trim()}
+            error={error}
+          >
+            <TextInput
+              style={[stepStyles.bigInput, styles.otpInput]}
+              value={otp}
+              onChangeText={(t) => {
+                setOtp(t.replace(/\D/g, '').slice(0, 6));
+                if (error) setError(null);
+              }}
+              placeholder="123456"
+              placeholderTextColor="#b9b7b3"
+              keyboardType="number-pad"
+              autoComplete="one-time-code"
+              textContentType="oneTimeCode"
+              autoFocus
+              returnKeyType="next"
+              onSubmitEditing={() => {
+                if (otp.length >= 4) setStep('new-password');
+              }}
+            />
+            <PrimaryButton
+              label="Continue"
+              disabled={otp.length < 4 || !!busy}
+              onPress={() => {
+                setError(null);
+                setPassword('');
+                setStep('new-password');
+              }}
+            />
+            <Pressable
+              onPress={() => void sendResetCode()}
+              disabled={!!busy}
+              hitSlop={8}
+              style={stepStyles.skipWrap}
+            >
+              <Text style={stepStyles.link}>
+                {busy === 'reset' ? 'Sending…' : 'Resend code'}
+              </Text>
+            </Pressable>
+          </StepShell>
+        ) : (
+          <StepShell
+            title="Choose a new password"
+            sub={email.trim()}
+            error={error}
+          >
+            <TextInput
+              style={stepStyles.bigInput}
+              value={password}
+              onChangeText={(t) => {
+                setPassword(t);
+                if (error) setError(null);
+              }}
+              placeholder="••••••••"
+              placeholderTextColor="#b9b7b3"
+              secureTextEntry
+              autoComplete="password-new"
+              textContentType="newPassword"
+              autoFocus
+              returnKeyType="go"
+              onSubmitEditing={() => {
+                if (password.length >= 8 && !busy) void onReset();
+              }}
+            />
+            <PrimaryButton
+              label={busy === 'reset' ? undefined : 'Reset password'}
+              busy={busy === 'reset'}
+              disabled={password.length < 8 || !!busy}
+              onPress={() => void onReset()}
+            />
+          </StepShell>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -295,10 +354,10 @@ function PersonaCard({
       style={({ pressed }) => [
         styles.persona,
         pressed && !busy && styles.personaPressed,
-        busy && styles.btnMuted,
+        busy && stepStyles.btnMuted,
       ]}
       onPress={onPick}
-      disabled={busy}
+      disabled={!!busy}
     >
       <Avatar
         name={persona.name}
@@ -317,140 +376,12 @@ function PersonaCard({
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-  },
-  flex: { flex: 1 },
-  container: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-    paddingVertical: 40,
-  },
-  panel: {
-    width: '100%',
-    maxWidth: 340,
-    alignSelf: 'center',
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: 36,
-  },
-  brandLockup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  wordmark: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: colors.black,
-    letterSpacing: -0.8,
-    // SF Pro on iOS / Roboto on Android — system default
-    fontFamily: Platform.select({ ios: 'System', default: undefined }),
-  },
-  tag: {
-    marginTop: 12,
-    fontSize: 15,
-    lineHeight: 22,
-    color: '#787774',
+  otpInput: {
+    letterSpacing: 6,
     textAlign: 'center',
-    fontWeight: '400',
-  },
-  error: {
-    color: colors.red,
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 18,
-  },
-  form: {
-    gap: 16,
-  },
-  field: {
-    gap: 6,
-  },
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#37352f',
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e3e2e0',
-    borderRadius: 6,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    fontSize: 15,
-    backgroundColor: '#ffffff',
-    color: colors.black,
-  },
-  primaryBtn: {
-    marginTop: 8,
-    backgroundColor: colors.black,
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  primaryBtnText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  btnMuted: {
-    opacity: 0.45,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginVertical: 22,
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#e3e2e0',
-  },
-  dividerText: {
-    color: '#9b9a97',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  appleBtn: {
-    backgroundColor: colors.black,
-    borderRadius: 999,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  appleBtnText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  switchText: {
-    marginTop: 22,
-    fontSize: 14,
-    color: '#787774',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  link: {
-    color: colors.black,
-    fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
-  demoToggleWrap: {
-    marginTop: 18,
-    alignItems: 'center',
-  },
-  demoToggle: {
-    fontSize: 13,
-    color: '#9b9a97',
-    fontWeight: '500',
   },
   demoBlock: {
-    marginTop: 28,
+    marginTop: 12,
     width: '100%',
   },
   sectionLabel: {
@@ -469,7 +400,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     backgroundColor: '#ffffff',
-    borderRadius: 6,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#e3e2e0',
     paddingVertical: 12,

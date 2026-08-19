@@ -29,6 +29,7 @@ import {
   login,
   loginOrCreateFromIdentity,
   logout,
+  setPassword,
   PRIZE_SUGGESTIONS,
   pendingRedemptionsForUser,
   prizesForUser,
@@ -56,13 +57,18 @@ import {
 } from './domain.ts';
 import {
   neonAuthEnv,
+  requestNeonPasswordReset,
+  resetNeonPasswordWithOtp,
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
 import { notifyOwners, notifyUser, userById } from './push.ts';
 import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
+import { captureEvent, captureException } from './analytics.ts';
 import type { Database } from './db/client.ts';
 import { users } from './db/schema.ts';
+import { asUser } from './db/store.ts';
+import { createSession, deleteSession, sessionUserId } from './db/sessions.ts';
 import { eq } from 'drizzle-orm';
 
 export interface CreateAppOptions {
@@ -79,7 +85,10 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   const app = express();
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader(
+      'Access-Control-Allow-Headers',
+      'Content-Type, Authorization, X-POSTHOG-DISTINCT-ID, X-POSTHOG-SESSION-ID',
+    );
     res.setHeader(
       'Access-Control-Allow-Methods',
       'GET,POST,PATCH,DELETE,OPTIONS',
@@ -94,26 +103,77 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
 
   const persist = () => onChange?.(state);
 
+  // token → userId for sessions already verified against the DB.
+  const sessionCache = new Map<string, string>();
+
+  const bearerToken = (req: Request): string | undefined => {
+    const header = req.header('authorization') ?? '';
+    const tok = header.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
+    return tok || undefined;
+  };
+
+  /**
+   * Mint a per-device session token. Falls back to the legacy shared
+   * users.token when the API runs without a database (unit tests).
+   */
+  const issueToken = async (user: User): Promise<string> => {
+    if (db) {
+      try {
+        const tok = await createSession(db, user.id);
+        sessionCache.set(tok, user.id);
+        return tok;
+      } catch (err) {
+        console.error('Failed to create session, using legacy token:', err);
+      }
+    }
+    return user.token as string;
+  };
+
+  const userInState = (id: string) => state.users.find((u) => u.id === id);
+
   const authenticate = async (
     req: AuthedRequest,
     _res: Response,
     next: NextFunction,
   ) => {
-    const header = req.header('authorization') ?? '';
-    const tok = header.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
+    const tok = bearerToken(req);
     req.user = findByToken(state, tok);
+    if (!req.user && tok) {
+      const cachedId = sessionCache.get(tok);
+      if (cachedId) req.user = userInState(cachedId);
+    }
     if (!req.user && tok && db) {
       try {
-        const [row] = await db
-          .select()
-          .from(users)
-          .where(eq(users.token, tok))
-          .limit(1);
-        if (row) {
-          const live = state.users.find((candidate) => candidate.id === row.id);
-          if (live) {
-            live.token = row.token ?? undefined;
-            req.user = live;
+        const userId = await sessionUserId(db, tok);
+        if (userId) {
+          sessionCache.set(tok, userId);
+          req.user = userInState(userId);
+          if (!req.user) {
+            // Signed up on another process; adopt the DB row into memory.
+            const [row] = await db
+              .select()
+              .from(users)
+              .where(eq(users.id, userId))
+              .limit(1);
+            if (row) {
+              const live = asUser(row);
+              state.users.push(live);
+              req.user = live;
+            }
+          }
+        } else {
+          // Legacy shared token that predates the sessions table.
+          const [row] = await db
+            .select()
+            .from(users)
+            .where(eq(users.token, tok))
+            .limit(1);
+          if (row) {
+            const live = userInState(row.id);
+            if (live) {
+              live.token = row.token ?? undefined;
+              req.user = live;
+            }
           }
         }
       } catch {
@@ -134,6 +194,19 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
 
   const fail = (res: Response, err: unknown) =>
     res.status(400).json({ error: (err as Error).message });
+
+  const track = (
+    req: Request,
+    user: User | undefined,
+    event: string,
+    properties?: Record<string, unknown>,
+  ) => {
+    captureEvent(process.env, (name) => req.header(name), user?.id, event, {
+      role: user?.role,
+      demo: Boolean(user?.demo),
+      ...properties,
+    });
+  };
 
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', users: state.users.length });
@@ -206,7 +279,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     res.json({ available: !isCoupleUsernameTaken(state, username) });
   });
 
-  app.post('/api/auth/signup', (req, res) => {
+  app.post('/api/auth/signup', async (req, res) => {
     try {
       const roleRaw = String(req.body?.role ?? 'wife');
       const role = roleRaw === 'boyfriend' ? 'boyfriend' : 'wife';
@@ -220,13 +293,16 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
           : undefined,
       });
       persist();
-      res.status(201).json({ token: user.token, user: publicUser(state, user) });
+      track(req, user, 'user_signed_up', { method: 'password' });
+      res
+        .status(201)
+        .json({ token: await issueToken(user), user: publicUser(state, user) });
     } catch (err) {
       fail(res, err);
     }
   });
 
-  app.post('/api/auth/login', (req, res) => {
+  app.post('/api/auth/login', async (req, res) => {
     try {
       const user = login(
         state,
@@ -234,7 +310,8 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         String(req.body?.password ?? ''),
       );
       persist();
-      res.json({ token: user.token, user: publicUser(state, user) });
+      track(req, user, 'user_logged_in', { method: 'password' });
+      res.json({ token: await issueToken(user), user: publicUser(state, user) });
     } catch (err) {
       res.status(401).json({ error: (err as Error).message });
     }
@@ -244,11 +321,12 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     res.json(listPersonas(state));
   });
 
-  app.post('/api/auth/device', (req, res) => {
+  app.post('/api/auth/device', async (req, res) => {
     try {
       const user = deviceLogin(state, String(req.body?.userId ?? ''));
       persist();
-      res.json({ token: user.token, user: publicUser(state, user) });
+      track(req, user, 'user_logged_in', { method: 'demo' });
+      res.json({ token: await issueToken(user), user: publicUser(state, user) });
     } catch (err) {
       res.status(404).json({ error: (err as Error).message });
     }
@@ -266,13 +344,17 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         jwksUrl: cfg.jwksUrl,
         issuer: cfg.issuer,
       });
+      const isNew = !findByEmail(state, identity.email);
       const user = loginOrCreateFromIdentity(state, {
         email: identity.email,
         name: identity.name,
         provider: 'neon',
       });
       persist();
-      res.json({ token: user.token, user: publicUser(state, user) });
+      track(req, user, isNew ? 'user_signed_up' : 'user_logged_in', {
+        method: 'neon',
+      });
+      res.json({ token: await issueToken(user), user: publicUser(state, user) });
     } catch (err) {
       res.status(401).json({ error: (err as Error).message });
     }
@@ -297,22 +379,87 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         return;
       }
       const identity = await verifyAppleIdentityToken(idToken, clientId);
+      const isNew = !findByEmail(state, identity.email);
       const user = loginOrCreateFromIdentity(state, {
         email: identity.email,
         name: String(req.body?.name ?? '').trim() || identity.name,
         provider: 'apple',
       });
       persist();
-      res.json({ token: user.token, user: publicUser(state, user) });
+      track(req, user, isNew ? 'user_signed_up' : 'user_logged_in', {
+        method: 'apple',
+      });
+      res.json({ token: await issueToken(user), user: publicUser(state, user) });
     } catch (err) {
       res.status(401).json({ error: (err as Error).message });
     }
   });
 
-  app.post('/api/auth/logout', (req: AuthedRequest, res) => {
-    if (req.user) {
+  app.post('/api/auth/forgot-password', async (req, res) => {
+    const email = String(req.body?.email ?? '').trim();
+    if (!email.includes('@')) {
+      res.status(400).json({ error: 'Enter a valid email' });
+      return;
+    }
+    try {
+      await requestNeonPasswordReset(email, process.env);
+      res.json({ ok: true });
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('NEON_AUTH_URL is not configured')) {
+        res.status(503).json({ error: 'Password reset is not configured' });
+        return;
+      }
+      fail(res, err);
+    }
+  });
+
+  app.post('/api/auth/reset-password', async (req, res) => {
+    const email = String(req.body?.email ?? '').trim();
+    const otp = String(req.body?.otp ?? '').trim();
+    const password = String(req.body?.password ?? '');
+    if (!email.includes('@')) {
+      res.status(400).json({ error: 'Enter a valid email' });
+      return;
+    }
+    if (otp.length < 4) {
+      res.status(400).json({ error: 'Enter the code from your email' });
+      return;
+    }
+    if (password.trim().length < 8) {
+      res.status(400).json({ error: 'Password must be at least 8 characters' });
+      return;
+    }
+    try {
+      await resetNeonPasswordWithOtp({ email, otp, password }, process.env);
+      const user = findByEmail(state, email);
+      if (user) {
+        setPassword(user, password);
+        persist();
+        track(req, user, 'user_password_reset');
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('NEON_AUTH_URL is not configured')) {
+        res.status(503).json({ error: 'Password reset is not configured' });
+        return;
+      }
+      res.status(400).json({ error: message });
+    }
+  });
+
+  app.post('/api/auth/logout', async (req: AuthedRequest, res) => {
+    const tok = bearerToken(req);
+    // Legacy shared token: clear it on the user (signs out old-style clients).
+    if (req.user && tok && req.user.token === tok) {
       logout(req.user);
       persist();
+    }
+    // Session token: remove only this device's session.
+    if (tok) {
+      sessionCache.delete(tok);
+      if (db) await deleteSession(db, tok).catch(() => {});
     }
     res.status(204).end();
   });
@@ -365,6 +512,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         String(req.body?.code ?? ''),
       );
       persist();
+      track(req, user, 'partner_joined');
       res.json({
         user: publicUser(state, user),
         partner: publicUser(state, wife),
@@ -384,6 +532,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         password: req.body?.password ? String(req.body.password) : undefined,
       });
       persist();
+      track(req, wife, 'partner_invited');
       res.status(201).json({
         boyfriend: publicUser(state, bf),
         partner: publicUser(state, bf),
@@ -462,6 +611,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         'New friend request',
         `${user.name} wants to connect`,
       );
+      track(req, user, 'friend_request_sent');
       res.status(201).json(request);
     } catch (err) {
       fail(res, err);
@@ -479,6 +629,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         'Friend request accepted',
         `${user.name} accepted your request`,
       );
+      track(req, user, 'friend_request_accepted');
       res.json(request);
     } catch (err) {
       fail(res, err);
@@ -517,6 +668,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     if (!user) return;
     completeOnboarding(user);
     persist();
+    track(req, user, 'onboarding_completed');
     res.json(publicUser(state, user));
   });
 
@@ -542,6 +694,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         `${wife.name} added a prize`,
         `${prize.emoji} ${prize.title} · ${prize.cost} 💎`,
       );
+      track(req, wife, 'prize_created', { cost: prize.cost });
       res.status(201).json(prize);
     } catch (err) {
       fail(res, err);
@@ -576,6 +729,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         points: Number(req.body?.points),
       });
       persist();
+      track(req, wife, 'task_created', { points: task.points });
       res.status(201).json(task);
     } catch (err) {
       fail(res, err);
@@ -619,6 +773,10 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         `${user.name} requested points`,
         `${submission.emoji} ${submission.title} · +${submission.requestedPoints} 💎`,
       );
+      track(req, user, 'deed_submitted', {
+        points: submission.requestedPoints,
+        has_photos: Boolean(submission.images?.length),
+      });
       res.status(201).json(submission);
     } catch (err) {
       fail(res, err);
@@ -638,6 +796,10 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         `${wife.name} approved your request`,
         `${result.submission.emoji} ${result.submission.title} · +${result.submission.points} 💎`,
       );
+      track(req, wife, 'request_approved', {
+        points: result.submission.points,
+        revised: revised !== undefined,
+      });
       res.json(result);
     } catch (err) {
       fail(res, err);
@@ -655,6 +817,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         `${wife.name} passed on your request`,
         `${submission.emoji} ${submission.title}`,
       );
+      track(req, wife, 'request_denied');
       res.json(submission);
     } catch (err) {
       fail(res, err);
@@ -667,6 +830,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     try {
       const submission = shareSubmission(state, user, req.params.id);
       persist();
+      track(req, user, 'receipt_shared', { kind: 'submission' });
       res.json(submission);
     } catch (err) {
       fail(res, err);
@@ -691,6 +855,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         `${user.name} redeemed a prize`,
         `${result.redemption.emoji} ${result.redemption.prizeTitle} · −${result.redemption.cost} 💎`,
       );
+      track(req, user, 'prize_redeemed', { cost: result.redemption.cost });
       res.status(201).json(result);
     } catch (err) {
       fail(res, err);
@@ -703,6 +868,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     try {
       const redemption = fulfillRedemption(state, wife, req.params.id);
       persist();
+      track(req, wife, 'prize_fulfilled');
       res.json(redemption);
     } catch (err) {
       fail(res, err);
@@ -715,6 +881,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     try {
       const result = shareRedemption(state, user, req.params.id);
       persist();
+      track(req, user, 'receipt_shared', { kind: 'redemption' });
       res.json(result);
     } catch (err) {
       fail(res, err);
@@ -763,6 +930,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
       );
       if (has && !had) {
+        track(req, user, 'feed_reacted', { emoji });
         notifyOwners(
           state,
           event,
@@ -791,10 +959,26 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         `${user.name} commented`,
         last ? `“${last.text}”` : `${event.emoji} ${event.title}`,
       );
+      track(req, user, 'feed_commented');
       res.json({ id: event.id, comments: event.comments });
     } catch (err) {
       fail(res, err);
     }
+  });
+
+  app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+    const user = (req as AuthedRequest).user;
+    captureException(
+      process.env,
+      err,
+      req.header('x-posthog-distinct-id') || user?.id,
+      { path: req.path },
+    );
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    res.status(500).json({ error: 'Internal server error' });
   });
 
   return app;

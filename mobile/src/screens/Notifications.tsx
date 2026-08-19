@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NotificationItem } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { setSeenNotificationIds } from '../storage';
+import { markNotificationsSeen } from '../storage';
 import { colors } from '../theme';
 import { Avatar, Xp } from '../ui';
 import { timeAgo } from '../utils';
@@ -71,9 +71,15 @@ export default function Notifications({
   function load() {
     return api
       .notifications()
-      .then((next) => {
+      .then(async (next) => {
         setItems(next);
-        if (user) void setSeenNotificationIds(user.id, next.map((n) => n.id));
+        if (user) {
+          await markNotificationsSeen(
+            user.id,
+            next.map((n) => n.id),
+          );
+          onChanged?.();
+        }
       })
       .catch((err) => setError((err as Error).message));
   }

@@ -126,7 +126,7 @@ export function isCoupleUsernameTaken(
     (user) =>
       user.id !== exceptUserId &&
       Boolean(user.coupleUsername) &&
-      normalizeCoupleUsername(user.coupleUsername) === username,
+      normalizeCoupleUsername(user.coupleUsername ?? '') === username,
   );
 }
 
@@ -315,6 +315,13 @@ export function login(state: State, email: string, password: string): User {
     throw new Error('Invalid email or password');
   }
   if (!user.token) user.token = token();
+  return user;
+}
+
+export function setPassword(user: User, password: string): User {
+  const next = password.trim();
+  if (next.length < 8) throw new Error('Password must be at least 8 characters');
+  user.password = next;
   return user;
 }
 

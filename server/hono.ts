@@ -25,6 +25,7 @@ import {
   login,
   loginOrCreateFromIdentity,
   logout,
+  setPassword,
   PRIZE_SUGGESTIONS,
   pendingRedemptionsForUser,
   prizesForUser,
@@ -52,19 +53,30 @@ import {
 } from './domain.ts';
 import { createDb, type Database } from './db/client.ts';
 import { loadState, saveState } from './db/store.ts';
+import { createSession, deleteSession, sessionUserId } from './db/sessions.ts';
 import {
   neonAuthEnv,
+  requestNeonPasswordReset,
+  resetNeonPasswordWithOtp,
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
 import { notifyOwners, notifyUser, userById } from './push.ts';
 import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
+import {
+  captureEvent,
+  captureException,
+  flushAnalytics,
+  type AnalyticsEnv,
+} from './analytics.ts';
 
 export type WorkerEnv = {
   DATABASE_URL: string;
   NEON_AUTH_URL?: string;
   NEON_JWKS_URL?: string;
   APPLE_CLIENT_ID?: string;
+  POSTHOG_PROJECT_TOKEN?: string;
+  POSTHOG_HOST?: string;
 };
 
 type Variables = {
@@ -76,10 +88,22 @@ type Variables = {
 
 export function createApiApp() {
   const app = new Hono<{ Bindings: WorkerEnv; Variables: Variables }>();
-  const processEnv =
+  const processEnv: Record<string, string | undefined> =
     typeof process !== 'undefined' && process.env ? process.env : {};
 
-  app.use('/api/*', cors());
+  app.use(
+    '/api/*',
+    cors({
+      origin: '*',
+      allowHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-POSTHOG-DISTINCT-ID',
+        'X-POSTHOG-SESSION-ID',
+      ],
+      allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    }),
+  );
 
   app.use('/api/*', async (c, next) => {
     try {
@@ -94,23 +118,77 @@ export function createApiApp() {
       c.set('dirty', false);
 
       const header = c.req.header('authorization') ?? '';
-      const tok = header.startsWith('Bearer ') ? header.slice(7) : undefined;
-      c.set('user', findByToken(state, tok));
+      const tok = header.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
+      // Legacy shared users.token first, then per-device sessions table.
+      let user = findByToken(state, tok);
+      if (!user && tok) {
+        const userId = await sessionUserId(db, tok);
+        if (userId) user = state.users.find((u) => u.id === userId);
+      }
+      c.set('user', user);
 
       await next();
 
       if (c.get('dirty')) {
         await saveState(db, state);
       }
+      await flushAnalytics(analyticsEnv(c.env));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('api middleware failed', message);
+      captureException(analyticsEnv(c.env), err, c.get('user')?.id, {
+        path: c.req.path,
+      });
+      await flushAnalytics(analyticsEnv(c.env));
       return c.json({ error: message }, 500);
     }
   });
 
   const markDirty = (c: { set: (k: 'dirty', v: boolean) => void }) =>
     c.set('dirty', true);
+
+  /**
+   * Mint a per-device session token. Falls back to the legacy shared
+   * users.token if the insert fails so login never hard-errors.
+   */
+  const issueToken = async (db: Database, user: User): Promise<string> => {
+    try {
+      return await createSession(db, user.id);
+    } catch (err) {
+      console.error('Failed to create session, using legacy token:', err);
+      return user.token as string;
+    }
+  };
+
+  const analyticsEnv = (env?: WorkerEnv): AnalyticsEnv => ({
+    POSTHOG_PROJECT_TOKEN:
+      env?.POSTHOG_PROJECT_TOKEN ?? processEnv.POSTHOG_PROJECT_TOKEN,
+    POSTHOG_HOST: env?.POSTHOG_HOST ?? processEnv.POSTHOG_HOST,
+    VITE_PUBLIC_POSTHOG_PROJECT_TOKEN: processEnv.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN,
+    VITE_PUBLIC_POSTHOG_HOST: processEnv.VITE_PUBLIC_POSTHOG_HOST,
+  });
+
+  const track = (
+    c: {
+      env: WorkerEnv;
+      req: { header: (name: string) => string | undefined };
+    },
+    user: User | undefined,
+    event: string,
+    properties?: Record<string, unknown>,
+  ) => {
+    captureEvent(
+      analyticsEnv(c.env),
+      (name) => c.req.header(name),
+      user?.id,
+      event,
+      {
+        role: user?.role,
+        demo: Boolean(user?.demo),
+        ...properties,
+      },
+    );
+  };
 
   app.get('/api/health', (c) => {
     const state = c.get('state');
@@ -157,8 +235,9 @@ export function createApiApp() {
       const body = await c.req.json<{ userId?: string }>();
       const user = deviceLogin(c.get('state'), String(body?.userId ?? ''));
       markDirty(c);
+      track(c, user, 'user_logged_in', { method: 'demo' });
       return c.json({
-        token: user.token,
+        token: await issueToken(c.get('db'), user),
         user: publicUser(c.get('state'), user),
       });
     } catch (err) {
@@ -180,14 +259,18 @@ export function createApiApp() {
         jwksUrl: cfg.jwksUrl,
         issuer: cfg.issuer,
       });
+      const isNew = !findByEmail(c.get('state'), identity.email);
       const user = loginOrCreateFromIdentity(c.get('state'), {
         email: identity.email,
         name: identity.name,
         provider: 'neon',
       });
       markDirty(c);
+      track(c, user, isNew ? 'user_signed_up' : 'user_logged_in', {
+        method: 'neon',
+      });
       return c.json({
-        token: user.token,
+        token: await issueToken(c.get('db'), user),
         user: publicUser(c.get('state'), user),
       });
     } catch (err) {
@@ -218,14 +301,18 @@ export function createApiApp() {
         );
       }
       const identity = await verifyAppleIdentityToken(idToken, clientId);
+      const isNew = !findByEmail(c.get('state'), identity.email);
       const user = loginOrCreateFromIdentity(c.get('state'), {
         email: identity.email,
         name: body?.name?.trim() || identity.name,
         provider: 'apple',
       });
       markDirty(c);
+      track(c, user, isNew ? 'user_signed_up' : 'user_logged_in', {
+        method: 'apple',
+      });
       return c.json({
-        token: user.token,
+        token: await issueToken(c.get('db'), user),
         user: publicUser(c.get('state'), user),
       });
     } catch (err) {
@@ -271,8 +358,12 @@ export function createApiApp() {
           : undefined,
       });
       markDirty(c);
+      track(c, user, 'user_signed_up', { method: 'password' });
       return c.json(
-        { token: user.token, user: publicUser(c.get('state'), user) },
+        {
+          token: await issueToken(c.get('db'), user),
+          user: publicUser(c.get('state'), user),
+        },
         201,
       );
     } catch (err) {
@@ -289,8 +380,9 @@ export function createApiApp() {
         String(body?.password ?? ''),
       );
       markDirty(c);
+      track(c, user, 'user_logged_in', { method: 'password' });
       return c.json({
-        token: user.token,
+        token: await issueToken(c.get('db'), user),
         user: publicUser(c.get('state'), user),
       });
     } catch (err) {
@@ -298,11 +390,83 @@ export function createApiApp() {
     }
   });
 
-  app.post('/api/auth/logout', (c) => {
+  app.post('/api/auth/forgot-password', async (c) => {
+    const body = await c.req.json<{ email?: string }>();
+    const email = String(body?.email ?? '').trim();
+    if (!email.includes('@')) {
+      return c.json({ error: 'Enter a valid email' }, 400);
+    }
+    try {
+      await requestNeonPasswordReset(email, {
+        NEON_AUTH_URL: c.env.NEON_AUTH_URL ?? processEnv.NEON_AUTH_URL,
+        NEON_JWKS_URL: c.env.NEON_JWKS_URL ?? processEnv.NEON_JWKS_URL,
+        VITE_NEON_AUTH_URL: processEnv.VITE_NEON_AUTH_URL,
+      });
+      return c.json({ ok: true });
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('NEON_AUTH_URL is not configured')) {
+        return c.json({ error: 'Password reset is not configured' }, 503);
+      }
+      return c.json({ error: message }, 400);
+    }
+  });
+
+  app.post('/api/auth/reset-password', async (c) => {
+    const body = await c.req.json<{
+      email?: string;
+      otp?: string;
+      password?: string;
+    }>();
+    const email = String(body?.email ?? '').trim();
+    const otp = String(body?.otp ?? '').trim();
+    const password = String(body?.password ?? '');
+    if (!email.includes('@')) {
+      return c.json({ error: 'Enter a valid email' }, 400);
+    }
+    if (otp.length < 4) {
+      return c.json({ error: 'Enter the code from your email' }, 400);
+    }
+    if (password.trim().length < 8) {
+      return c.json({ error: 'Password must be at least 8 characters' }, 400);
+    }
+    try {
+      await resetNeonPasswordWithOtp(
+        { email, otp, password },
+        {
+          NEON_AUTH_URL: c.env.NEON_AUTH_URL ?? processEnv.NEON_AUTH_URL,
+          NEON_JWKS_URL: c.env.NEON_JWKS_URL ?? processEnv.NEON_JWKS_URL,
+          VITE_NEON_AUTH_URL: processEnv.VITE_NEON_AUTH_URL,
+        },
+      );
+      const user = findByEmail(c.get('state'), email);
+      if (user) {
+        setPassword(user, password);
+        markDirty(c);
+        track(c, user, 'user_password_reset');
+      }
+      return c.json({ ok: true });
+    } catch (err) {
+      const message = (err as Error).message;
+      if (message.includes('NEON_AUTH_URL is not configured')) {
+        return c.json({ error: 'Password reset is not configured' }, 503);
+      }
+      return c.json({ error: message }, 400);
+    }
+  });
+
+  app.post('/api/auth/logout', async (c) => {
+    const header = c.req.header('authorization') ?? '';
+    const tok = header.startsWith('Bearer ') ? header.slice(7).trim() : undefined;
     const user = c.get('user');
-    if (user) {
+    // Legacy shared token: clear it on the user (signs out old-style clients).
+    if (user && tok && user.token === tok) {
       logout(user);
       markDirty(c);
+    }
+    // Session token: remove only this device's session.
+    if (tok) {
+      await deleteSession(c.get('db'), tok).catch(() => {});
     }
     return c.body(null, 204);
   });
@@ -361,6 +525,7 @@ export function createApiApp() {
         String(body?.code ?? ''),
       );
       markDirty(c);
+      track(c, user, 'partner_joined');
       return c.json({
         user: publicUser(c.get('state'), user),
         partner: publicUser(c.get('state'), wife),
@@ -385,6 +550,7 @@ export function createApiApp() {
         password: body?.password ? String(body.password) : undefined,
       });
       markDirty(c);
+      track(c, wife, 'partner_invited');
       return c.json(
         {
           boyfriend: publicUser(c.get('state'), bf),
@@ -468,6 +634,7 @@ export function createApiApp() {
         'New friend request',
         `${user.name} wants to connect`,
       );
+      track(c, user, 'friend_request_sent');
       return c.json(request, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -490,6 +657,7 @@ export function createApiApp() {
         'Friend request accepted',
         `${user.name} accepted your request`,
       );
+      track(c, user, 'friend_request_accepted');
       return c.json(request);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -534,6 +702,7 @@ export function createApiApp() {
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     completeOnboarding(user);
     markDirty(c);
+    track(c, user, 'onboarding_completed');
     return c.json(publicUser(c.get('state'), user));
   });
 
@@ -563,6 +732,7 @@ export function createApiApp() {
         `${wife.name} added a prize`,
         `${prize.emoji} ${prize.title} · ${prize.cost} 💎`,
       );
+      track(c, wife, 'prize_created', { cost: prize.cost });
       return c.json(prize, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -600,6 +770,7 @@ export function createApiApp() {
         points: Number(body?.points),
       });
       markDirty(c);
+      track(c, wife, 'task_created', { points: task.points });
       return c.json(task, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -649,6 +820,10 @@ export function createApiApp() {
         `${user.name} requested points`,
         `${submission.emoji} ${submission.title} · +${submission.requestedPoints} 💎`,
       );
+      track(c, user, 'deed_submitted', {
+        points: submission.requestedPoints,
+        has_photos: Boolean(submission.images?.length),
+      });
       return c.json(submission, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -676,6 +851,10 @@ export function createApiApp() {
         `${wife.name} approved your request`,
         `${result.submission.emoji} ${result.submission.title} · +${result.submission.points} 💎`,
       );
+      track(c, wife, 'request_approved', {
+        points: result.submission.points,
+        revised: revised !== undefined,
+      });
       return c.json(result);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -697,6 +876,7 @@ export function createApiApp() {
         `${wife.name} passed on your request`,
         `${submission.emoji} ${submission.title}`,
       );
+      track(c, wife, 'request_denied');
       return c.json(submission);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -713,6 +893,7 @@ export function createApiApp() {
         c.req.param('id'),
       );
       markDirty(c);
+      track(c, user, 'receipt_shared', { kind: 'submission' });
       return c.json(submission);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -741,6 +922,7 @@ export function createApiApp() {
         `${user.name} redeemed a prize`,
         `${result.redemption.emoji} ${result.redemption.prizeTitle} · −${result.redemption.cost} 💎`,
       );
+      track(c, user, 'prize_redeemed', { cost: result.redemption.cost });
       return c.json(result, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -757,6 +939,7 @@ export function createApiApp() {
         c.req.param('id'),
       );
       markDirty(c);
+      track(c, wife, 'prize_fulfilled');
       return c.json(redemption);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -773,6 +956,7 @@ export function createApiApp() {
         c.req.param('id'),
       );
       markDirty(c);
+      track(c, user, 'receipt_shared', { kind: 'redemption' });
       return c.json(result);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
@@ -826,6 +1010,7 @@ export function createApiApp() {
         (reaction) => reaction.userId === user.id && reaction.emoji === emoji,
       );
       if (has && !had) {
+        track(c, user, 'feed_reacted', { emoji });
         notifyOwners(
           state,
           event,
@@ -861,6 +1046,7 @@ export function createApiApp() {
         `${user.name} commented`,
         last ? `“${last.text}”` : `${event.emoji} ${event.title}`,
       );
+      track(c, user, 'feed_commented');
       return c.json({ id: event.id, comments: event.comments });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);

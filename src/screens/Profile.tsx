@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 import { Avatar, Button, Xp } from '../ui.tsx';
-import { haptic } from '../utils.ts';
+import { haptic, sharePartnerInvite } from '../utils.ts';
 
 export default function Profile({
   onClose,
@@ -104,7 +104,7 @@ export default function Profile({
           )}
         </div>
 
-        <p className="section-label">YOUR NAME</p>
+        <p className="section-label">YOU</p>
         <div className="card">
           <form
             className="form"
@@ -131,13 +131,30 @@ export default function Profile({
           </form>
         </div>
 
-        <p className="section-label">ACCOUNT</p>
+        <p className="section-label">YOUR PERSON</p>
         <div className="card">
-          <Row label="Email" value={me.email} />
-          {me.inviteCode && <Row label="Household code" value={me.inviteCode} />}
           {me.partnerName ? (
-            <>
-              <Row label="Partner" value={me.partnerName} />
+            <div className="form">
+              <p style={{ margin: 0, fontWeight: 700 }}>
+                Linked with {me.partnerName}
+              </p>
+              {me.inviteCode ? (
+                <div className="profile-code">
+                  <span className="profile-code-label">Invite code</span>
+                  <strong className="profile-code-value">{me.inviteCode}</strong>
+                  <p className="muted" style={{ margin: 0 }}>
+                    They can use this if they reinstall the app.
+                  </p>
+                </div>
+              ) : null}
+              <Button
+                type="button"
+                block
+                disabled={!me.inviteCode}
+                onClick={() => void sharePartnerInvite(me.name, me.inviteCode)}
+              >
+                Share invite
+              </Button>
               <Button
                 variant="ghost"
                 block
@@ -146,13 +163,30 @@ export default function Profile({
                   setLeaveOpen(true);
                 }}
               >
-                Leave relationship
+                Unlink from {me.partnerName}
               </Button>
-            </>
+            </div>
           ) : (
-            <>
-              <p className="muted">
-                If they already signed up, enter their household code.
+            <div className="form">
+              <p className="muted" style={{ margin: 0 }}>
+                Share your invite code so they can join you.
+              </p>
+              {me.inviteCode ? (
+                <div className="profile-code">
+                  <span className="profile-code-label">Your invite code</span>
+                  <strong className="profile-code-value">{me.inviteCode}</strong>
+                </div>
+              ) : null}
+              <Button
+                type="button"
+                block
+                disabled={!me.inviteCode}
+                onClick={() => void sharePartnerInvite(me.name, me.inviteCode)}
+              >
+                Share invite
+              </Button>
+              <p className="profile-or">
+                If your partner has already started, enter theirs
               </p>
               <form
                 className="form"
@@ -180,8 +214,8 @@ export default function Profile({
                       e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
                     )
                   }
-                  placeholder="Their household code"
-                  aria-label="Household code"
+                  placeholder="Their invite code"
+                  aria-label="Invite code"
                   autoCapitalize="characters"
                   autoFocus={focusJoin}
                   maxLength={8}
@@ -192,18 +226,21 @@ export default function Profile({
                   block
                   disabled={saving || joinCode.length < 4}
                 >
-                  Join household
+                  Link with them
                 </Button>
               </form>
-            </>
+            </div>
           )}
         </div>
 
-        <p className="section-label">SETTINGS</p>
+        <p className="section-label">ACCOUNT</p>
         <div className="card">
-          <Button variant="danger" block onClick={() => void logout()}>
-            Sign out
-          </Button>
+          <div className="form">
+            <Row label="Signed in as" value={me.email} />
+            <Button variant="danger" block onClick={() => void logout()}>
+              Sign out
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -221,12 +258,11 @@ export default function Profile({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="modal-title" id="leave-title">
-              Leave this relationship?
+              Unlink from {me.partnerName}?
             </h3>
             <p className="modal-sub" style={{ textAlign: 'left' }}>
               You’ll lose all {me.points} of your points. Tasks and prizes stay
-              saved if you and {me.partnerName} link back up — not if you join
-              someone else.
+              saved if you two link back up later — not if you join someone else.
             </p>
             <div className="modal-actions">
               <Button
@@ -235,7 +271,7 @@ export default function Profile({
                 disabled={leaveBusy}
                 onClick={() => void leaveRelationship()}
               >
-                {leaveBusy ? 'Leaving…' : 'Leave and lose points'}
+                {leaveBusy ? 'Unlinking…' : 'Unlink and lose points'}
               </Button>
               <Button
                 variant="ghost"
@@ -243,7 +279,7 @@ export default function Profile({
                 disabled={leaveBusy}
                 onClick={() => setLeaveOpen(false)}
               >
-                Stay
+                Stay linked
               </Button>
             </div>
           </div>

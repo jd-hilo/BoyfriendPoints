@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { PublicUser } from '../shared/types.ts';
+import { identifyPerson, resetPerson } from './analytics.ts';
 import { api, getCachedUser, getToken, setCachedUser, setToken } from './api.ts';
 import { neonIdToken, neonSignOut } from './neonAuth.ts';
 
@@ -36,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const me = await api.me();
+      identifyPerson(me);
       setUser(me);
       setCachedUser(me);
     } catch {
@@ -46,11 +48,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const cached = getCachedUser();
-    if (cached && getToken()) setUser(cached);
+    if (cached && getToken()) {
+      identifyPerson(cached);
+      setUser(cached);
+    }
     void refresh().finally(() => setLoading(false));
   }, [refresh]);
 
   const applyUser = useCallback((next: PublicUser) => {
+    identifyPerson(next);
     setCachedUser(next);
     setUser(next);
   }, []);
@@ -58,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const enterAs = useCallback(async (userId: string) => {
     const res = await api.enterAs(userId);
     setToken(res.token);
+    identifyPerson(res.user);
     setCachedUser(res.user);
     setUser(res.user);
   }, []);
@@ -66,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const idToken = await neonIdToken();
     const res = await api.neonSession(idToken);
     setToken(res.token);
+    identifyPerson(res.user);
     setCachedUser(res.user);
     setUser(res.user);
   }, []);
@@ -74,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (idToken: string, name?: string) => {
       const res = await api.appleSession(idToken, name);
       setToken(res.token);
+      identifyPerson(res.user);
       setCachedUser(res.user);
       setUser(res.user);
     },
@@ -83,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await api.logout().catch(() => undefined);
     await neonSignOut();
+    resetPerson();
     setToken(null);
     setUser(null);
   }, []);

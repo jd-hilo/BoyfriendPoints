@@ -23,7 +23,7 @@ import {
 import type { Database } from './client.ts';
 import { seedDemo } from '../seed.ts';
 
-function asUser(row: typeof users.$inferSelect): User {
+export function asUser(row: typeof users.$inferSelect): User {
   return {
     id: row.id,
     name: row.name,
@@ -279,6 +279,6 @@ export async function saveState(db: Database, state: State): Promise<void> {
 
 export async function resetDatabase(db: Database): Promise<void> {
   await db.execute(
-    sql`TRUNCATE TABLE media, friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
+    sql`TRUNCATE TABLE sessions, media, friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
   );
 }

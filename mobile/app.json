@@ -63,6 +63,8 @@
     ],
     "extra": {
       "apiUrl": "https://api-production-bae8.up.railway.app/api",
+      "posthogProjectToken": "phc_mkZiEV5n8i3pFiTUrLuqzg3xm7sVhDqfJWRwq7AsP6EU",
+      "posthogHost": "https://us.i.posthog.com",
       "eas": {
         "projectId": "5c1c3f45-bf37-454b-819b-1f8ee7217cf2"
       }
