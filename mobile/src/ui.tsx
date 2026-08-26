@@ -18,6 +18,8 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { captureRef } from 'react-native-view-shot';
+import EmojiPicker, { en as emojiEn } from 'rn-emoji-keyboard';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, gradients, radius, shadow } from './theme';
 import {
   RECEIPT_HEADLINE,
@@ -185,6 +187,7 @@ export function Avatar({
   if (src) {
     return (
       <Image
+        key={typeof src === 'string' ? src : String(src)}
         source={typeof src === 'number' ? src : { uri: src }}
         style={{
           width: size,
@@ -332,6 +335,7 @@ const RECEIPT_KIND_LABEL: Record<ReceiptKind, string> = {
   redeem: 'PRIZE REDEEMED',
   fulfill: 'PRIZE GIVEN',
   approve: 'POINTS APPROVED',
+  grant: 'POINTS SENT',
 };
 
 const MONO = Platform.select({ ios: 'Menlo', default: 'monospace' });
@@ -1115,56 +1119,150 @@ const styles = StyleSheet.create({
   },
 });
 
-function latestEmoji(next: string, fallback: string): string {
-  const cleaned = next.replace(/[0-9A-Za-z\s]/g, '');
-  if (!cleaned) return fallback;
-  const parts = Array.from(cleaned);
-  return parts[parts.length - 1] ?? fallback;
-}
+/** Household-task picker — same tap pattern as feed reactions. */
+export const TASK_EMOJIS = [
+  '🍽️',
+  '🍳',
+  '🧺',
+  '🗑️',
+  '🌱',
+  '🛒',
+  '🚗',
+  '🐕',
+  '🌹',
+  '🧹',
+] as const;
 
-/** Opens the system keyboard so the user can pick an emoji. */
-export function EmojiField({
+export function TaskEmojiPicker({
   value,
   onChange,
-  autoFocus,
 }: {
   value: string;
   onChange: (next: string) => void;
-  autoFocus?: boolean;
 }) {
+  return <EmojiField value={value} onChange={onChange} />;
+}
+
+/** Apple-style emoji sheet (categories, search, skin tones) — not the ABC keyboard. */
+export function EmojiField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
+  const bottomClearance = Math.max(insets.bottom, 12) + 8;
   return (
-    <TextInput
-      value={value || '⭐'}
-      onChangeText={(text) => onChange(latestEmoji(text, value || '⭐'))}
-      autoFocus={autoFocus}
-      autoCorrect={false}
-      autoComplete="off"
-      spellCheck={false}
-      caretHidden
-      contextMenuHidden
-      keyboardType="default"
-      textContentType="none"
-      importantForAutofill="no"
-      textAlign="center"
-      maxLength={16}
-      showSoftInputOnFocus
-      style={emojiStyles.input}
-      accessibilityLabel="Choose emoji"
-    />
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={[emojiStyles.chip, open && emojiStyles.chipOpen]}
+        accessibilityLabel="Choose emoji"
+        accessibilityRole="button"
+      >
+        <Text style={emojiStyles.glyph}>{value || '⭐'}</Text>
+      </Pressable>
+      <EmojiPicker
+        open={open}
+        onClose={() => setOpen(false)}
+        onEmojiSelected={(emoji) => {
+          onChange(emoji.emoji);
+          setOpen(false);
+        }}
+        enableSearchBar
+        enableRecentlyUsed
+        enableSearchAnimation={false}
+        categoryPosition="bottom"
+        expandable={false}
+        disableSafeArea
+        defaultHeight="40%"
+        emojiSize={24}
+        translation={{ ...emojiEn, search: 'Search Emoji' }}
+        theme={{
+          backdrop: 'rgba(0,0,0,0.18)',
+          knob: '#C7C7CC',
+          container: '#E8E8ED',
+          header: '#8E8E93',
+          skinTonesContainer: '#FFFFFF',
+          category: {
+            icon: '#8E8E93',
+            iconActive: '#000000',
+            container: '#E8E8ED',
+            containerActive: 'rgba(0,0,0,0.08)',
+          },
+          search: {
+            background: '#FFFFFF',
+            text: '#000000',
+            placeholder: '#8E8E93',
+            icon: '#8E8E93',
+          },
+          emoji: { selected: 'rgba(0,0,0,0.08)' },
+        }}
+        styles={{
+          container: {
+            borderRadius: 12,
+            shadowOpacity: 0,
+            elevation: 0,
+            paddingBottom: bottomClearance,
+          },
+          header: {
+            marginTop: 2,
+            marginBottom: 0,
+            marginLeft: 6,
+            fontSize: 12,
+            fontWeight: '600',
+            letterSpacing: 0.2,
+            textTransform: 'uppercase',
+          },
+          searchBar: {
+            container: {
+              marginTop: 8,
+              marginRight: 0,
+              marginBottom: 2,
+              borderWidth: 0,
+              height: 36,
+              justifyContent: 'center',
+            },
+            text: {
+              fontSize: 16,
+              lineHeight: 20,
+              paddingVertical: 0,
+              paddingHorizontal: 12,
+              height: 36,
+              textAlign: 'center',
+              textAlignVertical: 'center',
+            },
+          },
+          category: {
+            container: {
+              paddingTop: 4,
+              paddingBottom: 6,
+              paddingHorizontal: 2,
+              borderTopWidth: StyleSheet.hairlineWidth,
+              borderColor: 'rgba(0,0,0,0.08)',
+            },
+          },
+        }}
+      />
+    </>
   );
 }
 
 const emojiStyles = StyleSheet.create({
-  input: {
+  chip: {
     width: 52,
     height: 52,
     borderRadius: 14,
+    borderWidth: 2,
+    borderColor: 'transparent',
     backgroundColor: colors.bg,
-    fontSize: 26,
-    lineHeight: 32,
-    color: colors.ink,
-    padding: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  chipOpen: { borderColor: colors.blue },
+  glyph: { fontSize: 26, lineHeight: 32 },
 });
 
 /** Compact segmented pill: For you / For {partner}. */

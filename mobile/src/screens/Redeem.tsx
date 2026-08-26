@@ -42,6 +42,7 @@ export default function Redeem({
   const [pending, setPending] = useState<Redemption[]>([]);
   const [prizeForm, setPrizeForm] = useState({ emoji: '🎁', title: '', cost: '' });
   const [addingPrize, setAddingPrize] = useState(false);
+  const [savingPrize, setSavingPrize] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
@@ -334,7 +335,6 @@ export default function Redeem({
               <EmojiField
                 value={prizeForm.emoji}
                 onChange={(emoji) => setPrizeForm({ ...prizeForm, emoji })}
-                autoFocus
               />
               <TextInput
                 style={[styles.input, styles.grow]}
@@ -356,8 +356,13 @@ export default function Redeem({
             />
             <Button
               block
-              disabled={!prizeForm.title.trim() || !prizeForm.cost}
+              disabled={
+                savingPrize || !prizeForm.title.trim() || !prizeForm.cost
+              }
               onPress={async () => {
+                if (savingPrize) return;
+                haptic(10);
+                setSavingPrize(true);
                 setError(null);
                 try {
                   await api.addPrize(
@@ -370,10 +375,12 @@ export default function Redeem({
                   await load();
                 } catch (err) {
                   setError((err as Error).message);
+                } finally {
+                  setSavingPrize(false);
                 }
               }}
             >
-              Add prize
+              {savingPrize ? 'Submitting…' : 'Add prize'}
             </Button>
           </ScrollView>
         </KeyboardAvoidingView>

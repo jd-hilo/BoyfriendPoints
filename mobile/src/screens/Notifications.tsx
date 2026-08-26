@@ -22,7 +22,7 @@ import { timeAgo } from '../utils';
 /** A new prize carries a price tag, not a debit — showing it signed reads as
  *  if the balance was just charged for it. */
 function amountSign(kind: NotificationItem['kind']): '+' | '−' | '' | null {
-  if (kind === 'approved' || kind === 'request') return '+';
+  if (kind === 'approved' || kind === 'granted' || kind === 'request') return '+';
   if (kind === 'redeem') return '−';
   if (kind === 'prize') return '';
   return null;
@@ -32,6 +32,8 @@ function verbFor(kind: NotificationItem['kind']): string {
   switch (kind) {
     case 'approved':
       return 'approved your request';
+    case 'granted':
+      return 'sent you points';
     case 'denied':
       return 'passed on your request';
     case 'request':
@@ -44,6 +46,8 @@ function verbFor(kind: NotificationItem['kind']): string {
       return 'reacted';
     case 'comment':
       return 'commented';
+    case 'comment_reply':
+      return 'replied';
     case 'friend_request':
       return 'sent a friend request';
     case 'friend_accepted':

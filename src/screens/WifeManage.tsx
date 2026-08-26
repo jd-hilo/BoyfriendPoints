@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { EarnTask, Prize, PublicUser } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Avatar, Button, Xp } from '../ui.tsx';
+import { Avatar, Button, EmojiField, TASK_EMOJIS, Xp } from '../ui.tsx';
 import { haptic } from '../utils.ts';
 
 export default function WifeManage() {
@@ -11,9 +11,18 @@ export default function WifeManage() {
   const [tasks, setTasks] = useState<EarnTask[]>([]);
   const [friends, setFriends] = useState<PublicUser[]>([]);
   const [prizeForm, setPrizeForm] = useState({ emoji: '🎁', title: '', cost: '' });
-  const [taskForm, setTaskForm] = useState({ emoji: '⭐', title: '', points: '' });
+  const [taskForm, setTaskForm] = useState<{
+    emoji: string;
+    title: string;
+    points: string;
+  }>({
+    emoji: TASK_EMOJIS[0],
+    title: '',
+    points: '',
+  });
   const [friendForm, setFriendForm] = useState({ name: '', email: '' });
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteForm, setInviteForm] = useState({
     name: '',
@@ -45,6 +54,9 @@ export default function WifeManage() {
 
   async function addPrize(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
+    haptic(10);
+    setSaving(true);
     setError(null);
     try {
       await api.addPrize(prizeForm.title, Number(prizeForm.cost), prizeForm.emoji);
@@ -52,18 +64,25 @@ export default function WifeManage() {
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
+    haptic(10);
+    setSaving(true);
     setError(null);
     try {
       await api.addTask(taskForm.title, Number(taskForm.points), taskForm.emoji);
-      setTaskForm({ emoji: '⭐', title: '', points: '' });
+      setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -291,12 +310,9 @@ export default function WifeManage() {
       </div>
       <form className="card form" onSubmit={addPrize}>
         <div className="row gap">
-          <input
-            className="emoji-input"
+          <EmojiField
             value={prizeForm.emoji}
-            onChange={(e) => setPrizeForm({ ...prizeForm, emoji: e.target.value })}
-            aria-label="Prize emoji"
-            maxLength={2}
+            onChange={(emoji) => setPrizeForm({ ...prizeForm, emoji })}
           />
           <input
             className="grow"
@@ -315,8 +331,8 @@ export default function WifeManage() {
             placeholder="Cost in points"
             aria-label="Prize cost"
           />
-          <Button type="submit" disabled={!prizeForm.title || !prizeForm.cost}>
-            Add
+          <Button type="submit" disabled={saving || !prizeForm.title || !prizeForm.cost}>
+            {saving ? 'Submitting…' : 'Add'}
           </Button>
         </div>
       </form>
@@ -343,12 +359,9 @@ export default function WifeManage() {
       </div>
       <form className="card form" onSubmit={addTask}>
         <div className="row gap">
-          <input
-            className="emoji-input"
+          <EmojiField
             value={taskForm.emoji}
-            onChange={(e) => setTaskForm({ ...taskForm, emoji: e.target.value })}
-            aria-label="Task emoji"
-            maxLength={2}
+            onChange={(emoji) => setTaskForm({ ...taskForm, emoji })}
           />
           <input
             className="grow"
@@ -367,8 +380,8 @@ export default function WifeManage() {
             placeholder="Points"
             aria-label="Task points"
           />
-          <Button type="submit" disabled={!taskForm.title || !taskForm.points}>
-            Add
+          <Button type="submit" disabled={saving || !taskForm.title || !taskForm.points}>
+            {saving ? 'Submitting…' : 'Add'}
           </Button>
         </div>
       </form>

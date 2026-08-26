@@ -1,11 +1,13 @@
 import type {
   EarnTask,
+  FeedComment,
   FeedEvent,
   FeedEventView,
   CoupleSearchResult,
   FriendRequest,
   FriendRequestView,
   NotificationItem,
+  PersonPeek,
   Prize,
   PublicUser,
   Redemption,
@@ -291,7 +293,11 @@ export function joinWithInviteCode(
   joiner: User,
   rawCode: string,
 ): User {
-  if (joiner.partnerId) throw new Error('You are already linked to a partner');
+  if (joiner.partnerId) {
+    const existing = state.users.find((u) => u.id === joiner.partnerId);
+    if (existing) return existing;
+    throw new Error('You are already linked to a partner');
+  }
 
   const code = rawCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (code.length < 4) throw new Error('Enter a valid invite code');
@@ -299,14 +305,70 @@ export function joinWithInviteCode(
   const host = state.users.find((u) => u.inviteCode?.toUpperCase() === code);
   if (!host) throw new Error('Invite code not found');
   if (host.id === joiner.id) throw new Error('That is your own invite code');
-  if (host.partnerId) throw new Error('That household already has a partner');
+  if (host.partnerId && host.partnerId !== joiner.id) {
+    throw new Error('That household already has a partner');
+  }
 
+  // Joiner drops their own household identity and inherits the host's.
   joiner.inviteCode = undefined;
   joiner.coupleCode = undefined;
   joiner.coupleUsername = undefined;
   joiner.partnerId = host.id;
   host.partnerId = joiner.id;
+  joiner.onboarded = true;
+  host.onboarded = true;
   return host;
+}
+
+/**
+ * Repair a one-way partner_id (A points at B, B does not point back).
+ * The person being pointed at is the clobbered joiner: restore the link and
+ * drop their competing household username/invite.
+ */
+export function healPartnerLink(state: State, user: User): boolean {
+  let changed = false;
+
+  if (!user.partnerId) {
+    const host = state.users.find((candidate) => candidate.partnerId === user.id);
+    if (!host) return false;
+    user.partnerId = host.id;
+    user.inviteCode = undefined;
+    user.coupleCode = undefined;
+    user.coupleUsername = undefined;
+    user.onboarded = true;
+    host.onboarded = true;
+    return true;
+  }
+
+  const partner = state.users.find((candidate) => candidate.id === user.partnerId);
+  if (!partner) return false;
+
+  if (!partner.partnerId) {
+    partner.partnerId = user.id;
+    partner.inviteCode = undefined;
+    partner.coupleCode = undefined;
+    partner.coupleUsername = undefined;
+    changed = true;
+  } else if (partner.partnerId !== user.id) {
+    return false;
+  } else if (user.inviteCode && partner.inviteCode) {
+    const host = user.createdAt <= partner.createdAt ? user : partner;
+    const extra = host.id === user.id ? partner : user;
+    extra.inviteCode = undefined;
+    extra.coupleCode = undefined;
+    extra.coupleUsername = undefined;
+    changed = true;
+  }
+
+  if (!user.onboarded) {
+    user.onboarded = true;
+    changed = true;
+  }
+  if (!partner.onboarded) {
+    partner.onboarded = true;
+    changed = true;
+  }
+  return changed;
 }
 
 export function login(state: State, email: string, password: string): User {
@@ -670,6 +732,47 @@ export function updateProfile(
   return user;
 }
 
+/** Keep feed comments in sync when someone changes their name or photo. */
+export function syncAuthorOnFeed(state: State, user: User): void {
+  const avatar = user.avatarUrl ?? avatarFor(user.name);
+  for (const event of state.feed) {
+    if (!event.comments?.length) continue;
+    for (const comment of event.comments) {
+      if (comment.userId === user.id) {
+        comment.name = user.name;
+        comment.avatarUrl = avatar;
+      }
+      if (comment.replyToUserId === user.id) {
+        comment.replyToName = user.name;
+      }
+    }
+  }
+}
+
+function commentWithLiveAuthor(state: State, comment: FeedComment): FeedComment {
+  const author = state.users.find((u) => u.id === comment.userId);
+  const replyTo = comment.replyToUserId
+    ? state.users.find((u) => u.id === comment.replyToUserId)
+    : undefined;
+  return {
+    ...comment,
+    name: author?.name ?? comment.name,
+    avatarUrl: author
+      ? (author.avatarUrl ?? avatarFor(author.name))
+      : comment.avatarUrl,
+    replyToName: replyTo?.name ?? comment.replyToName,
+  };
+}
+
+export function commentsWithLiveAuthors(
+  state: State,
+  comments: FeedComment[] | undefined,
+): FeedComment[] {
+  return (comments ?? []).map((comment) =>
+    commentWithLiveAuthor(state, comment),
+  );
+}
+
 export function setPushToken(user: User, token: string): User {
   const trimmed = token.trim();
   if (!trimmed) {
@@ -858,6 +961,64 @@ export function createSubmission(
   };
   state.submissions.push(submission);
   return submission;
+}
+
+/** Credit the partner immediately for something they did — no request loop. */
+export function grantPoints(
+  state: State,
+  granter: User,
+  input: {
+    title: string;
+    emoji?: string;
+    points: number;
+    note?: string;
+  },
+): { submission: Submission; feed: FeedEvent } {
+  if (!granter.partnerId) throw new Error('You are not linked to a partner');
+  const title = input.title.trim();
+  if (!title) throw new Error('Describe what they did');
+  if (!Number.isFinite(input.points) || input.points <= 0) {
+    throw new Error('Points must be a positive number');
+  }
+  const points = Math.round(input.points);
+  const partner = requireUser(state, granter.partnerId);
+  const now = new Date().toISOString();
+  const submission: Submission = {
+    id: id('s_'),
+    boyfriendId: partner.id,
+    wifeId: granter.id,
+    title,
+    emoji: input.emoji?.trim() || '⭐',
+    points,
+    requestedPoints: points,
+    note: input.note?.trim() ?? '',
+    images: [],
+    status: 'approved',
+    revised: false,
+    shared: true,
+    granted: true,
+    createdAt: now,
+    resolvedAt: now,
+  };
+  state.submissions.push(submission);
+  partner.points += points;
+  const feed: FeedEvent = {
+    id: id('f_'),
+    type: 'earn',
+    boyfriendId: partner.id,
+    wifeId: granter.id,
+    title: submission.title,
+    emoji: submission.emoji,
+    points,
+    note: submission.note,
+    images: [],
+    likes: [],
+    reactions: [],
+    comments: [],
+    createdAt: now,
+  };
+  state.feed.push(feed);
+  return { submission, feed };
 }
 
 /** Mark a pending submission to appear on the feed once approved. */
@@ -1081,8 +1242,62 @@ export function feedForUser(state: State, user: User): FeedEventView[] {
         wifeColor: wife?.color ?? '#7C5CFF',
         wifeAvatar: wife ? (wife.avatarUrl ?? avatarFor(wife.name)) : undefined,
         likedByMe: e.likes.includes(user.id),
+        comments: commentsWithLiveAuthors(state, e.comments),
       };
     });
+}
+
+/** Profile peek for a name on the feed. Only people already in your circle. */
+export function personPeekForUser(
+  state: State,
+  viewer: User,
+  personId: string,
+): PersonPeek {
+  const person = state.users.find((u) => u.id === personId);
+  if (!person) throw new Error('Person not found');
+
+  let visible = person.id === viewer.id;
+  try {
+    visible = visible || circleWifeIds(state, viewer).has(person.id);
+  } catch {
+    /* unlinked viewers can only see themselves */
+  }
+  if (!visible) throw new Error('Person not found');
+
+  const partner = person.partnerId
+    ? state.users.find((u) => u.id === person.partnerId)
+    : undefined;
+  const household = householdAnchor(state, person);
+
+  const activity = feedForUser(state, viewer)
+    .filter((e) => e.boyfriendId === person.id || e.wifeId === person.id)
+    .slice(0, 12)
+    .map((e) => ({
+      id: e.id,
+      type: e.type,
+      title: e.title,
+      emoji: e.emoji,
+      points: e.points,
+      createdAt: e.createdAt,
+      withId: e.boyfriendId === person.id ? e.wifeId : e.boyfriendId,
+      withName: e.boyfriendId === person.id ? e.wifeName : e.boyfriendName,
+      image: e.images[0],
+    }));
+
+  return {
+    id: person.id,
+    name: person.name,
+    color: person.color,
+    avatarUrl: person.avatarUrl ?? avatarFor(person.name),
+    partnerId: partner?.id,
+    partnerName: partner?.name,
+    partnerColor: partner?.color,
+    partnerAvatar: partner
+      ? (partner.avatarUrl ?? avatarFor(partner.name))
+      : undefined,
+    coupleUsername: household?.coupleUsername,
+    activity,
+  };
 }
 
 export function toggleLike(
@@ -1123,12 +1338,17 @@ export function addComment(
   user: User,
   feedId: string,
   text: string,
+  replyToId?: string,
 ): FeedEvent {
   const event = state.feed.find((e) => e.id === feedId);
   if (!event) throw new Error('Post not found');
   const clean = text.trim().slice(0, 400);
   if (!clean) throw new Error('Write a comment');
   if (!event.comments) event.comments = [];
+  const parent = replyToId
+    ? event.comments.find((comment) => comment.id === replyToId)
+    : undefined;
+  if (replyToId && !parent) throw new Error('Comment not found');
   event.comments.push({
     id: id('c_'),
     userId: user.id,
@@ -1136,6 +1356,11 @@ export function addComment(
     avatarUrl: user.avatarUrl ?? avatarFor(user.name),
     text: clean,
     createdAt: new Date().toISOString(),
+    replyToId: parent?.id,
+    replyToUserId: parent?.userId,
+    replyToName: parent
+      ? (state.users.find((u) => u.id === parent.userId)?.name ?? parent.name)
+      : undefined,
   });
   return event;
 }
@@ -1205,9 +1430,11 @@ export function buildNotifications(
       if (s.status === 'approved') {
         items.push({
           id: `n_appr_${s.id}`,
-          kind: 'approved',
-          emoji: '✅',
-          title: `${wife.name} approved your request`,
+          kind: s.granted ? 'granted' : 'approved',
+          emoji: s.granted ? '🎁' : '✅',
+          title: s.granted
+            ? `${wife.name} sent you points`
+            : `${wife.name} approved your request`,
           body: `${s.emoji} ${s.title}${s.revised ? ' · revised' : ''}`,
           points: s.points,
           actorName: wife.name,
@@ -1314,44 +1541,49 @@ export function buildNotifications(
     }
   }
 
-  // Reactions + comments on posts that belong to this user's household.
+  // Reactions on posts that belong to this user's household.
+  // Comments: owners see top-level; anyone sees replies to their own comment.
   const myWifeId = ownerWifeId(user);
   for (const e of state.feed) {
     const mine =
       e.boyfriendId === user.id || (myWifeId && e.wifeId === myWifeId);
-    if (!mine) continue;
 
-    const others = e.reactions.filter((r) => r.userId !== user.id);
-    if (others.length > 0) {
-      const first = displayUser(state, others[0].userId);
-      const extra = others.length - 1;
-      items.push({
-        id: `n_react_${e.id}`,
-        kind: 'reaction',
-        emoji: others[0].emoji,
-        title:
-          extra > 0
-            ? `${first.name} & ${extra} other${extra > 1 ? 's' : ''} reacted`
-            : `${first.name} reacted`,
-        body: `${e.emoji} ${e.title}`,
-        actorName: first.name,
-        actorColor: first.color,
-        actorAvatar: first.avatar,
-        createdAt: e.createdAt,
-      });
+    if (mine) {
+      const others = e.reactions.filter((r) => r.userId !== user.id);
+      if (others.length > 0) {
+        const first = displayUser(state, others[0].userId);
+        const extra = others.length - 1;
+        items.push({
+          id: `n_react_${e.id}`,
+          kind: 'reaction',
+          emoji: others[0].emoji,
+          title:
+            extra > 0
+              ? `${first.name} & ${extra} other${extra > 1 ? 's' : ''} reacted`
+              : `${first.name} reacted`,
+          body: `${e.emoji} ${e.title}`,
+          actorName: first.name,
+          actorColor: first.color,
+          actorAvatar: first.avatar,
+          createdAt: e.createdAt,
+        });
+      }
     }
 
     for (const c of e.comments) {
       if (c.userId === user.id) continue;
+      const live = commentWithLiveAuthor(state, c);
+      const repliedToMe = live.replyToUserId === user.id;
+      if (!repliedToMe && !mine) continue;
       items.push({
         id: `n_comment_${c.id}`,
-        kind: 'comment',
+        kind: repliedToMe ? 'comment_reply' : 'comment',
         emoji: '💬',
-        title: `${c.name} commented`,
-        body: `“${c.text}”`,
-        actorName: c.name,
-        actorAvatar: c.avatarUrl,
-        createdAt: c.createdAt,
+        title: repliedToMe ? `${live.name} replied` : `${live.name} commented`,
+        body: `“${live.text}”`,
+        actorName: live.name,
+        actorAvatar: live.avatarUrl,
+        createdAt: live.createdAt,
       });
     }
   }

@@ -11,7 +11,9 @@ import {
   completeOnboarding,
   createSubmission,
   denySubmission,
+  grantPoints,
   deviceLogin,
+  personPeekForUser,
   feedForUser,
   friendRequestsForUser,
   findByEmail,
@@ -43,8 +45,11 @@ import {
   shareSubmission,
   signup,
   joinWithInviteCode,
+  healPartnerLink,
   switchRole,
   updateProfile,
+  syncAuthorOnFeed,
+  commentsWithLiveAuthors,
   submissionsForUser,
   TASK_SUGGESTIONS,
   tasksForUser,
@@ -52,7 +57,7 @@ import {
   type State,
 } from './domain.ts';
 import { createDb, type Database } from './db/client.ts';
-import { loadState, saveState } from './db/store.ts';
+import { loadState, persistPartnerPair, persistUserProfile, saveState } from './db/store.ts';
 import { createSession, deleteSession, sessionUserId } from './db/sessions.ts';
 import {
   neonAuthEnv,
@@ -61,7 +66,7 @@ import {
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
-import { notifyOwners, notifyUser, userById } from './push.ts';
+import { notifyCommentActivity, notifyOwners, notifyUser, userById } from './push.ts';
 import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
 import {
   captureEvent,
@@ -126,6 +131,19 @@ export function createApiApp() {
         if (userId) user = state.users.find((u) => u.id === userId);
       }
       c.set('user', user);
+
+      if (user && healPartnerLink(state, user)) {
+        const partner = user.partnerId
+          ? state.users.find((candidate) => candidate.id === user.partnerId)
+          : undefined;
+        if (partner) {
+          try {
+            await persistPartnerPair(db, user, partner);
+          } catch {
+            c.set('dirty', true);
+          }
+        }
+      }
 
       await next();
 
@@ -494,6 +512,12 @@ export function createApiApp() {
         name: body?.name ? String(body.name) : undefined,
         avatarUrl: body?.avatarUrl ? String(body.avatarUrl) : undefined,
       });
+      syncAuthorOnFeed(c.get('state'), user);
+      try {
+        await persistUserProfile(c.get('db'), user);
+      } catch {
+        markDirty(c);
+      }
       markDirty(c);
       return c.json(publicUser(c.get('state'), user));
     } catch (err) {
@@ -524,6 +548,11 @@ export function createApiApp() {
         user,
         String(body?.code ?? ''),
       );
+      try {
+        await persistPartnerPair(c.get('db'), user, wife);
+      } catch {
+        markDirty(c);
+      }
       markDirty(c);
       track(c, user, 'partner_joined');
       return c.json({
@@ -830,6 +859,37 @@ export function createApiApp() {
     }
   });
 
+  app.post('/api/submissions/grant', async (c) => {
+    const granter = c.get('user');
+    if (!granter) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{
+        title?: string;
+        emoji?: string;
+        points?: number;
+        note?: string;
+      }>();
+      const result = grantPoints(c.get('state'), granter, {
+        title: String(body?.title ?? ''),
+        emoji: body?.emoji ? String(body.emoji) : undefined,
+        points: Number(body?.points),
+        note: body?.note ? String(body.note) : undefined,
+      });
+      markDirty(c);
+      void notifyUser(
+        userById(c.get('state'), result.submission.boyfriendId),
+        `${granter.name} sent you points`,
+        `${result.submission.emoji} ${result.submission.title} · +${result.submission.points} 💎`,
+      );
+      track(c, granter, 'points_granted', {
+        points: result.submission.points,
+      });
+      return c.json(result, 201);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
   app.post('/api/submissions/:id/approve', async (c) => {
     const wife = c.get('user');
     if (!wife) return c.json({ error: 'Not signed in' }, 401);
@@ -969,6 +1029,16 @@ export function createApiApp() {
     return c.json(feedForUser(c.get('state'), user));
   });
 
+  app.get('/api/people/:id', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      return c.json(personPeekForUser(c.get('state'), user, c.req.param('id')));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 404);
+    }
+  });
+
   app.get('/api/notifications', (c) => {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Not signed in' }, 401);
@@ -1029,25 +1099,23 @@ export function createApiApp() {
     const user = c.get('user');
     if (!user) return c.json({ error: 'Not signed in' }, 401);
     try {
-      const body = await c.req.json<{ text?: string }>();
+      const body = await c.req.json<{ text?: string; replyToId?: string }>();
       const state = c.get('state');
       const event = addComment(
         state,
         user,
         c.req.param('id'),
         String(body?.text ?? ''),
+        body?.replyToId ? String(body.replyToId) : undefined,
       );
       markDirty(c);
       const last = event.comments[event.comments.length - 1];
-      notifyOwners(
-        state,
-        event,
-        user.id,
-        `${user.name} commented`,
-        last ? `“${last.text}”` : `${event.emoji} ${event.title}`,
-      );
-      track(c, user, 'feed_commented');
-      return c.json({ id: event.id, comments: event.comments });
+      if (last) notifyCommentActivity(state, event, user, last);
+      track(c, user, last?.replyToId ? 'feed_replied' : 'feed_commented');
+      return c.json({
+        id: event.id,
+        comments: commentsWithLiveAuthors(state, event.comments),
+      });
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }

@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { eq, inArray, or, sql } from 'drizzle-orm';
 import type {
   EarnTask,
   FeedEvent,
@@ -10,7 +10,7 @@ import type {
   SubmissionStatus,
   User,
 } from '../../shared/types.ts';
-import { createEmptyState, type State } from '../domain.ts';
+import { createEmptyState, healPartnerLink, type State } from '../domain.ts';
 import {
   feed,
   friendRequests,
@@ -93,6 +93,129 @@ function asTask(row: typeof tasks.$inferSelect): EarnTask {
   };
 }
 
+function isPickedAvatar(url?: string): boolean {
+  return Boolean(url && url.includes('/api/media/'));
+}
+
+function upsertUser(state: State, live: User): User {
+  const idx = state.users.findIndex((user) => user.id === live.id);
+  if (idx >= 0) {
+    const current = state.users[idx];
+    const partnerId = live.partnerId ?? current.partnerId;
+    const onboarded = current.onboarded || live.onboarded;
+    const avatarUrl =
+      isPickedAvatar(current.avatarUrl) && !isPickedAvatar(live.avatarUrl)
+        ? current.avatarUrl
+        : (live.avatarUrl ?? current.avatarUrl);
+    Object.assign(current, live);
+    current.partnerId = partnerId;
+    current.onboarded = onboarded;
+    current.avatarUrl = avatarUrl;
+    return current;
+  }
+  state.users.push(live);
+  return live;
+}
+
+/** Write name/avatar immediately so a later full-state dump cannot
+ *  replace a picked photo with the generated default. */
+export async function persistUserProfile(
+  db: Database,
+  user: User,
+): Promise<void> {
+  await db
+    .update(users)
+    .set({
+      name: user.name,
+      avatarUrl: user.avatarUrl ?? null,
+      onboarded: user.onboarded,
+    })
+    .where(eq(users.id, user.id));
+}
+
+/** Write partner_id / household identity for a linked pair so a later
+ *  full-state dump cannot drop the join. */
+export async function persistPartnerPair(
+  db: Database,
+  left: User,
+  right: User,
+): Promise<void> {
+  for (const user of [left, right]) {
+    await db
+      .update(users)
+      .set({
+        partnerId: user.partnerId ?? null,
+        inviteCode: user.inviteCode ?? null,
+        coupleCode: user.coupleCode ?? null,
+        coupleUsername: user.coupleUsername ?? null,
+        onboarded: user.onboarded,
+      })
+      .where(eq(users.id, user.id));
+  }
+}
+
+/**
+ * Railway keeps a long-lived in-memory snapshot. Direct DB writes (or another
+ * process) can link a partner that this process has never seen. Pull that
+ * household into memory so `/me` and persist() stay in sync with Neon.
+ */
+export async function hydrateHousehold(
+  db: Database,
+  state: State,
+  userId: string,
+): Promise<User | undefined> {
+  const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  if (!row) return undefined;
+  const user = upsertUser(state, asUser(row));
+
+  const related = await db
+    .select()
+    .from(users)
+    .where(
+      or(
+        eq(users.partnerId, userId),
+        user.partnerId ? eq(users.id, user.partnerId) : sql`false`,
+      ),
+    );
+  for (const relatedRow of related) {
+    upsertUser(state, asUser(relatedRow));
+  }
+
+  if (healPartnerLink(state, user)) {
+    const partner = user.partnerId
+      ? state.users.find((candidate) => candidate.id === user.partnerId)
+      : undefined;
+    if (partner) {
+      try {
+        await persistPartnerPair(db, user, partner);
+      } catch {
+        /* next persist() still has the healed memory */
+      }
+    }
+  }
+
+  const ownerIds = [user.id, user.partnerId].filter(
+    (id): id is string => Boolean(id),
+  );
+  if (ownerIds.length === 0) return user;
+
+  const [prizeRows, taskRows] = await Promise.all([
+    db.select().from(prizes).where(inArray(prizes.wifeId, ownerIds)),
+    db.select().from(tasks).where(inArray(tasks.wifeId, ownerIds)),
+  ]);
+  for (const prize of prizeRows) {
+    if (!state.prizes.some((item) => item.id === prize.id)) {
+      state.prizes.push(asPrize(prize));
+    }
+  }
+  for (const task of taskRows) {
+    if (!state.tasks.some((item) => item.id === task.id)) {
+      state.tasks.push(asTask(task));
+    }
+  }
+  return user;
+}
+
 function asSubmission(row: typeof submissions.$inferSelect): Submission {
   return {
     id: row.id,
@@ -107,6 +230,7 @@ function asSubmission(row: typeof submissions.$inferSelect): Submission {
     status: row.status as SubmissionStatus,
     revised: row.revised,
     shared: row.shared,
+    granted: Boolean(row.granted),
     createdAt: row.createdAt,
     resolvedAt: row.resolvedAt ?? undefined,
   };
@@ -211,8 +335,13 @@ export async function saveState(db: Database, state: State): Promise<void> {
           password: sql`excluded.password`,
           role: sql`excluded.role`,
           color: sql`excluded.color`,
-          avatarUrl: sql`excluded.avatar_url`,
-          partnerId: sql`excluded.partner_id`,
+          avatarUrl: sql`CASE
+            WHEN excluded.avatar_url LIKE '%/api/media/%' THEN excluded.avatar_url
+            WHEN users.avatar_url LIKE '%/api/media/%' THEN users.avatar_url
+            ELSE excluded.avatar_url
+          END`,
+          // Never let a stale snapshot unlink a household (Paul/Syd).
+          partnerId: sql`COALESCE(excluded.partner_id, users.partner_id)`,
           inviteCode: sql`excluded.invite_code`,
           coupleCode: sql`excluded.couple_code`,
           coupleUsername: sql`excluded.couple_username`,
@@ -252,6 +381,7 @@ export async function saveState(db: Database, state: State): Promise<void> {
     await db.insert(submissions).values(
       state.submissions.map((s) => ({
         ...s,
+        granted: Boolean(s.granted),
         resolvedAt: s.resolvedAt ?? null,
       })),
     );

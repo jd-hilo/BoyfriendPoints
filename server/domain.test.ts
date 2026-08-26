@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  addComment,
   addFriend,
   addPrize,
   addTask,
@@ -9,6 +10,8 @@ import {
   createEmptyState,
   createSubmission,
   feedForUser,
+  grantPoints,
+  personPeekForUser,
   friendRequestsForUser,
   avatarFor,
   inviteBoyfriend,
@@ -17,6 +20,7 @@ import {
   redeemPrize,
   setPushToken,
   updateProfile,
+  syncAuthorOnFeed,
   requestFriendByCode,
   removePartner,
   shareRedemption,
@@ -28,6 +32,7 @@ import {
   isCoupleUsernameTaken,
   tasksForUser,
   joinWithInviteCode,
+  healPartnerLink,
   login,
   loginOrCreateFromIdentity,
   completeOnboarding,
@@ -86,6 +91,59 @@ describe('accounts', () => {
     expect(linked.id).toBe(wife.id);
     expect(bf.partnerId).toBe(wife.id);
     expect(wife.partnerId).toBe(bf.id);
+    expect(bf.onboarded).toBe(true);
+    expect(wife.onboarded).toBe(true);
+  });
+
+  it('heals a one-way partner link and drops the joiner household', () => {
+    const state = createEmptyState();
+    const host = signup(state, {
+      name: 'Sydney',
+      email: 'syd@x.com',
+      password: 'secret',
+      role: 'wife',
+      coupleUsername: 'sydneyandpaul',
+    });
+    const joiner = signup(state, {
+      name: 'Paul',
+      email: 'paul@x.com',
+      password: 'secret',
+      role: 'wife',
+      coupleUsername: 'sandp',
+    });
+    host.partnerId = joiner.id;
+    expect(healPartnerLink(state, joiner)).toBe(true);
+    expect(joiner.partnerId).toBe(host.id);
+    expect(host.partnerId).toBe(joiner.id);
+    expect(joiner.coupleUsername).toBeUndefined();
+    expect(joiner.inviteCode).toBeUndefined();
+    expect(host.coupleUsername).toBe('sydneyandpaul');
+    expect(joiner.onboarded).toBe(true);
+    expect(host.onboarded).toBe(true);
+  });
+
+  it('drops a competing household username after both sides are linked', () => {
+    const state = createEmptyState();
+    const host = signup(state, {
+      name: 'Sydney',
+      email: 'syd2@x.com',
+      password: 'secret',
+      role: 'wife',
+      coupleUsername: 'sydneyandpaul2',
+    });
+    const joiner = signup(state, {
+      name: 'Paul',
+      email: 'paul2@x.com',
+      password: 'secret',
+      role: 'wife',
+      coupleUsername: 'sandp2',
+    });
+    host.partnerId = joiner.id;
+    joiner.partnerId = host.id;
+    expect(healPartnerLink(state, host)).toBe(true);
+    expect(host.coupleUsername).toBe('sydneyandpaul2');
+    expect(joiner.coupleUsername).toBeUndefined();
+    expect(joiner.inviteCode).toBeUndefined();
   });
 
   it('rejects a second partner joining the same invite code', () => {
@@ -395,6 +453,36 @@ describe('the social feed', () => {
   });
 });
 
+describe('person peek', () => {
+  it('shows who they are dating and their recent receipts', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    createSubmission(state, boyfriend, { title: 'Dishes', points: 30 });
+    shareSubmission(state, boyfriend, state.submissions[0].id);
+    approveSubmission(state, wife, state.submissions[0].id);
+
+    const peek = personPeekForUser(state, wife, boyfriend.id);
+    expect(peek.name).toBe('Ben');
+    expect(peek.partnerId).toBe(wife.id);
+    expect(peek.partnerName).toBe('Wanda');
+    expect(peek.activity[0]?.title).toBe('Dishes');
+    expect(peek.activity[0]?.withName).toBe('Wanda');
+    expect(peek).not.toHaveProperty('email');
+    expect(JSON.stringify(peek)).not.toMatch(/secret|inviteCode|password/i);
+  });
+
+  it('hides people outside the circle', () => {
+    const { state, wife } = bootstrap();
+    const stranger = signupWife(state, {
+      name: 'Stranger',
+      email: 'stranger@x.com',
+      password: 'secret',
+    });
+    expect(() => personPeekForUser(state, wife, stranger.id)).toThrow(
+      /person not found/i,
+    );
+  });
+});
+
 describe('couple discovery', () => {
   it('rejects a couple username that is already taken', () => {
     const state = createEmptyState();
@@ -523,6 +611,115 @@ describe('symmetric partners', () => {
     expect(wife.points).toBe(0);
     expect(pendingRedemptionsForUser(state, boyfriend)).toHaveLength(1);
     expect(pendingRedemptionsForUser(state, wife)).toHaveLength(1);
+  });
+});
+
+describe('grant points', () => {
+  it('credits the partner immediately and posts a feed receipt', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    const { submission, feed } = grantPoints(state, wife, {
+      title: 'Took out the trash',
+      emoji: '🗑️',
+      points: 15,
+      note: 'Didn’t even ask',
+    });
+    expect(submission.status).toBe('approved');
+    expect(submission.granted).toBe(true);
+    expect(submission.shared).toBe(true);
+    expect(submission.boyfriendId).toBe(boyfriend.id);
+    expect(submission.wifeId).toBe(wife.id);
+    expect(boyfriend.points).toBe(15);
+    expect(wife.points).toBe(0);
+    expect(feed.type).toBe('earn');
+    expect(state.feed).toHaveLength(1);
+  });
+
+  it('lets either partner grant, and notifies the recipient', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    grantPoints(state, boyfriend, { title: 'Packed lunches', points: 20 });
+    expect(wife.points).toBe(20);
+    expect(boyfriend.points).toBe(0);
+
+    const forWife = buildNotifications(state, wife);
+    const grant = forWife.find((n) => n.kind === 'granted');
+    expect(grant?.title).toMatch(/sent you points/i);
+    expect(grant?.points).toBe(20);
+
+    const forBf = buildNotifications(state, boyfriend);
+    expect(forBf.some((n) => n.kind === 'granted')).toBe(false);
+  });
+
+  it('rejects a grant without a partner or a description', () => {
+    const soloState = createEmptyState();
+    const solo = signupWife(soloState, {
+      name: 'Solo',
+      email: 'solo@example.com',
+      password: 'secret',
+    });
+    expect(() =>
+      grantPoints(soloState, solo, { title: 'Nice', points: 10 }),
+    ).toThrow(/not linked/i);
+
+    const { state, wife } = bootstrap();
+    expect(() =>
+      grantPoints(state, wife, { title: '  ', points: 10 }),
+    ).toThrow(/describe what they did/i);
+  });
+});
+
+describe('comment replies', () => {
+  it('threads a reply and notifies the parent author', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    createSubmission(state, boyfriend, { title: 'Dishes', points: 10 });
+    shareSubmission(state, boyfriend, state.submissions[0].id);
+    approveSubmission(state, wife, state.submissions[0].id);
+    const post = state.feed[0];
+    addComment(state, boyfriend, post.id, 'Love this');
+    const parent = post.comments[0];
+    addComment(state, wife, post.id, 'Me too', parent.id);
+    expect(post.comments[1]?.replyToId).toBe(parent.id);
+    expect(post.comments[1]?.replyToUserId).toBe(boyfriend.id);
+
+    const forBf = buildNotifications(state, boyfriend);
+    expect(forBf.some((n) => n.kind === 'comment_reply')).toBe(true);
+    const forWife = buildNotifications(state, wife);
+    expect(forWife.some((n) => n.kind === 'comment_reply')).toBe(false);
+    expect(forWife.some((n) => n.kind === 'comment' && n.body?.includes('Love this'))).toBe(
+      true,
+    );
+  });
+
+  it('rejects a reply to a missing comment', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    createSubmission(state, boyfriend, { title: 'Dishes', points: 10 });
+    shareSubmission(state, boyfriend, state.submissions[0].id);
+    approveSubmission(state, wife, state.submissions[0].id);
+    expect(() =>
+      addComment(state, wife, state.feed[0].id, 'hi', 'c_missing'),
+    ).toThrow(/comment not found/i);
+  });
+
+  it('shows the current photo on old comments after a profile update', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    createSubmission(state, boyfriend, { title: 'Dishes', points: 10 });
+    shareSubmission(state, boyfriend, state.submissions[0].id);
+    approveSubmission(state, wife, state.submissions[0].id);
+    addComment(state, boyfriend, state.feed[0].id, 'Love this');
+    const oldPhoto = state.feed[0].comments[0].avatarUrl;
+    const nextPhoto = 'https://example.com/api/media/m_newface';
+
+    updateProfile(boyfriend, { avatarUrl: nextPhoto });
+
+    expect(feedForUser(state, wife)[0].comments[0].avatarUrl).toBe(nextPhoto);
+
+    const notifs = buildNotifications(state, wife);
+    const commentNotif = notifs.find((n) => n.kind === 'comment');
+    expect(commentNotif?.actorAvatar).toBe(nextPhoto);
+
+    syncAuthorOnFeed(state, boyfriend);
+    expect(state.feed[0].comments[0].avatarUrl).toBe(nextPhoto);
+    expect(state.feed[0].comments[0].avatarUrl).not.toBe(oldPhoto);
+    expect(feedForUser(state, wife)[0].comments[0].avatarUrl).toBe(nextPhoto);
   });
 });
 

@@ -7,7 +7,8 @@ import type {
 } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Button, EmojiField, Xp } from '../ui.tsx';
+import { Button, EmojiField, TASK_EMOJIS, Xp } from '../ui.tsx';
+import { haptic } from '../utils.ts';
 
 const STEPS = ['Tasks', 'Prizes', 'Partner', 'Friends'] as const;
 
@@ -67,7 +68,7 @@ function StepCatalog({
   const isPrize = kind === 'prize';
   const noun = isPrize ? 'prize' : 'task';
   const nouns = isPrize ? 'prizes' : 'tasks';
-  const defaultEmoji = isPrize ? '🎁' : '⭐';
+  const defaultEmoji = isPrize ? '🎁' : TASK_EMOJIS[0];
   const partnerFirst = user?.partnerName?.split(' ')[0] || 'them';
 
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -79,6 +80,7 @@ function StepCatalog({
     points: '',
   });
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     void api
@@ -111,7 +113,9 @@ function StepCatalog({
 
   async function addCustom(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.title.trim() || !form.points) return;
+    if (!form.title.trim() || !form.points || saving) return;
+    haptic(10);
+    setSaving(true);
     setError(null);
     try {
       if (isPrize) {
@@ -132,6 +136,8 @@ function StepCatalog({
       closeModal();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -226,7 +232,6 @@ function StepCatalog({
               <EmojiField
                 value={form.emoji}
                 onChange={(emoji) => setForm({ ...form, emoji })}
-                autoFocus
               />
               <input
                 className="grow"
@@ -237,7 +242,8 @@ function StepCatalog({
                     ? `A prize for ${partnerFirst}`
                     : `A task for ${partnerFirst}`
                 }
-                aria-label={isPrize ? 'Prize title' : 'Task title'}
+                aria-label="Title"
+                autoFocus
               />
             </div>
             <input
@@ -250,9 +256,9 @@ function StepCatalog({
             <Button
               type="submit"
               block
-              disabled={!form.title.trim() || !form.points}
+              disabled={saving || !form.title.trim() || !form.points}
             >
-              {isPrize ? 'Add prize' : 'Add task'}
+              {saving ? 'Submitting…' : isPrize ? 'Add prize' : 'Add task'}
             </Button>
           </form>
         </div>

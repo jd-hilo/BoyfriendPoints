@@ -178,6 +178,7 @@ export default function MainApp() {
           onClose={() => {
             setProfileOpen(false);
             setProfileFocusJoin(false);
+            bump();
           }}
         />
       )}

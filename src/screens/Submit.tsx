@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { EarnTask, Submission, Suggestion } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Button, EmojiField, ReceiptModal, WhoPill, Xp } from '../ui.tsx';
+import { Button, EmojiField, ReceiptModal, TASK_EMOJIS, WhoPill, Xp } from '../ui.tsx';
 import { haptic, sharePartnerInvite } from '../utils.ts';
 
 interface SuccessInfo {
@@ -11,6 +11,7 @@ interface SuccessInfo {
   emoji: string;
   points: number;
   photos: number;
+  granted?: boolean;
 }
 
 export default function Submit({
@@ -25,8 +26,19 @@ export default function Submit({
   const [options, setOptions] = useState<Suggestion[]>([]);
   const [created, setCreated] = useState<EarnTask[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
-  const [taskForm, setTaskForm] = useState({ emoji: '⭐', title: '', points: '' });
+  const [taskForm, setTaskForm] = useState<{
+    emoji: string;
+    title: string;
+    points: string;
+  }>({
+    emoji: TASK_EMOJIS[0],
+    title: '',
+    points: '',
+  });
   const [addingTask, setAddingTask] = useState(false);
+  const [grantOpen, setGrantOpen] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+  const [busyGrant, setBusyGrant] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [emoji, setEmoji] = useState('⭐');
   const [points, setPoints] = useState('');
@@ -53,6 +65,9 @@ export default function Submit({
 
   async function addTask(e: React.FormEvent) {
     e.preventDefault();
+    if (savingTask) return;
+    haptic(10);
+    setSavingTask(true);
     setError(null);
     try {
       await api.addTask(
@@ -60,11 +75,13 @@ export default function Submit({
         Number(taskForm.points),
         taskForm.emoji,
       );
-      setTaskForm({ emoji: '⭐', title: '', points: '' });
+      setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
       setAddingTask(false);
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSavingTask(false);
     }
   }
 
@@ -75,6 +92,67 @@ export default function Submit({
       await load();
     } catch (err) {
       setError((err as Error).message);
+    }
+  }
+
+  async function grantTask(task: EarnTask) {
+    if (busyGrant) return;
+    setError(null);
+    setBusyGrant(task.id);
+    try {
+      const { submission } = await api.grant(
+        task.title,
+        task.points,
+        task.emoji,
+      );
+      haptic([10, 40, 10]);
+      setSuccess({
+        id: submission.id,
+        title: task.title,
+        emoji: task.emoji,
+        points: task.points,
+        photos: 0,
+        granted: true,
+      });
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyGrant(null);
+    }
+  }
+
+  async function grantCustom(e: React.FormEvent) {
+    e.preventDefault();
+    if (busyGrant) return;
+    setError(null);
+    setBusyGrant('custom');
+    try {
+      const { submission } = await api.grant(
+        title,
+        Number(points),
+        emoji,
+        note,
+      );
+      haptic([10, 40, 10]);
+      setSuccess({
+        id: submission.id,
+        title: title.trim(),
+        emoji,
+        points: Number(points),
+        photos: 0,
+        granted: true,
+      });
+      setTitle('');
+      setEmoji('⭐');
+      setPoints('');
+      setNote('');
+      setGrantOpen(false);
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyGrant(null);
     }
   }
 
@@ -307,45 +385,153 @@ export default function Submit({
       ) : (
         <>
           <p className="muted small" style={{ margin: '0 2px' }}>
-            Tasks you set for {partnerFirst} — they submit these to earn points.
+            {user?.partnerId
+              ? `Tap a task to send ${partnerFirst} those points.`
+              : 'Add your partner first to send them points.'}
           </p>
 
-          {created.length > 0 && (
-            <div className="chip-grid">
-              {created.map((t) => (
-                <div key={t.id} className="chip chip-static">
-                  <button
-                    type="button"
-                    className="chip-remove"
-                    aria-label={`Remove ${t.title}`}
-                    onClick={() => void removeTask(t.id)}
-                  >
-                    ✕
-                  </button>
+          <div className="chip-grid">
+            {created.map((t) => (
+              <div key={t.id} className="chip chip-static">
+                <button
+                  type="button"
+                  className="chip-remove"
+                  aria-label={`Remove ${t.title}`}
+                  onClick={() => void removeTask(t.id)}
+                >
+                  ✕
+                </button>
+                <button
+                  type="button"
+                  className="chip-grant"
+                  disabled={Boolean(busyGrant) || !user?.partnerId}
+                  onClick={() => void grantTask(t)}
+                >
                   <span className="chip-emoji">{t.emoji}</span>
                   <span className="chip-title">{t.title}</span>
                   <span className="chip-points">
                     <Xp value={t.points} sign="+" size={11} />
                   </span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <button
-            type="button"
-            className="chip chip-add"
-            onClick={() => {
-              haptic(10);
-              setError(null);
-              setAddingTask(true);
-            }}
-          >
-            <span className="chip-emoji">＋</span>
-            <span className="chip-title">Add a task</span>
-            <span className="chip-points">For {partnerFirst}</span>
-          </button>
+                  {busyGrant === t.id ? (
+                    <span className="muted small">Sending…</span>
+                  ) : null}
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              className="chip chip-add"
+              onClick={() => {
+                haptic(10);
+                setError(null);
+                setAddingTask(true);
+              }}
+            >
+              <span className="chip-emoji">＋</span>
+              <span className="chip-title">Add a task</span>
+              <span className="chip-points">For {partnerFirst}</span>
+            </button>
+          </div>
+          {user?.partnerId ? (
+            <button
+              type="button"
+              className="grant-banner"
+              onClick={() => {
+                haptic(10);
+                setError(null);
+                setTitle('');
+                setEmoji('⭐');
+                setPoints('');
+                setNote('');
+                setGrantOpen(true);
+              }}
+            >
+              <span className="grant-banner-icon" aria-hidden>
+                <SparkleIcon />
+              </span>
+              <span className="grant-banner-copy">
+                <span className="grant-banner-title">
+                  Did they do something not listed?
+                </span>
+                <span className="grant-banner-sub">Send them points.</span>
+              </span>
+            </button>
+          ) : null}
         </>
+      )}
+
+      {grantOpen && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => {
+            setGrantOpen(false);
+            setTitle('');
+            setEmoji('⭐');
+            setPoints('');
+            setNote('');
+          }}
+        >
+          <form
+            className="modal compose-modal"
+            onClick={(e) => e.stopPropagation()}
+            onSubmit={grantCustom}
+          >
+            <div className="compose-modal-head">
+              <div>
+                <p className="modal-title">Reward them</p>
+                <p className="modal-sub">
+                  Send {partnerFirst} points for something that wasn’t a listed task.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="compose-modal-cancel"
+                onClick={() => {
+                  setGrantOpen(false);
+                  setTitle('');
+                  setEmoji('⭐');
+                  setPoints('');
+                  setNote('');
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+            {error && <p className="error">{error}</p>}
+            <div className="row">
+              <EmojiField value={emoji} onChange={setEmoji} />
+              <input
+                className="grow"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="What did they do?"
+                aria-label="What they did"
+                autoFocus
+              />
+            </div>
+            <input
+              type="number"
+              value={points}
+              onChange={(e) => setPoints(e.target.value)}
+              placeholder="Points to send"
+              aria-label="Points to send"
+            />
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Add a note (optional)"
+              aria-label="Note"
+            />
+            <Button
+              type="submit"
+              block
+              disabled={busyGrant === 'custom' || !title.trim() || !points}
+            >
+              {busyGrant === 'custom' ? 'Sending…' : 'Send points'}
+            </Button>
+          </form>
+        </div>
       )}
 
       {addingTask && (
@@ -354,7 +540,7 @@ export default function Submit({
           role="presentation"
           onClick={() => {
             setAddingTask(false);
-            setTaskForm({ emoji: '⭐', title: '', points: '' });
+            setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
           }}
         >
           <form
@@ -376,7 +562,7 @@ export default function Submit({
                 className="compose-modal-cancel"
                 onClick={() => {
                   setAddingTask(false);
-                  setTaskForm({ emoji: '⭐', title: '', points: '' });
+                  setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
                 }}
               >
                 Cancel
@@ -387,7 +573,6 @@ export default function Submit({
               <EmojiField
                 value={taskForm.emoji}
                 onChange={(next) => setTaskForm({ ...taskForm, emoji: next })}
-                autoFocus
               />
               <input
                 className="grow"
@@ -412,9 +597,9 @@ export default function Submit({
             <Button
               type="submit"
               block
-              disabled={!taskForm.title.trim() || !taskForm.points}
+              disabled={savingTask || !taskForm.title.trim() || !taskForm.points}
             >
-              Add task
+              {savingTask ? 'Submitting…' : 'Add task'}
             </Button>
           </form>
         </div>
@@ -422,8 +607,12 @@ export default function Submit({
 
       {success && user && (
         <ReceiptModal
-          kind="request"
-          subtitle={`${partner} will review this next.`}
+          kind={success.granted ? 'grant' : 'request'}
+          subtitle={
+            success.granted
+              ? `${partnerFirst} already has the points. Posted to your feed.`
+              : `${partner} will review this next.`
+          }
           emoji={success.emoji}
           itemTitle={success.title}
           meta={
@@ -434,15 +623,38 @@ export default function Submit({
           points={success.points}
           fromName={user.name}
           toName={user.partnerName ?? 'Partner'}
-          note="Uncheck below if you want this kept off the feed."
+          note={
+            success.granted
+              ? undefined
+              : 'Uncheck below if you want this kept off the feed.'
+          }
           shareLabel="Share receipt"
           skipLabel="Done"
           feedLabel="Post to feed when approved"
           busy={sharing}
-          onShare={() => finish(true)}
+          onShare={success.granted ? undefined : () => finish(true)}
           onSkip={() => void finish(false)}
         />
       )}
     </div>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 3.2 13.4 8.6 18.8 10 13.4 11.4 12 16.8 10.6 11.4 5.2 10 10.6 8.6 12 3.2Z"
+        fill="currentColor"
+      />
+      <path
+        d="m18.2 14.4.7 2.5 2.5.7-2.5.7-.7 2.5-.7-2.5-2.5-.7 2.5-.7.7-2.5Z"
+        fill="currentColor"
+      />
+      <path
+        d="m6.4 14.8.55 1.9 1.9.55-1.9.55-.55 1.9-.55-1.9-1.9-.55 1.9-.55.55-1.9Z"
+        fill="currentColor"
+      />
+    </svg>
   );
 }

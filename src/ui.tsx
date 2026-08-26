@@ -1,4 +1,6 @@
 import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { EMOJI_CATEGORIES } from './emojiCatalog.ts';
 import {
   shareReceiptImage,
   type ReceiptData,
@@ -72,6 +74,7 @@ export function Avatar({
   if (src) {
     return (
       <img
+        key={src}
         className="avatar avatar-img"
         src={src}
         alt={name}
@@ -95,6 +98,47 @@ export function Avatar({
     >
       {initials}
     </span>
+  );
+}
+
+/** Two overlapping avatars — the couple lockup used on profile. */
+export function CoupleLockup({
+  leftName,
+  leftColor,
+  leftSrc,
+  rightName,
+  rightColor,
+  rightSrc,
+  size = 56,
+}: {
+  leftName: string;
+  leftColor: string;
+  leftSrc?: string;
+  rightName?: string;
+  rightColor?: string;
+  rightSrc?: string;
+  size?: number;
+}) {
+  const overlap = Math.round(size * 0.38);
+  return (
+    <div className="couple-lockup">
+      <div className="couple-lockup-left">
+        <Avatar name={leftName} color={leftColor} src={leftSrc} size={size} />
+      </div>
+      {rightName ? (
+        <div
+          className="couple-lockup-right"
+          style={{ marginLeft: -overlap }}
+        >
+          <Avatar
+            name={rightName}
+            color={rightColor ?? '#008CFF'}
+            src={rightSrc}
+            size={size}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -127,38 +171,149 @@ export function PointsPill({
   return <Xp value={value} sign={kind === 'earn' ? '+' : '−'} />;
 }
 
-function latestEmoji(next: string, fallback: string): string {
-  const cleaned = next.replace(/[0-9A-Za-z\s]/g, '');
-  if (!cleaned) return fallback;
-  const parts = Array.from(cleaned);
-  return parts[parts.length - 1] ?? fallback;
-}
+/** Household-task picker — same tap pattern as feed reactions. */
+export const TASK_EMOJIS = [
+  '🍽️',
+  '🍳',
+  '🧺',
+  '🗑️',
+  '🌱',
+  '🛒',
+  '🚗',
+  '🐕',
+  '🌹',
+  '🧹',
+] as const;
 
-/** Opens the system keyboard so the user can pick an emoji. */
-export function EmojiField({
+export function TaskEmojiPicker({
   value,
   onChange,
-  autoFocus,
 }: {
   value: string;
   onChange: (next: string) => void;
-  autoFocus?: boolean;
 }) {
-  return (
-    <label className="emoji-field">
-      <input
-        className="emoji-field-input"
-        value={value || '⭐'}
-        autoFocus={autoFocus}
-        autoComplete="off"
-        autoCorrect="off"
-        spellCheck={false}
-        maxLength={16}
-        inputMode="text"
+  return <EmojiField value={value} onChange={onChange} />;
+}
+
+/** Apple-style emoji sheet — categories, search, not the ABC keyboard. */
+export function EmojiField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [categoryId, setCategoryId] = useState(EMOJI_CATEGORIES[0].id);
+
+  const category =
+    EMOJI_CATEGORIES.find((item) => item.id === categoryId) ?? EMOJI_CATEGORIES[0];
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? EMOJI_CATEGORIES.flatMap((item) => item.emojis).filter((emoji) =>
+        emoji.includes(q),
+      )
+    : category.emojis;
+
+  const host =
+    typeof document !== 'undefined'
+      ? document.querySelector('.phone-screen') ?? document.body
+      : null;
+
+  const sheet = open ? (
+    <div
+      className="emoji-sheet-backdrop"
+      role="presentation"
+      onClick={() => {
+        setOpen(false);
+        setQuery('');
+      }}
+    >
+      <div
+        className="emoji-sheet"
+        role="dialog"
         aria-label="Choose emoji"
-        onChange={(e) => onChange(latestEmoji(e.target.value, value || '⭐'))}
-      />
-    </label>
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="emoji-sheet-handle" />
+        <div className="emoji-sheet-search-wrap">
+          {query ? null : (
+            <span className="emoji-sheet-search-placeholder" aria-hidden>
+              <svg
+                className="emoji-sheet-search-icon"
+                viewBox="0 0 16 16"
+                width="15"
+                height="15"
+              >
+                <circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+                <path d="M10 10l3.5 3.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+              Search Emoji
+            </span>
+          )}
+          <input
+            className="emoji-sheet-search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder=""
+            aria-label="Search emoji"
+          />
+        </div>
+        <p className="emoji-sheet-label">
+          {q ? 'Search' : category.label}
+        </p>
+        <div className="emoji-sheet-grid">
+          {shown.map((emoji, i) => (
+            <button
+              key={`${emoji}-${i}`}
+              type="button"
+              className={`emoji-sheet-cell${value === emoji ? ' on' : ''}`}
+              onClick={() => {
+                onChange(emoji);
+                setOpen(false);
+                setQuery('');
+              }}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+        <div className="emoji-sheet-cats" role="tablist" aria-label="Emoji categories">
+          {EMOJI_CATEGORIES.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={item.id === categoryId}
+              className={`emoji-sheet-cat${item.id === categoryId ? ' on' : ''}`}
+              onClick={() => {
+                setCategoryId(item.id);
+                setQuery('');
+              }}
+              title={item.label}
+            >
+              {item.icon}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  return (
+    <div className="emoji-field-wrap">
+      <button
+        type="button"
+        className={`emoji-field${open ? ' open' : ''}`}
+        aria-label="Choose emoji"
+        aria-expanded={open}
+        onClick={() => setOpen(true)}
+      >
+        {value || '⭐'}
+      </button>
+      {sheet && host ? createPortal(sheet, host) : sheet}
+    </div>
   );
 }
 
@@ -206,6 +361,7 @@ const RECEIPT_HEADLINE: Record<ReceiptKind, string> = {
   redeem: 'Prize redeemed',
   fulfill: 'Prize given',
   approve: 'You approved it',
+  grant: 'Points sent',
 };
 
 /** Paper-receipt success sheet with native image share. */

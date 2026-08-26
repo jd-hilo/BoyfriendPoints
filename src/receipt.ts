@@ -3,7 +3,8 @@ export type ReceiptKind =
   | 'earn'
   | 'redeem'
   | 'fulfill'
-  | 'approve';
+  | 'approve'
+  | 'grant';
 
 export interface ReceiptData {
   kind: ReceiptKind;
@@ -22,6 +23,7 @@ const KIND_LABEL: Record<ReceiptKind, string> = {
   redeem: 'PRIZE REDEEMED',
   fulfill: 'PRIZE GIVEN',
   approve: 'POINTS APPROVED',
+  grant: 'POINTS SENT',
 };
 
 function signFor(kind: ReceiptKind): string {

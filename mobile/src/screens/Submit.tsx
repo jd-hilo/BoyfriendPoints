@@ -18,8 +18,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { EarnTask, Submission, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { Button, EmojiField, PushNudgeModal, ReceiptModal, WhoPill, Xp } from '../ui';
-import { colors, radius, shadow, TAB_BAR_FLOAT_HEIGHT } from '../theme';
+import { Button, EmojiField, PushNudgeModal, ReceiptModal, TASK_EMOJIS, WhoPill, Xp } from '../ui';
+import { colors, shadow, TAB_BAR_FLOAT_HEIGHT } from '../theme';
 import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 import { pickAndUploadPhoto } from '../pickImage';
 import {
@@ -34,6 +34,7 @@ interface SuccessInfo {
   emoji: string;
   points: number;
   photos: number;
+  granted?: boolean;
 }
 
 export default function Submit({
@@ -48,8 +49,13 @@ export default function Submit({
   const [options, setOptions] = useState<Suggestion[]>([]);
   const [created, setCreated] = useState<EarnTask[]>([]);
   const [mine, setMine] = useState<Submission[]>([]);
-  const [taskForm, setTaskForm] = useState({ emoji: '⭐', title: '', points: '' });
+  const [taskForm, setTaskForm] = useState({
+    emoji: TASK_EMOJIS[0],
+    title: '',
+    points: '',
+  });
   const [addingTask, setAddingTask] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
   const [title, setTitle] = useState('');
   const [emoji, setEmoji] = useState('⭐');
   const [points, setPoints] = useState('');
@@ -59,6 +65,7 @@ export default function Submit({
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
   const [sharing, setSharing] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [composeMode, setComposeMode] = useState<'request' | 'grant'>('request');
   const [busyTitle, setBusyTitle] = useState<string | null>(null);
   const [scope, setScope] = useState<'you' | 'them'>('you');
   const [loaded, setLoaded] = useState(false);
@@ -123,6 +130,39 @@ export default function Submit({
     }
   }
 
+  async function grantTask(task: EarnTask) {
+    setError(null);
+    setBusyTitle(task.id);
+    try {
+      const { submission } = await api.grant(
+        task.title,
+        task.points,
+        task.emoji,
+      );
+      haptic([10, 40, 10]);
+      setSuccess({
+        id: submission.id,
+        title: task.title,
+        emoji: task.emoji,
+        points: task.points,
+        photos: 0,
+        granted: true,
+      });
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyTitle(null);
+    }
+  }
+
+  function openCompose(mode: 'request' | 'grant') {
+    haptic(10);
+    setError(null);
+    setComposeMode(mode);
+    setComposeOpen(true);
+  }
+
   async function addPhoto() {
     setError(null);
     try {
@@ -165,15 +205,39 @@ export default function Submit({
   async function submit() {
     setError(null);
     try {
-      const submission = await api.submit(title, Number(points), emoji, note, images);
-      haptic([10, 40, 10]);
-      queuedSuccess.current = {
-        id: submission.id,
-        title: title.trim(),
-        emoji,
-        points: Number(points),
-        photos: images.length,
-      };
+      if (composeMode === 'grant') {
+        const { submission } = await api.grant(
+          title,
+          Number(points),
+          emoji,
+          note,
+        );
+        haptic([10, 40, 10]);
+        queuedSuccess.current = {
+          id: submission.id,
+          title: title.trim(),
+          emoji,
+          points: Number(points),
+          photos: 0,
+          granted: true,
+        };
+      } else {
+        const submission = await api.submit(
+          title,
+          Number(points),
+          emoji,
+          note,
+          images,
+        );
+        haptic([10, 40, 10]);
+        queuedSuccess.current = {
+          id: submission.id,
+          title: title.trim(),
+          emoji,
+          points: Number(points),
+          photos: images.length,
+        };
+      }
       resetCompose();
       setComposeOpen(false);
       // onDismiss is iOS-only; everywhere else the sheet is already gone.
@@ -265,11 +329,7 @@ export default function Submit({
                 <Button
                   block
                   disabled={!!success}
-                  onPress={() => {
-                    haptic(10);
-                    setError(null);
-                    setComposeOpen(true);
-                  }}
+                  onPress={() => openCompose('request')}
                 >
                   Submit a task for points
                 </Button>
@@ -319,11 +379,7 @@ export default function Submit({
               <Pressable
                 style={[styles.tile, styles.tileAdd]}
                 disabled={!!busyTitle || !!success}
-                onPress={() => {
-                  haptic(10);
-                  setError(null);
-                  setComposeOpen(true);
-                }}
+                onPress={() => openCompose('request')}
               >
                 <View style={styles.tileAddInner}>
                   <Text style={styles.tileAddPlus}>+</Text>
@@ -369,6 +425,11 @@ export default function Submit({
         </>
       ) : (
         <>
+          <Text style={styles.scopeHint}>
+            {user?.partnerId
+              ? `Tap a task to send ${partnerFirst} those points.`
+              : 'Add your partner first to send them points.'}
+          </Text>
           <View style={styles.grid}>
             {created.map((t) => (
               <View key={t.id} style={styles.tile}>
@@ -379,11 +440,20 @@ export default function Submit({
                 >
                   <Text style={styles.xBtn}>✕</Text>
                 </Pressable>
-                <Text style={styles.tileEmoji}>{t.emoji}</Text>
-                <Text style={styles.tileTitle} numberOfLines={2}>
-                  {t.title}
-                </Text>
-                <Xp value={t.points} sign="+" size={12} />
+                <Pressable
+                  style={styles.tileBody}
+                  disabled={!!busyTitle || !!success || !user?.partnerId}
+                  onPress={() => void grantTask(t)}
+                >
+                  <Text style={styles.tileEmoji}>{t.emoji}</Text>
+                  <Text style={styles.tileTitle} numberOfLines={2}>
+                    {t.title}
+                  </Text>
+                  <Xp value={t.points} sign="+" size={12} />
+                  {busyTitle === t.id ? (
+                    <Text style={styles.tileBusy}>Sending…</Text>
+                  ) : null}
+                </Pressable>
               </View>
             ))}
             <Pressable
@@ -400,6 +470,26 @@ export default function Submit({
               </View>
             </Pressable>
           </View>
+          {user?.partnerId ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.grantBanner,
+                pressed && styles.grantBannerPressed,
+              ]}
+              disabled={!!busyTitle || !!success}
+              onPress={() => openCompose('grant')}
+            >
+              <View style={styles.grantBannerIcon}>
+                <Ionicons name="sparkles" size={18} color={colors.blue} />
+              </View>
+              <View style={styles.grantBannerCopy}>
+                <Text style={styles.grantBannerTitle}>
+                  Did they do something not listed?
+                </Text>
+                <Text style={styles.grantBannerSub}>Send them points.</Text>
+              </View>
+            </Pressable>
+          ) : null}
         </>
         )}
       </LoadFade>
@@ -410,7 +500,7 @@ export default function Submit({
         presentationStyle="pageSheet"
         onRequestClose={() => {
           setAddingTask(false);
-          setTaskForm({ emoji: '⭐', title: '', points: '' });
+          setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
         }}
       >
         <KeyboardAvoidingView
@@ -433,7 +523,7 @@ export default function Submit({
               <Pressable
                 onPress={() => {
                   setAddingTask(false);
-                  setTaskForm({ emoji: '⭐', title: '', points: '' });
+                  setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
                 }}
                 hitSlop={8}
               >
@@ -447,7 +537,6 @@ export default function Submit({
               <EmojiField
                 value={taskForm.emoji}
                 onChange={(emoji) => setTaskForm({ ...taskForm, emoji })}
-                autoFocus
               />
               <TextInput
                 style={[styles.input, styles.grow]}
@@ -455,6 +544,7 @@ export default function Submit({
                 onChangeText={(v) => setTaskForm({ ...taskForm, title: v })}
                 placeholder={`A task for ${partnerFirst}`}
                 placeholderTextColor={colors.inkMuted}
+                autoFocus
               />
             </View>
             <TextInput
@@ -469,8 +559,13 @@ export default function Submit({
             />
             <Button
               block
-              disabled={!taskForm.title.trim() || !taskForm.points}
+              disabled={
+                savingTask || !taskForm.title.trim() || !taskForm.points
+              }
               onPress={async () => {
+                if (savingTask) return;
+                haptic(10);
+                setSavingTask(true);
                 setError(null);
                 try {
                   await maybeQueuePushPrompt();
@@ -479,7 +574,7 @@ export default function Submit({
                     Number(taskForm.points),
                     taskForm.emoji,
                   );
-                  setTaskForm({ emoji: '⭐', title: '', points: '' });
+                  setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
                   setAddingTask(false);
                   await load();
                   if (Platform.OS !== 'ios') flushPushPrompt();
@@ -487,10 +582,12 @@ export default function Submit({
                 } catch (err) {
                   queuedPushPrompt.current = false;
                   setError((err as Error).message);
+                } finally {
+                  setSavingTask(false);
                 }
               }}
             >
-              Add task
+              {savingTask ? 'Submitting…' : 'Add task'}
             </Button>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -514,12 +611,18 @@ export default function Submit({
             <View style={styles.modalHeader}>
               <View style={styles.grow}>
                 <Text style={styles.modalTitle}>
-                  {options.length === 0 ? 'Submit a task' : 'Something else'}
+                  {composeMode === 'grant'
+                    ? 'Reward them'
+                    : options.length === 0
+                      ? 'Submit a task'
+                      : 'Something else'}
                 </Text>
                 <Text style={styles.modalSub}>
-                  {options.length === 0
-                    ? `Send ${partner} a point request.`
-                    : `Log a win ${partner} hasn’t listed yet.`}
+                  {composeMode === 'grant'
+                    ? `Send ${partnerFirst} points for something that wasn’t a listed task.`
+                    : options.length === 0
+                      ? `Send ${partner} a point request.`
+                      : `Log a win ${partner} hasn’t listed yet.`}
                 </Text>
               </View>
               <Pressable onPress={closeCompose} hitSlop={8}>
@@ -530,20 +633,27 @@ export default function Submit({
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             <View style={styles.row}>
-              <EmojiField value={emoji} onChange={setEmoji} autoFocus />
+              <EmojiField value={emoji} onChange={setEmoji} />
               <TextInput
                 style={[styles.input, styles.grow]}
                 value={title}
                 onChangeText={setTitle}
-                placeholder="What did you do?"
+                placeholder={
+                  composeMode === 'grant'
+                    ? 'What did they do?'
+                    : 'What did you do?'
+                }
                 placeholderTextColor={colors.inkMuted}
+                autoFocus
               />
             </View>
             <TextInput
               style={styles.input}
               value={points}
               onChangeText={(v) => setPoints(v.replace(/[^0-9]/g, ''))}
-              placeholder="Points requested"
+              placeholder={
+                composeMode === 'grant' ? 'Points to send' : 'Points requested'
+              }
               placeholderTextColor={colors.inkMuted}
               keyboardType="number-pad"
             />
@@ -555,6 +665,7 @@ export default function Submit({
               placeholderTextColor={colors.inkMuted}
             />
 
+            {composeMode === 'request' ? (
             <View style={styles.photoAttach}>
               {images.map((src) => (
                 <View key={src} style={styles.photoThumb}>
@@ -574,9 +685,10 @@ export default function Submit({
                 </Pressable>
               )}
             </View>
+            ) : null}
 
             <Button block onPress={submit} disabled={!canSubmit}>
-              Request points
+              {composeMode === 'grant' ? 'Send points' : 'Request points'}
             </Button>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -584,8 +696,12 @@ export default function Submit({
 
       {success && user && (
         <ReceiptModal
-          kind="request"
-          subtitle={`${partner} will review this next.`}
+          kind={success.granted ? 'grant' : 'request'}
+          subtitle={
+            success.granted
+              ? `${partnerFirst} already has the points. Posted to your feed.`
+              : `${partner} will review this next.`
+          }
           emoji={success.emoji}
           itemTitle={success.title}
           meta={
@@ -596,12 +712,16 @@ export default function Submit({
           points={success.points}
           fromName={user.name}
           toName={user.partnerName ?? 'Partner'}
-          note="Uncheck below if you want this kept off the feed."
+          note={
+            success.granted
+              ? undefined
+              : 'Uncheck below if you want this kept off the feed.'
+          }
           shareLabel="Share receipt"
           skipLabel="Done"
           feedLabel="Post to feed when approved"
           busy={sharing}
-          onShare={() => finish(true)}
+          onShare={success.granted ? undefined : () => finish(true)}
           onSkip={() => void finish(false)}
         />
       )}
@@ -721,6 +841,18 @@ const styles = StyleSheet.create({
     gap: 6,
     ...shadow,
   },
+  tileBody: {
+    flex: 1,
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  scopeHint: {
+    fontSize: 13,
+    color: colors.inkMuted,
+    lineHeight: 18,
+  },
   tileEmoji: { fontSize: 28 },
   tileTitle: {
     fontSize: 13,
@@ -759,6 +891,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.inkMuted,
     textAlign: 'center',
+    lineHeight: 17,
+  },
+  grantBanner: {
+    alignSelf: 'stretch',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    backgroundColor: colors.card,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    shadowColor: '#1a2433',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  grantBannerPressed: { transform: [{ scale: 0.98 }] },
+  grantBannerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#e8f4ff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  grantBannerCopy: { flex: 1, gap: 2 },
+  grantBannerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+    color: colors.ink,
+    lineHeight: 19,
+  },
+  grantBannerSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.blue,
     lineHeight: 17,
   },
   modalSheet: { flex: 1, backgroundColor: colors.bg },

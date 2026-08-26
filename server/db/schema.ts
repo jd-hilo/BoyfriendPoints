@@ -90,6 +90,7 @@ export const submissions = pgTable('submissions', {
   status: text('status').notNull(), // pending | approved | denied
   revised: boolean('revised').notNull().default(false),
   shared: boolean('shared').notNull().default(false),
+  granted: boolean('granted').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
     .notNull()
     .defaultNow(),
@@ -171,6 +172,9 @@ export const feed = pgTable('feed', {
         avatarUrl?: string;
         text: string;
         createdAt: string;
+        replyToId?: string;
+        replyToUserId?: string;
+        replyToName?: string;
       }[]
     >()
     .notNull()

@@ -6,6 +6,7 @@ import type {
   FeedReaction,
   FriendRequestView,
   NotificationItem,
+  PersonPeek,
   Prize,
   PublicUser,
   Redemption,
@@ -190,6 +191,11 @@ export const api = {
       method: 'POST',
       body: { title, points, emoji, note, images },
     }),
+  grant: (title: string, points: number, emoji?: string, note?: string) =>
+    request<{ submission: Submission }>('/submissions/grant', {
+      method: 'POST',
+      body: { title, points, emoji, note },
+    }),
   approve: (id: string, points?: number) =>
     request<{ submission: Submission }>(`/submissions/${id}/approve`, {
       method: 'POST',
@@ -214,6 +220,7 @@ export const api = {
     request<Redemption>(`/redemptions/${id}/fulfill`, { method: 'POST' }),
 
   feed: () => request<FeedEventView[]>('/feed'),
+  person: (id: string) => request<PersonPeek>(`/people/${encodeURIComponent(id)}`),
   notifications: () => request<NotificationItem[]>('/notifications'),
   like: (id: string) =>
     request<{ id: string; likes: number; likedByMe: boolean }>(
@@ -225,9 +232,9 @@ export const api = {
       method: 'POST',
       body: { emoji },
     }),
-  comment: (id: string, text: string) =>
+  comment: (id: string, text: string, replyToId?: string) =>
     request<{ id: string; comments: FeedComment[] }>(`/feed/${id}/comment`, {
       method: 'POST',
-      body: { text },
+      body: { text, replyToId },
     }),
 };

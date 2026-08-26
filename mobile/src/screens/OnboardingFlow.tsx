@@ -13,11 +13,11 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import type { EarnTask, Prize, Role, Suggestion } from '../types';
+import type { EarnTask, Prize, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
-import { Button, EmojiField, Xp } from '../ui';
+import { Button, EmojiField, TASK_EMOJIS, Xp } from '../ui';
 import AddCouplesModal from '../AddCouplesModal';
 import {
   PrimaryButton,
@@ -26,10 +26,10 @@ import {
   StepShell,
   stepStyles,
 } from '../stepChrome';
-import { APP_SHARE_URL, partnerWaitingShareMessage } from '../utils';
+import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 
 const SLIDE_MS = 5000;
-const TOTAL_STEPS = 8;
+const TOTAL_STEPS = 9;
 
 type Phase = 'slides' | 'steps';
 
@@ -186,8 +186,8 @@ const SLIDES = [
 ];
 
 /**
- * Steps: 0=email 1=password 2=name 3=skipped 4=couple username
- * 5=partner 6=tasks 7=prizes 8=friends.
+ * Steps: 0=email 1=password 2=name 3=start vs join
+ * 4=couple username (create path only) 5=partner 6=tasks 7=prizes 8=friends.
  */
 function resumeStepFor(user: {
   partnerId?: string;
@@ -206,7 +206,9 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role | null>(user?.role ?? 'wife');
+  const [householdPath, setHouseholdPath] = useState<'create' | 'join' | null>(
+    null,
+  );
   const [name, setName] = useState(user?.name ?? '');
   const [coupleUsername, setCoupleUsername] = useState(
     user?.coupleUsername ?? '',
@@ -219,7 +221,6 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
   useEffect(() => {
     if (!user || user.onboarded) return;
     setPhase('steps');
-    setRole((r) => r ?? user.role);
     setName((n) => n || user.name);
     setCoupleUsername((current) => current || user.coupleUsername || '');
     setStep((current) => (current < 5 ? resumeStepFor(user) : current));
@@ -233,7 +234,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
         .coupleUsernameAvailable(coupleUsername)
         .then(({ available }) => {
           if (cancelled || available) return;
-          setError('That couple username is already taken');
+            setError('That couple username is already taken. Go back and choose “I’m joining my partner” instead.');
         })
         .catch(() => undefined);
     }, 350);
@@ -244,18 +245,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
   }, [coupleUsername, step]);
 
   const totalSteps = TOTAL_STEPS;
-  const progressStep =
-    step <= 2
-      ? step
-      : step === 4
-        ? 3
-        : step === 5
-          ? 4
-          : step === 6
-            ? 5
-            : step === 7
-              ? 6
-              : 7;
+  const progressStep = Math.min(step, totalSteps - 1);
 
   async function continueFromEmail() {
     setError(null);
@@ -275,15 +265,18 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
   }
 
   /** Create the account after name + couple username. */
-  async function createAccount() {
+  async function createAccount(opts?: { skipUsername?: boolean }) {
     setError(null);
     setBusy(true);
     try {
-      if (coupleUsername.trim().length >= 3) {
+      const requested = opts?.skipUsername ? '' : coupleUsername.trim();
+      if (requested.length >= 3) {
         try {
-          const { available } = await api.coupleUsernameAvailable(coupleUsername);
+          const { available } = await api.coupleUsernameAvailable(requested);
           if (!available) {
-            setError('That couple username is already taken');
+            setError(
+              'That couple username is already taken. Go back and choose “I’m joining my partner” instead.',
+            );
             setStep(4);
             return;
           }
@@ -296,14 +289,18 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
         email.trim(),
         password,
         'wife',
-        coupleUsername,
+        requested || undefined,
       );
       await api.me();
       setStep(5);
     } catch (err) {
       const message = (err as Error).message;
       if (/already taken/i.test(message)) {
-        setError(message);
+        setError(
+          /couple username/i.test(message)
+            ? 'That couple username is already taken. Go back and choose “I’m joining my partner” instead.'
+            : message,
+        );
         setStep(/couple username/i.test(message) ? 4 : 0);
       } else {
         setError(message);
@@ -329,21 +326,6 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
     setStep(6);
   }
 
-  /** Let people fix a mis-picked role while setup is still reversible. */
-  async function changeRole(next: Role) {
-    setError(null);
-    setBusy(true);
-    try {
-      const me = await api.setRole(next);
-      await applyUser(me);
-      setRole(next);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (phase === 'slides') {
     return (
       <Slideshow
@@ -365,10 +347,13 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
           onBack={
             user
               ? undefined
-              : step > 0 && step <= 3
-                ? () => setStep((s) => s - 1)
-                : step === 0
-                  ? () => setPhase('slides')
+              : step === 0
+                ? () => setPhase('slides')
+                : step > 0 && step <= 4
+                  ? () => {
+                      setError(null);
+                      setStep((s) => s - 1);
+                    }
                   : undefined
           }
         />
@@ -461,7 +446,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               disabled={!name.trim()}
               onPress={() => {
                 setError(null);
-                setStep(4);
+                setStep(3);
               }}
             />
           </StepShell>
@@ -469,41 +454,49 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
 
         {step === 3 && (
           <StepShell
-            title="What will you do?"
-            sub="Pick your role in the household. You can always invite the other later."
+            title="Are you starting, or joining?"
+            sub="If your partner already made the couple, join them. Don’t create a second one."
             error={error}
           >
             <RoleCard
-              emoji="🎁"
-              title="I'll set the prizes"
-              body="Approve receipts, invent rewards, and invite your partner with a code."
-              selected={role === 'wife'}
-              onPress={() => setRole('wife')}
+              emoji="✨"
+              title="I’m creating it"
+              body="You’ll pick a couple username, then invite them with a household code."
+              selected={householdPath === 'create'}
+              onPress={() => {
+                haptic(10);
+                setHouseholdPath('create');
+                if (error) setError(null);
+              }}
             />
             <RoleCard
-              emoji="💪"
-              title="I'll redeem points"
-              body="Do the tasks, stack points, and cash them in for prizes."
-              selected={role === 'boyfriend'}
-              onPress={() => setRole('boyfriend')}
+              emoji="💌"
+              title="I’m joining my partner"
+              body="They already started. Next you’ll enter their household code and inherit their username."
+              selected={householdPath === 'join'}
+              onPress={() => {
+                haptic(10);
+                setHouseholdPath('join');
+                if (error) setError(null);
+              }}
             />
             <PrimaryButton
               label={
                 busy
                   ? undefined
-                  : role === 'wife'
-                    ? 'Choose our username'
-                    : 'Create account & continue'
+                  : householdPath === 'join'
+                    ? 'Join my partner'
+                    : 'Continue'
               }
               busy={busy}
-              disabled={!role || busy}
+              disabled={!householdPath || busy}
               onPress={() => {
-                if (role === 'wife') {
-                  setError(null);
-                  setStep(4);
-                } else {
-                  void createAccount();
+                if (householdPath === 'join') {
+                  void createAccount({ skipUsername: true });
+                  return;
                 }
+                setError(null);
+                setStep(4);
               }}
             />
           </StepShell>
@@ -512,7 +505,7 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
         {step === 4 && (
           <StepShell
             title="Choose your couple username"
-            sub="Friends will see this when you share your couple profile."
+            sub="Friends will see this when you share your couple."
             error={error}
           >
             <View style={styles.usernameInputWrap}>
@@ -548,15 +541,22 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
           </StepShell>
         )}
 
-        {step === 5 && (
-          <StepInvitePartner
-            onNext={afterPartner}
-            inviteCode={user?.inviteCode}
-            partnerName={user?.partnerName}
-            sharerName={user?.name ?? name}
-            refresh={refresh}
-          />
-        )}
+        {step === 5 &&
+          (householdPath === 'join' ? (
+            <StepEnterCode
+              onNext={afterPartner}
+              refresh={refresh}
+              partnerName={user?.partnerName}
+            />
+          ) : (
+            <StepInvitePartner
+              onNext={afterPartner}
+              inviteCode={user?.inviteCode}
+              partnerName={user?.partnerName}
+              sharerName={user?.name ?? name}
+              refresh={refresh}
+            />
+          ))}
 
         {step === 6 && (
           <StepCatalog
@@ -845,8 +845,8 @@ function StepEnterCode({
 
   return (
     <StepShell
-      title="Enter their code"
-      sub="Your partner who sets the prizes shared a 6-character household code with you."
+      title="Join your partner"
+      sub="Ask them for the 6-character household code in Profile — not their couple username."
       error={error}
     >
       {linked ? (
@@ -875,7 +875,7 @@ function StepEnterCode({
       ) : (
         <>
           <PrimaryButton
-            label={busy ? undefined : 'Join household'}
+            label={busy ? undefined : 'Join my partner'}
             busy={busy}
             disabled={code.trim().length < 4 || busy}
             onPress={() => void join()}
@@ -904,7 +904,7 @@ function StepCatalog({
   const isPrize = kind === 'prize';
   const noun = isPrize ? 'prize' : 'task';
   const nouns = isPrize ? 'prizes' : 'tasks';
-  const defaultEmoji = isPrize ? '🎁' : '⭐';
+  const defaultEmoji = isPrize ? '🎁' : TASK_EMOJIS[0];
   const partnerFirst = user?.partnerName?.split(' ')[0] || 'them';
 
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -916,6 +916,7 @@ function StepCatalog({
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ emoji: defaultEmoji, title: '', points: '' });
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -957,7 +958,9 @@ function StepCatalog({
     customPoints > 0;
 
   function addCustom() {
-    if (!customValid) return;
+    if (!customValid || saving) return;
+    haptic(10);
+    setSaving(true);
     setCustom((c) => [
       ...c,
       {
@@ -967,6 +970,7 @@ function StepCatalog({
       },
     ]);
     closeModal();
+    setSaving(false);
   }
 
   const picked = [
@@ -1108,11 +1112,12 @@ function StepCatalog({
               </Pressable>
             </View>
 
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+
             <View style={styles.modalRow}>
               <EmojiField
                 value={form.emoji}
                 onChange={(emoji) => setForm({ ...form, emoji })}
-                autoFocus
               />
               <TextInput
                 style={[styles.modalInput, styles.modalGrow]}
@@ -1124,6 +1129,7 @@ function StepCatalog({
                     : `A task for ${partnerFirst}`
                 }
                 placeholderTextColor={colors.inkMuted}
+                autoFocus
               />
             </View>
             <TextInput
@@ -1136,8 +1142,16 @@ function StepCatalog({
               placeholderTextColor={colors.inkMuted}
               keyboardType="number-pad"
             />
-            <Button block disabled={!customValid} onPress={addCustom}>
-              {isPrize ? 'Add prize' : 'Add task'}
+            <Button
+              block
+              disabled={!customValid || saving}
+              onPress={addCustom}
+            >
+              {saving
+                ? 'Submitting…'
+                : isPrize
+                  ? 'Add prize'
+                  : 'Add task'}
             </Button>
           </ScrollView>
         </KeyboardAvoidingView>

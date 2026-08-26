@@ -260,13 +260,18 @@ export default function MainApp({
           onClose={() => {
             setProfileOpen(false);
             setProfileFocusJoin(false);
+            bump();
           }}
         />
       )}
       {approval && user && (
         <ReceiptModal
-          kind="approve"
-          subtitle={`${user.partnerName ?? 'Your partner'} just paid you +${approval.points} 💎.`}
+          kind={approval.granted ? 'earn' : 'approve'}
+          subtitle={
+            approval.granted
+              ? `${user.partnerName ?? 'Your partner'} sent you +${approval.points} 💎.`
+              : `${user.partnerName ?? 'Your partner'} just paid you +${approval.points} 💎.`
+          }
           emoji={approval.emoji}
           itemTitle={approval.title}
           points={approval.points}

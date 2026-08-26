@@ -94,6 +94,60 @@ describe('BoyfriendPoints API', () => {
       .expect(201);
   });
 
+  it('lets a partner grant points without a request', async () => {
+    const { client } = makeClient();
+    const personas = await client.get('/api/personas');
+    const emma = personas.body.find((p: { name: string }) => p.name === 'Emma');
+    const noah = personas.body.find((p: { name: string }) => p.name === 'Noah');
+    const wife = await client
+      .post('/api/auth/device')
+      .send({ userId: emma.id });
+    const bf = await client.post('/api/auth/device').send({ userId: noah.id });
+    const before = bf.body.user.points as number;
+
+    const granted = await client
+      .post('/api/submissions/grant')
+      .set('Authorization', `Bearer ${wife.body.token}`)
+      .send({ title: 'Took out the trash', emoji: '🗑️', points: 12 })
+      .expect(201);
+    expect(granted.body.submission.status).toBe('approved');
+    expect(granted.body.submission.granted).toBe(true);
+    expect(granted.body.submission.boyfriendId).toBe(noah.id);
+
+    const me = await client
+      .get('/api/me')
+      .set('Authorization', `Bearer ${bf.body.token}`)
+      .expect(200);
+    expect(me.body.points).toBe(before + 12);
+
+    const notifs = await client
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${bf.body.token}`)
+      .expect(200);
+    expect(
+      (notifs.body as { kind: string }[]).some((n) => n.kind === 'granted'),
+    ).toBe(true);
+  });
+
+  it('opens a person peek from the feed circle', async () => {
+    const { client } = makeClient();
+    const personas = await client.get('/api/personas');
+    const emma = personas.body.find((p: { name: string }) => p.name === 'Emma');
+    const noah = personas.body.find((p: { name: string }) => p.name === 'Noah');
+    const wife = await client
+      .post('/api/auth/device')
+      .send({ userId: emma.id });
+
+    const peek = await client
+      .get(`/api/people/${noah.id}`)
+      .set('Authorization', `Bearer ${wife.body.token}`)
+      .expect(200);
+    expect(peek.body.name).toBe('Noah');
+    expect(peek.body.partnerName).toBe('Emma');
+    expect(peek.body.email).toBeUndefined();
+    expect(Array.isArray(peek.body.activity)).toBe(true);
+  });
+
   it('requires auth for protected routes', async () => {
     const { client } = makeClient();
     await client.get('/api/feed').expect(401);

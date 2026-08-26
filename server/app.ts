@@ -15,7 +15,9 @@ import {
   completeOnboarding,
   createSubmission,
   denySubmission,
+  grantPoints,
   deviceLogin,
+  personPeekForUser,
   feedForUser,
   friendRequestsForUser,
   findByEmail,
@@ -49,6 +51,8 @@ import {
   joinWithInviteCode,
   switchRole,
   updateProfile,
+  syncAuthorOnFeed,
+  commentsWithLiveAuthors,
   submissionsForUser,
   TASK_SUGGESTIONS,
   tasksForUser,
@@ -62,12 +66,12 @@ import {
   verifyAppleIdentityToken,
   verifyNeonIdentityToken,
 } from './identity.ts';
-import { notifyOwners, notifyUser, userById } from './push.ts';
+import { notifyCommentActivity, notifyOwners, notifyUser, userById } from './push.ts';
 import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './media.ts';
 import { captureEvent, captureException } from './analytics.ts';
 import type { Database } from './db/client.ts';
 import { users } from './db/schema.ts';
-import { asUser } from './db/store.ts';
+import { asUser, hydrateHousehold, persistPartnerPair, persistUserProfile } from './db/store.ts';
 import { createSession, deleteSession, sessionUserId } from './db/sessions.ts';
 import { eq } from 'drizzle-orm';
 
@@ -178,6 +182,14 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         }
       } catch {
         /* stay unauthenticated */
+      }
+    }
+    if (db && req.user && !req.path.startsWith('/api/media')) {
+      try {
+        const live = await hydrateHousehold(db, state, req.user.id);
+        if (live) req.user = live;
+      } catch {
+        /* keep the in-memory user */
       }
     }
     next();
@@ -470,7 +482,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     res.json(publicUser(state, user));
   });
 
-  app.patch('/api/me', (req: AuthedRequest, res) => {
+  app.patch('/api/me', async (req: AuthedRequest, res) => {
     const user = requireAuth(req, res);
     if (!user) return;
     try {
@@ -482,6 +494,14 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         name: req.body?.name ? String(req.body.name) : undefined,
         avatarUrl: req.body?.avatarUrl ? String(req.body.avatarUrl) : undefined,
       });
+      syncAuthorOnFeed(state, user);
+      if (db) {
+        try {
+          await persistUserProfile(db, user);
+        } catch {
+          /* persist() still dumps the profile */
+        }
+      }
       persist();
       res.json(publicUser(state, user));
     } catch (err) {
@@ -502,7 +522,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   // --- Onboarding ---------------------------------------------------------
-  app.post('/api/onboarding/join', (req: AuthedRequest, res) => {
+  app.post('/api/onboarding/join', async (req: AuthedRequest, res) => {
     const user = requireAuth(req, res);
     if (!user) return;
     try {
@@ -511,6 +531,13 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         user,
         String(req.body?.code ?? ''),
       );
+      if (db) {
+        try {
+          await persistPartnerPair(db, user, wife);
+        } catch {
+          /* persist() still dumps the linked pair */
+        }
+      }
       persist();
       track(req, user, 'partner_joined');
       res.json({
@@ -522,7 +549,7 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     }
   });
 
-  app.post('/api/onboarding/boyfriend', (req: AuthedRequest, res) => {
+  app.post('/api/onboarding/boyfriend', async (req: AuthedRequest, res) => {
     const wife = requireAuth(req, res);
     if (!wife) return;
     try {
@@ -531,6 +558,13 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
         email: String(req.body?.email ?? ''),
         password: req.body?.password ? String(req.body.password) : undefined,
       });
+      if (db) {
+        try {
+          await persistPartnerPair(db, wife, bf);
+        } catch {
+          /* persist() still dumps the linked pair */
+        }
+      }
       persist();
       track(req, wife, 'partner_invited');
       res.status(201).json({
@@ -543,11 +577,21 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     }
   });
 
-  app.delete('/api/partner', (req: AuthedRequest, res) => {
+  app.delete('/api/partner', async (req: AuthedRequest, res) => {
     const wife = requireAuth(req, res);
     if (!wife) return;
     try {
+      const partner = wife.partnerId
+        ? state.users.find((candidate) => candidate.id === wife.partnerId)
+        : undefined;
       removePartner(state, wife);
+      if (db && partner) {
+        try {
+          await persistPartnerPair(db, wife, partner);
+        } catch {
+          /* persist() still dumps the unlinked pair */
+        }
+      }
       persist();
       res.json(publicUser(state, wife));
     } catch (err) {
@@ -783,6 +827,31 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     }
   });
 
+  app.post('/api/submissions/grant', (req: AuthedRequest, res) => {
+    const granter = requireAuth(req, res);
+    if (!granter) return;
+    try {
+      const result = grantPoints(state, granter, {
+        title: String(req.body?.title ?? ''),
+        emoji: req.body?.emoji ? String(req.body.emoji) : undefined,
+        points: Number(req.body?.points),
+        note: req.body?.note ? String(req.body.note) : undefined,
+      });
+      persist();
+      void notifyUser(
+        userById(state, result.submission.boyfriendId),
+        `${granter.name} sent you points`,
+        `${result.submission.emoji} ${result.submission.title} · +${result.submission.points} 💎`,
+      );
+      track(req, granter, 'points_granted', {
+        points: result.submission.points,
+      });
+      res.status(201).json(result);
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
   app.post('/api/submissions/:id/approve', (req: AuthedRequest, res) => {
     const wife = requireAuth(req, res);
     if (!wife) return;
@@ -895,6 +964,16 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     res.json(feedForUser(state, user));
   });
 
+  app.get('/api/people/:id', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      res.json(personPeekForUser(state, user, req.params.id));
+    } catch (err) {
+      res.status(404).json({ error: (err as Error).message });
+    }
+  });
+
   app.get('/api/notifications', (req: AuthedRequest, res) => {
     const user = requireAuth(req, res);
     if (!user) return;
@@ -949,18 +1028,21 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
     const user = requireAuth(req, res);
     if (!user) return;
     try {
-      const event = addComment(state, user, req.params.id, String(req.body?.text ?? ''));
+      const event = addComment(
+        state,
+        user,
+        req.params.id,
+        String(req.body?.text ?? ''),
+        req.body?.replyToId ? String(req.body.replyToId) : undefined,
+      );
       persist();
       const last = event.comments[event.comments.length - 1];
-      notifyOwners(
-        state,
-        event,
-        user.id,
-        `${user.name} commented`,
-        last ? `“${last.text}”` : `${event.emoji} ${event.title}`,
-      );
-      track(req, user, 'feed_commented');
-      res.json({ id: event.id, comments: event.comments });
+      if (last) notifyCommentActivity(state, event, user, last);
+      track(req, user, last?.replyToId ? 'feed_replied' : 'feed_commented');
+      res.json({
+        id: event.id,
+        comments: commentsWithLiveAuthors(state, event.comments),
+      });
     } catch (err) {
       fail(res, err);
     }

@@ -1,7 +1,13 @@
 import * as Sharing from 'expo-sharing';
 import { posthog } from './posthog';
 
-export type ReceiptKind = 'request' | 'earn' | 'redeem' | 'fulfill' | 'approve';
+export type ReceiptKind =
+  | 'request'
+  | 'earn'
+  | 'redeem'
+  | 'fulfill'
+  | 'approve'
+  | 'grant';
 
 export interface ReceiptData {
   kind: ReceiptKind;
@@ -20,6 +26,7 @@ export const RECEIPT_HEADLINE: Record<ReceiptKind, string> = {
   redeem: 'Prize redeemed',
   fulfill: 'Prize given',
   approve: 'You approved it',
+  grant: 'Points sent',
 };
 
 export function signFor(kind: ReceiptKind): '+' | '−' {

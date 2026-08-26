@@ -15,7 +15,7 @@ import {
 import type { EarnTask, Prize, PublicUser } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import { Avatar, Button, Xp } from '../ui';
+import { Avatar, Button, EmojiField, TASK_EMOJIS, Xp } from '../ui';
 import { colors, radius, shadow } from '../theme';
 import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
@@ -26,9 +26,14 @@ export default function WifeManage() {
   const [tasks, setTasks] = useState<EarnTask[]>([]);
   const [friends, setFriends] = useState<PublicUser[]>([]);
   const [prizeForm, setPrizeForm] = useState({ emoji: '🎁', title: '', cost: '' });
-  const [taskForm, setTaskForm] = useState({ emoji: '⭐', title: '', points: '' });
+  const [taskForm, setTaskForm] = useState({
+    emoji: TASK_EMOJIS[0],
+    title: '',
+    points: '',
+  });
   const [addingPrize, setAddingPrize] = useState(false);
   const [addingTask, setAddingTask] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [addCouplesOpen, setAddCouplesOpen] = useState(false);
@@ -47,6 +52,9 @@ export default function WifeManage() {
   }, [load]);
 
   async function addPrize() {
+    if (saving) return;
+    haptic(10);
+    setSaving(true);
     setError(null);
     try {
       await api.addPrize(prizeForm.title, Number(prizeForm.cost), prizeForm.emoji);
@@ -55,6 +63,8 @@ export default function WifeManage() {
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -64,14 +74,19 @@ export default function WifeManage() {
   }
 
   async function addTask() {
+    if (saving) return;
+    haptic(10);
+    setSaving(true);
     setError(null);
     try {
       await api.addTask(taskForm.title, Number(taskForm.points), taskForm.emoji);
-      setTaskForm({ emoji: '⭐', title: '', points: '' });
+      setTaskForm({ emoji: TASK_EMOJIS[0], title: '', points: '' });
       setAddingTask(false);
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -193,11 +208,9 @@ export default function WifeManage() {
         {addingTask && (
           <View style={styles.card}>
             <View style={styles.row}>
-              <TextInput
-                style={styles.emojiInput}
+              <EmojiField
                 value={taskForm.emoji}
-                onChangeText={(v) => setTaskForm({ ...taskForm, emoji: v })}
-                maxLength={2}
+                onChange={(emoji) => setTaskForm({ ...taskForm, emoji })}
               />
               <TextInput
                 style={[styles.input, styles.grow]}
@@ -214,8 +227,11 @@ export default function WifeManage() {
                 placeholder="Points they earn"
                 keyboardType="number-pad"
               />
-              <Button disabled={!taskForm.title || !taskForm.points} onPress={addTask}>
-                Add
+              <Button
+                disabled={saving || !taskForm.title || !taskForm.points}
+                onPress={() => void addTask()}
+              >
+                {saving ? 'Submitting…' : 'Add'}
               </Button>
             </View>
             <Pressable onPress={() => setAddingTask(false)}>
@@ -281,11 +297,9 @@ export default function WifeManage() {
             </Pressable>
           </View>
           <View style={styles.row}>
-            <TextInput
-              style={styles.emojiInput}
+            <EmojiField
               value={prizeForm.emoji}
-              onChangeText={(v) => setPrizeForm({ ...prizeForm, emoji: v })}
-              maxLength={2}
+              onChange={(emoji) => setPrizeForm({ ...prizeForm, emoji })}
             />
             <TextInput
               style={[styles.input, styles.grow]}
@@ -308,10 +322,10 @@ export default function WifeManage() {
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Button
             block
-            disabled={!prizeForm.title.trim() || !prizeForm.cost}
+            disabled={saving || !prizeForm.title.trim() || !prizeForm.cost}
             onPress={() => void addPrize()}
           >
-            Add prize
+            {saving ? 'Submitting…' : 'Add prize'}
           </Button>
         </KeyboardAvoidingView>
       </Modal>
@@ -372,14 +386,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: colors.bg,
     color: colors.ink,
-  },
-  emojiInput: {
-    width: 52,
-    textAlign: 'center',
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: colors.bg,
-    fontSize: 16,
   },
   list: { gap: 10 },
   miniRow: {

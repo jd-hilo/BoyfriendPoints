@@ -106,6 +106,8 @@ export interface Submission {
   revised: boolean;
   /** When true, approval posts this win to the social feed (Venmo-style). */
   shared: boolean;
+  /** Partner sent these points unprompted (not a request they approved). */
+  granted?: boolean;
   createdAt: string;
   resolvedAt?: string;
 }
@@ -140,6 +142,9 @@ export interface FeedComment {
   avatarUrl?: string;
   text: string;
   createdAt: string;
+  replyToId?: string;
+  replyToUserId?: string;
+  replyToName?: string;
 }
 
 export interface FeedEvent {
@@ -156,6 +161,32 @@ export interface FeedEvent {
   reactions: FeedReaction[];
   comments: FeedComment[];
   createdAt: string;
+}
+
+/** Public profile peek from a feed name — no email, codes, or points. */
+export interface PersonPeekActivity {
+  id: string;
+  type: FeedType;
+  title: string;
+  emoji: string;
+  points: number;
+  createdAt: string;
+  withId: string;
+  withName: string;
+  image?: string;
+}
+
+export interface PersonPeek {
+  id: string;
+  name: string;
+  color: string;
+  avatarUrl?: string;
+  partnerId?: string;
+  partnerName?: string;
+  partnerColor?: string;
+  partnerAvatar?: string;
+  coupleUsername?: string;
+  activity: PersonPeekActivity[];
 }
 
 /** Feed row enriched with display names for the client. */
@@ -178,10 +209,12 @@ export interface Suggestion {
 export type NotificationKind =
   | 'request'
   | 'approved'
+  | 'granted'
   | 'denied'
   | 'redeem'
   | 'reaction'
   | 'comment'
+  | 'comment_reply'
   | 'prize'
   | 'friend_request'
   | 'friend_accepted';

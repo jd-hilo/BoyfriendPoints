@@ -24,6 +24,7 @@ export default function Redeem({
   const [created, setCreated] = useState<Prize[]>([]);
   const [prizeForm, setPrizeForm] = useState({ emoji: '🎁', title: '', cost: '' });
   const [addingPrize, setAddingPrize] = useState(false);
+  const [savingPrize, setSavingPrize] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [success, setSuccess] = useState<SuccessInfo | null>(null);
@@ -61,6 +62,9 @@ export default function Redeem({
 
   async function addPrize(e: React.FormEvent) {
     e.preventDefault();
+    if (savingPrize) return;
+    haptic(10);
+    setSavingPrize(true);
     setError(null);
     try {
       await api.addPrize(prizeForm.title, Number(prizeForm.cost), prizeForm.emoji);
@@ -69,6 +73,8 @@ export default function Redeem({
       await load();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setSavingPrize(false);
     }
   }
 
@@ -266,7 +272,6 @@ export default function Redeem({
               <EmojiField
                 value={prizeForm.emoji}
                 onChange={(next) => setPrizeForm({ ...prizeForm, emoji: next })}
-                autoFocus
               />
               <input
                 className="grow"
@@ -291,9 +296,9 @@ export default function Redeem({
             <Button
               type="submit"
               block
-              disabled={!prizeForm.title.trim() || !prizeForm.cost}
+              disabled={savingPrize || !prizeForm.title.trim() || !prizeForm.cost}
             >
-              Add prize
+              {savingPrize ? 'Submitting…' : 'Add prize'}
             </Button>
           </form>
         </div>

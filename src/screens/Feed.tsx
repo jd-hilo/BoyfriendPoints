@@ -9,8 +9,36 @@ import { useAuth } from '../auth.tsx';
 import { Avatar, Xp } from '../ui.tsx';
 import { haptic, timeAgo } from '../utils.ts';
 import AddFriends from './AddFriends.tsx';
+import PersonPeekSheet, { type PersonPreview } from './PersonPeek.tsx';
 
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
+
+function liveComment(
+  comment: FeedComment,
+  me:
+    | {
+        id: string;
+        name: string;
+        avatarUrl?: string;
+      }
+    | null
+    | undefined,
+): FeedComment {
+  if (!me) return comment;
+  if (comment.userId === me.id) {
+    return {
+      ...comment,
+      name: me.name,
+      avatarUrl: me.avatarUrl ?? comment.avatarUrl,
+      replyToName:
+        comment.replyToUserId === me.id ? me.name : comment.replyToName,
+    };
+  }
+  if (comment.replyToUserId === me.id) {
+    return { ...comment, replyToName: me.name };
+  }
+  return comment;
+}
 
 function PhotoCarousel({ images }: { images: string[] }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -56,6 +84,7 @@ export default function Feed() {
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [popped, setPopped] = useState<string | null>(null);
   const [addFriendsOpen, setAddFriendsOpen] = useState(false);
+  const [peek, setPeek] = useState<PersonPreview | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -109,9 +138,9 @@ export default function Feed() {
 
   const activeCommentEvent = events.find((e) => e.id === commentsFor) ?? null;
 
-  async function addComment(id: string, text: string) {
+  async function addComment(id: string, text: string, replyToId?: string) {
     haptic(12);
-    const res = await api.comment(id, text);
+    const res = await api.comment(id, text, replyToId);
     setEvents((prev) =>
       prev.map((e) => (e.id === id ? { ...e, comments: res.comments } : e)),
     );
@@ -202,8 +231,24 @@ export default function Feed() {
               />
             </div>
 
-            <p className="story-line">
-              <span className="story-person">
+            <div className="story-line">
+              <button
+                type="button"
+                className="story-person story-person-btn"
+                onClick={() => {
+                  haptic(8);
+                  setPeek({
+                    id: e.boyfriendId,
+                    name: e.boyfriendName,
+                    color: e.boyfriendColor,
+                    avatarUrl: e.boyfriendAvatar,
+                    partnerId: e.wifeId,
+                    partnerName: e.wifeName,
+                    partnerColor: e.wifeColor,
+                    partnerAvatar: e.wifeAvatar,
+                  });
+                }}
+              >
                 <Avatar
                   name={e.boyfriendName}
                   color={e.boyfriendColor}
@@ -211,11 +256,27 @@ export default function Feed() {
                   size={22}
                 />
                 <span className="name">{e.boyfriendName}</span>
-              </span>
+              </button>
               <span className="verb">
                 {e.type === 'earn' ? 'earned from' : 'redeemed with'}
               </span>
-              <span className="story-person">
+              <button
+                type="button"
+                className="story-person story-person-btn"
+                onClick={() => {
+                  haptic(8);
+                  setPeek({
+                    id: e.wifeId,
+                    name: e.wifeName,
+                    color: e.wifeColor,
+                    avatarUrl: e.wifeAvatar,
+                    partnerId: e.boyfriendId,
+                    partnerName: e.boyfriendName,
+                    partnerColor: e.boyfriendColor,
+                    partnerAvatar: e.boyfriendAvatar,
+                  });
+                }}
+              >
                 <Avatar
                   name={e.wifeName}
                   color={e.wifeColor}
@@ -223,12 +284,12 @@ export default function Feed() {
                   size={22}
                 />
                 <span className="name">{e.wifeName}</span>
-              </span>
+              </button>
               <span className="story-reason">
                 {e.emoji} {e.title}
                 {e.note ? ` — ${e.note}` : ''}
               </span>
-            </p>
+            </div>
 
             {e.type === 'earn' && e.images.length > 0 && (
               <PhotoCarousel images={e.images} />
@@ -293,7 +354,21 @@ export default function Feed() {
         <CommentSheet
           event={activeCommentEvent}
           onClose={() => setCommentsFor(null)}
-          onSubmitComment={(text) => addComment(activeCommentEvent.id, text)}
+          onSubmitComment={(text, replyToId) =>
+            addComment(activeCommentEvent.id, text, replyToId)
+          }
+          onOpenPerson={(next) => {
+            haptic(8);
+            setPeek(next);
+          }}
+        />
+      )}
+
+      {peek && (
+        <PersonPeekSheet
+          preview={peek}
+          onClose={() => setPeek(null)}
+          onOpenPerson={setPeek}
         />
       )}
 
@@ -407,24 +482,59 @@ function EmojiPicker({
   );
 }
 
+function threadedComments(comments: FeedComment[]): FeedComment[] {
+  const ids = new Set(comments.map((c) => c.id));
+  const roots = comments.filter((c) => !c.replyToId || !ids.has(c.replyToId));
+  const children = new Map<string, FeedComment[]>();
+  for (const c of comments) {
+    if (!c.replyToId || !ids.has(c.replyToId)) continue;
+    let root = c.replyToId;
+    const seen = new Set<string>();
+    while (root && ids.has(root) && !seen.has(root)) {
+      seen.add(root);
+      const parent = comments.find((item) => item.id === root);
+      if (!parent?.replyToId || !ids.has(parent.replyToId)) break;
+      root = parent.replyToId;
+    }
+    const list = children.get(root) ?? [];
+    list.push(c);
+    children.set(root, list);
+  }
+  const out: FeedComment[] = [];
+  for (const root of roots) {
+    out.push(root);
+    const kids = (children.get(root.id) ?? []).sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+    out.push(...kids);
+  }
+  return out;
+}
+
 function CommentSheet({
   event,
   onClose,
   onSubmitComment,
+  onOpenPerson,
 }: {
   event: FeedEventView;
   onClose: () => void;
-  onSubmitComment: (text: string) => void | Promise<void>;
+  onSubmitComment: (text: string, replyToId?: string) => void | Promise<void>;
+  onOpenPerson: (next: PersonPreview) => void;
 }) {
+  const { user } = useAuth();
   const [text, setText] = useState('');
-  const comments: FeedComment[] = event.comments;
+  const [replyTo, setReplyTo] = useState<FeedComment | null>(null);
+  const comments = threadedComments(event.comments);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     const value = text.trim();
     if (!value) return;
+    const parentId = replyTo?.id;
     setText('');
-    await onSubmitComment(value);
+    setReplyTo(null);
+    await onSubmitComment(value, parentId);
   }
 
   return (
@@ -444,27 +554,91 @@ function CommentSheet({
               No comments yet. Be the first 💬
             </p>
           ) : (
-            comments.map((c) => (
-              <div key={c.id} className="comment">
-                <Avatar name={c.name} color="#008CFF" src={c.avatarUrl} size={34} />
+            comments.map((c) => {
+              const shown = liveComment(c, user);
+              return (
+              <div
+                key={c.id}
+                className={`comment${c.replyToId ? ' comment-reply' : ''}`}
+              >
+              <button
+                type="button"
+                className="comment-avatar-btn"
+                onClick={() =>
+                  onOpenPerson({
+                    id: shown.userId,
+                    name: shown.name,
+                    color: '#008CFF',
+                    avatarUrl: shown.avatarUrl,
+                  })
+                }
+              >
+                <Avatar name={shown.name} color="#008CFF" src={shown.avatarUrl} size={34} />
+              </button>
                 <div className="comment-body">
-                  <p className="comment-meta">
-                    <span className="comment-name">{c.name}</span>
+                  <div className="comment-meta">
+                    <button
+                      type="button"
+                      className="comment-name-btn"
+                      onClick={() =>
+                        onOpenPerson({
+                          id: shown.userId,
+                          name: shown.name,
+                          color: '#008CFF',
+                          avatarUrl: shown.avatarUrl,
+                        })
+                      }
+                    >
+                      {shown.name}
+                    </button>
                     <span className="comment-time">{timeAgo(c.createdAt)}</span>
-                  </p>
+                  </div>
+                  {shown.replyToName ? (
+                    <p className="comment-reply-to">@{shown.replyToName}</p>
+                  ) : null}
                   <p className="comment-text">{c.text}</p>
+                  <button
+                    type="button"
+                    className="comment-reply-btn"
+                    onClick={() => setReplyTo(c)}
+                  >
+                    Reply
+                  </button>
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
+
+        {replyTo ? (
+          <div className="reply-bar">
+            <span>Replying to {liveComment(replyTo, user).name}</span>
+            <button
+              type="button"
+              className="reply-bar-clear"
+              onClick={() => setReplyTo(null)}
+              aria-label="Cancel reply"
+            >
+              ✕
+            </button>
+          </div>
+        ) : null}
 
         <form className="sheet-input" onSubmit={submit}>
           <input
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Add a comment…"
-            aria-label="Add a comment"
+            placeholder={
+              replyTo
+                ? `Reply to ${liveComment(replyTo, user).name}…`
+                : 'Add a comment…'
+            }
+            aria-label={
+              replyTo
+                ? `Reply to ${liveComment(replyTo, user).name}`
+                : 'Add a comment'
+            }
             autoFocus
           />
           <button type="submit" className="sheet-send" disabled={!text.trim()}>

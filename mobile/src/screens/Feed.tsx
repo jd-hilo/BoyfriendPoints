@@ -25,9 +25,37 @@ import { Avatar, Xp } from '../ui';
 import { haptic, timeAgo } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
 import AddFriendPill from '../AddFriendPill';
+import PersonPeekSheet, { type PersonPreview } from './PersonPeek';
 import { Ionicons } from '@expo/vector-icons';
 
 const REACTION_CHOICES = ['❤️', '🔥', '😂', '😍', '👏', '💪', '🎉', '🥹'];
+
+function liveComment(
+  comment: FeedComment,
+  me:
+    | {
+        id: string;
+        name: string;
+        avatarUrl?: string;
+      }
+    | null
+    | undefined,
+): FeedComment {
+  if (!me) return comment;
+  if (comment.userId === me.id) {
+    return {
+      ...comment,
+      name: me.name,
+      avatarUrl: me.avatarUrl ?? comment.avatarUrl,
+      replyToName:
+        comment.replyToUserId === me.id ? me.name : comment.replyToName,
+    };
+  }
+  if (comment.replyToUserId === me.id) {
+    return { ...comment, replyToName: me.name };
+  }
+  return comment;
+}
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_WIDTH = SCREEN_WIDTH - 28;
 
@@ -95,6 +123,7 @@ export default function Feed({
   const [commentsFor, setCommentsFor] = useState<string | null>(null);
   const [popped, setPopped] = useState<string | null>(null);
   const [addCouplesOpen, setAddCouplesOpen] = useState(false);
+  const [peek, setPeek] = useState<PersonPreview | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -153,9 +182,9 @@ export default function Feed({
 
   const activeCommentEvent = events.find((e) => e.id === commentsFor) ?? null;
 
-  async function addComment(id: string, text: string) {
+  async function addComment(id: string, text: string, replyToId?: string) {
     haptic(12);
-    const res = await api.comment(id, text);
+    const res = await api.comment(id, text, replyToId);
     setEvents((prev) =>
       prev.map((e) => (e.id === id ? { ...e, comments: res.comments } : e)),
     );
@@ -266,10 +295,36 @@ export default function Feed({
               leftName={e.boyfriendName}
               leftColor={e.boyfriendColor}
               leftAvatar={e.boyfriendAvatar}
+              onPressLeft={() => {
+                haptic(8);
+                setPeek({
+                  id: e.boyfriendId,
+                  name: e.boyfriendName,
+                  color: e.boyfriendColor,
+                  avatarUrl: e.boyfriendAvatar,
+                  partnerId: e.wifeId,
+                  partnerName: e.wifeName,
+                  partnerColor: e.wifeColor,
+                  partnerAvatar: e.wifeAvatar,
+                });
+              }}
               verb={e.type === 'earn' ? 'earned from' : 'redeemed with'}
               rightName={e.wifeName}
               rightColor={e.wifeColor}
               rightAvatar={e.wifeAvatar}
+              onPressRight={() => {
+                haptic(8);
+                setPeek({
+                  id: e.wifeId,
+                  name: e.wifeName,
+                  color: e.wifeColor,
+                  avatarUrl: e.wifeAvatar,
+                  partnerId: e.boyfriendId,
+                  partnerName: e.boyfriendName,
+                  partnerColor: e.boyfriendColor,
+                  partnerAvatar: e.boyfriendAvatar,
+                });
+              }}
               emoji={e.emoji}
               title={e.title}
               note={e.note}
@@ -336,7 +391,20 @@ export default function Feed({
         <CommentSheet
           event={activeCommentEvent}
           onClose={() => setCommentsFor(null)}
-          onSubmitComment={(text) => addComment(activeCommentEvent.id, text)}
+          onSubmitComment={(text, replyToId) =>
+            addComment(activeCommentEvent.id, text, replyToId)
+          }
+          onOpenPerson={(next) => {
+            haptic(8);
+            setPeek(next);
+          }}
+        />
+      )}
+      {peek && (
+        <PersonPeekSheet
+          preview={peek}
+          onClose={() => setPeek(null)}
+          onOpenPerson={setPeek}
         />
       )}
       <AddFriendPill
@@ -356,10 +424,12 @@ function StoryLine({
   leftName,
   leftColor,
   leftAvatar,
+  onPressLeft,
   verb,
   rightName,
   rightColor,
   rightAvatar,
+  onPressRight,
   emoji,
   title,
   note,
@@ -367,25 +437,27 @@ function StoryLine({
   leftName: string;
   leftColor: string;
   leftAvatar?: string | number;
+  onPressLeft?: () => void;
   verb: string;
   rightName: string;
   rightColor: string;
   rightAvatar?: string | number;
+  onPressRight?: () => void;
   emoji?: string;
   title?: string;
   note?: string;
 }) {
   return (
     <View style={styles.storyLine}>
-      <View style={styles.storyPerson}>
+      <Pressable style={styles.storyPerson} onPress={onPressLeft}>
         <Avatar name={leftName} color={leftColor} src={leftAvatar} size={22} />
         <Text style={styles.name}>{leftName}</Text>
-      </View>
+      </Pressable>
       <Text style={styles.verb}>{verb}</Text>
-      <View style={styles.storyPerson}>
+      <Pressable style={styles.storyPerson} onPress={onPressRight}>
         <Avatar name={rightName} color={rightColor} src={rightAvatar} size={22} />
         <Text style={styles.name}>{rightName}</Text>
-      </View>
+      </Pressable>
       {emoji || title ? (
         <Text style={styles.storyReason}>
           {emoji ? `${emoji} ` : ''}
@@ -677,19 +749,52 @@ function EmojiPicker({
   );
 }
 
+function threadedComments(comments: FeedComment[]): FeedComment[] {
+  const ids = new Set(comments.map((c) => c.id));
+  const roots = comments.filter((c) => !c.replyToId || !ids.has(c.replyToId));
+  const children = new Map<string, FeedComment[]>();
+  for (const c of comments) {
+    if (!c.replyToId || !ids.has(c.replyToId)) continue;
+    let root = c.replyToId;
+    const seen = new Set<string>();
+    while (root && ids.has(root) && !seen.has(root)) {
+      seen.add(root);
+      const parent = comments.find((item) => item.id === root);
+      if (!parent?.replyToId || !ids.has(parent.replyToId)) break;
+      root = parent.replyToId;
+    }
+    const list = children.get(root) ?? [];
+    list.push(c);
+    children.set(root, list);
+  }
+  const out: FeedComment[] = [];
+  for (const root of roots) {
+    out.push(root);
+    const kids = (children.get(root.id) ?? []).sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    );
+    out.push(...kids);
+  }
+  return out;
+}
+
 function CommentSheet({
   event,
   onClose,
   onSubmitComment,
+  onOpenPerson,
 }: {
   event: FeedEventView;
   onClose: () => void;
-  onSubmitComment: (text: string) => void | Promise<void>;
+  onSubmitComment: (text: string, replyToId?: string) => void | Promise<void>;
+  onOpenPerson: (next: PersonPreview) => void;
 }) {
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState('');
+  const [replyTo, setReplyTo] = useState<FeedComment | null>(null);
   const [keyboardH, setKeyboardH] = useState(0);
-  const comments: FeedComment[] = event.comments;
+  const comments = threadedComments(event.comments);
 
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
@@ -707,8 +812,10 @@ function CommentSheet({
   async function submit() {
     const value = text.trim();
     if (!value) return;
+    const parentId = replyTo?.id;
     setText('');
-    await onSubmitComment(value);
+    setReplyTo(null);
+    await onSubmitComment(value, parentId);
   }
 
   const lift = keyboardH > 0 ? keyboardH : Math.max(insets.bottom, 12);
@@ -739,26 +846,80 @@ function CommentSheet({
                 No comments yet. Be the first 💬
               </Text>
             }
-            renderItem={({ item: c }) => (
-              <View style={styles.comment}>
-                <Avatar name={c.name} color={colors.blue} src={c.avatarUrl} size={34} />
+            renderItem={({ item: c }) => {
+              const shown = liveComment(c, user);
+              return (
+              <View
+                style={[styles.comment, c.replyToId ? styles.commentReply : null]}
+              >
+              <Pressable
+                onPress={() =>
+                  onOpenPerson({
+                    id: shown.userId,
+                    name: shown.name,
+                    color: colors.blue,
+                    avatarUrl: shown.avatarUrl,
+                  })
+                }
+              >
+                <Avatar name={shown.name} color={colors.blue} src={shown.avatarUrl} size={34} />
+              </Pressable>
                 <View style={styles.commentBody}>
                   <View style={styles.commentMeta}>
-                    <Text style={styles.commentName}>{c.name}</Text>
+                    <Pressable
+                      onPress={() =>
+                        onOpenPerson({
+                          id: shown.userId,
+                          name: shown.name,
+                          color: colors.blue,
+                          avatarUrl: shown.avatarUrl,
+                        })
+                      }
+                    >
+                      <Text style={styles.commentName}>{shown.name}</Text>
+                    </Pressable>
                     <Text style={styles.commentTime}>{timeAgo(c.createdAt)}</Text>
                   </View>
+                  {shown.replyToName ? (
+                    <Text style={styles.commentReplyTo}>@{shown.replyToName}</Text>
+                  ) : null}
                   <Text style={styles.commentText}>{c.text}</Text>
+                  <Pressable
+                    hitSlop={8}
+                    onPress={() => {
+                      haptic(8);
+                      setReplyTo(c);
+                    }}
+                  >
+                    <Text style={styles.commentReplyBtn}>Reply</Text>
+                  </Pressable>
                 </View>
               </View>
-            )}
+              );
+            }}
           />
+
+          {replyTo ? (
+            <View style={styles.replyBar}>
+              <Text style={styles.replyBarText} numberOfLines={1}>
+                Replying to {liveComment(replyTo, user).name}
+              </Text>
+              <Pressable hitSlop={8} onPress={() => setReplyTo(null)}>
+                <Text style={styles.replyBarClear}>✕</Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           <View style={styles.sheetInput}>
             <TextInput
               style={styles.sheetTextInput}
               value={text}
               onChangeText={setText}
-              placeholder="Add a comment…"
+              placeholder={
+                replyTo
+                  ? `Reply to ${liveComment(replyTo, user).name}…`
+                  : 'Add a comment…'
+              }
               autoFocus
               returnKeyType="send"
               onSubmitEditing={() => void submit()}
@@ -1023,11 +1184,29 @@ const styles = StyleSheet.create({
   },
   sheetBody: { gap: 14, paddingVertical: 4, maxHeight: 360 },
   comment: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  commentReply: { marginLeft: 28 },
   commentBody: { flex: 1 },
   commentMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 2 },
   commentName: { fontWeight: '700', fontSize: 14 },
   commentTime: { fontSize: 12, color: colors.inkMuted },
+  commentReplyTo: { fontSize: 12, color: colors.inkMuted, marginBottom: 2 },
   commentText: { fontSize: 14, lineHeight: 19 },
+  commentReplyBtn: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.inkMuted,
+  },
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  replyBarText: { flex: 1, fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
+  replyBarClear: { fontSize: 14, color: colors.inkMuted, paddingHorizontal: 4 },
   sheetInput: {
     flexDirection: 'row',
     gap: 8,

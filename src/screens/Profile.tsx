@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Avatar, Button, Xp } from '../ui.tsx';
+import { Avatar, Button, CoupleLockup, Xp } from '../ui.tsx';
 import { haptic, sharePartnerInvite } from '../utils.ts';
 
 export default function Profile({
@@ -19,6 +19,10 @@ export default function Profile({
   const [error, setError] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   // A rename elsewhere (or a refresh) shouldn't leave a stale draft in the box.
   useEffect(() => {
@@ -88,12 +92,24 @@ export default function Profile({
 
       <div className="notif-list">
         <div className="center pad">
-          <Avatar
-            name={me.name}
-            color={me.color}
-            src={me.avatarUrl}
-            size={88}
-          />
+          {me.partnerName ? (
+            <CoupleLockup
+              leftName={me.name}
+              leftColor={me.color}
+              leftSrc={me.avatarUrl}
+              rightName={me.partnerName}
+              rightColor={me.partnerColor}
+              rightSrc={me.partnerAvatar}
+              size={72}
+            />
+          ) : (
+            <Avatar
+              name={me.name}
+              color={me.color}
+              src={me.avatarUrl}
+              size={88}
+            />
+          )}
           <h2 style={{ margin: '12px 0 0', letterSpacing: '-0.5px' }}>
             {me.partnerName ? `${me.name} & ${me.partnerName}` : me.name}
           </h2>
@@ -135,9 +151,18 @@ export default function Profile({
         <div className="card">
           {me.partnerName ? (
             <div className="form">
-              <p style={{ margin: 0, fontWeight: 700 }}>
-                Linked with {me.partnerName}
-              </p>
+              <div className="partner-card" style={{ boxShadow: 'none', padding: 0 }}>
+                <Avatar
+                  name={me.partnerName}
+                  color={me.partnerColor ?? '#008CFF'}
+                  src={me.partnerAvatar}
+                  size={48}
+                />
+                <div className="partner-card-text">
+                  <p className="partner-card-name">{me.partnerName}</p>
+                  <p className="partner-card-meta">Your person</p>
+                </div>
+              </div>
               {me.inviteCode ? (
                 <div className="profile-code">
                   <span className="profile-code-label">Invite code</span>

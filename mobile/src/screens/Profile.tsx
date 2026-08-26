@@ -45,6 +45,10 @@ export default function Profile({
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
 
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
   // A rename elsewhere (or a pull-to-refresh) shouldn't leave a stale draft.
   useEffect(() => {
     setName(user?.name ?? '');
@@ -268,9 +272,18 @@ export default function Profile({
             <View style={styles.card}>
               {partnered ? (
                 <>
-                  <Text style={styles.rowValueLeft}>
-                    Linked with {user.partnerName}
-                  </Text>
+                  <View style={styles.personRow}>
+                    <Avatar
+                      name={user.partnerName ?? ''}
+                      color={user.partnerColor ?? colors.blue}
+                      src={user.partnerAvatar}
+                      size={48}
+                    />
+                    <View style={styles.grow}>
+                      <Text style={styles.rowValueLeft}>{user.partnerName}</Text>
+                      <Text style={styles.muted}>Your person</Text>
+                    </View>
+                  </View>
                   {user.inviteCode ? (
                     <View style={styles.codeBox}>
                       <Text style={styles.codeLabel}>Invite code</Text>
@@ -510,6 +523,11 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 13, color: colors.inkMuted, fontWeight: '600' },
   rowValue: { fontSize: 14, color: colors.ink, fontWeight: '700', flexShrink: 1, textAlign: 'right' },
   rowValueLeft: { fontSize: 14, color: colors.ink, fontWeight: '700' },
+  personRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   grow: { flex: 1, minWidth: 0, gap: 2, paddingRight: 12 },
   muted: { fontSize: 13, color: colors.inkMuted, lineHeight: 18 },
   lead: { fontSize: 14, color: colors.ink2, lineHeight: 20 },
