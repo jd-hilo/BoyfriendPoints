@@ -10,7 +10,9 @@ BoyfriendPoints is a Venmo-style couples rewards app.
 - Database: **Neon Postgres** via Drizzle (`server/db/schema.ts`, `server/store.ts`).
   Connection from `DATABASE_URL` in `.env` (gitignored).
 - Auth: Neon Managed Better Auth for email/password (`VITE_NEON_AUTH_URL`), optional
-  Apple Sign In (`VITE_APPLE_CLIENT_ID` / `APPLE_CLIENT_ID`), plus demo persona picker.
+  Apple Sign In (`VITE_APPLE_CLIENT_ID` / `APPLE_CLIENT_ID`), plus demo persona picker
+  (gated by `ALLOW_DEMO_AUTH`; `pnpm dev` sets it. Production must leave it off —
+  `/api/auth/device` must not mint sessions for real users).
   After Neon/Apple identity verification the API issues an app token (`bp_token`) via
   `POST /api/auth/neon` or `POST /api/auth/apple`. Demo still uses `POST /api/auth/device`.
 - Mock seed (`server/seed.ts`) creates Emma + Noah (primary household with pending

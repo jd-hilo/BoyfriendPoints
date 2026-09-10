@@ -36,6 +36,7 @@ social feed.
    ```
 
 3. Open http://localhost:5173 and **tap a persona** (Emma or Noah) — no password.
+   (`pnpm dev` enables demo auth via `ALLOW_DEMO_AUTH=1`. Keep it off in production.)
 
 ### Mock personas
 

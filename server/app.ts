@@ -22,6 +22,7 @@ import {
   friendRequestsForUser,
   findByEmail,
   isCoupleUsernameTaken,
+  isDemoAuthEnabled,
   normalizeCoupleUsername,
   findByToken,
   listPersonas,
@@ -330,10 +331,18 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
   });
 
   app.get('/api/personas', (_req, res) => {
+    if (!isDemoAuthEnabled(process.env)) {
+      res.json([]);
+      return;
+    }
     res.json(listPersonas(state));
   });
 
   app.post('/api/auth/device', async (req, res) => {
+    if (!isDemoAuthEnabled(process.env)) {
+      res.status(403).json({ error: 'Demo sign-in is disabled' });
+      return;
+    }
     try {
       const user = deviceLogin(state, String(req.body?.userId ?? ''));
       persist();

@@ -11,6 +11,7 @@ run_worker_first = ["/api/*"]
 # Set via: pnpm exec wrangler secret put DATABASE_URL
 # Optional: pnpm exec wrangler secret put APPLE_CLIENT_ID
 [vars]
+ALLOW_DEMO_AUTH = "0"
 NEON_AUTH_URL = "https://ep-odd-art-ay7mesoy.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth"
 NEON_JWKS_URL = "https://ep-odd-art-ay7mesoy.neonauth.c-5.us-east-2.aws.neon.tech/neondb/auth/.well-known/jwks.json"
 POSTHOG_PROJECT_TOKEN = "phc_mkZiEV5n8i3pFiTUrLuqzg3xm7sVhDqfJWRwq7AsP6EU"

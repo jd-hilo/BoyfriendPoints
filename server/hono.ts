@@ -19,6 +19,7 @@ import {
   findByEmail,
   findByToken,
   isCoupleUsernameTaken,
+  isDemoAuthEnabled,
   normalizeCoupleUsername,
   fulfillRedemption,
   inviteBoyfriend,
@@ -82,6 +83,8 @@ export type WorkerEnv = {
   APPLE_CLIENT_ID?: string;
   POSTHOG_PROJECT_TOKEN?: string;
   POSTHOG_HOST?: string;
+  /** Set to "1" only for non-production demo environments. */
+  ALLOW_DEMO_AUTH?: string;
 };
 
 type Variables = {
@@ -246,9 +249,27 @@ export function createApiApp() {
     c.json({ prizes: PRIZE_SUGGESTIONS, tasks: TASK_SUGGESTIONS }),
   );
 
-  app.get('/api/personas', (c) => c.json(listPersonas(c.get('state'))));
+  app.get('/api/personas', (c) => {
+    if (
+      !isDemoAuthEnabled({
+        ALLOW_DEMO_AUTH: c.env.ALLOW_DEMO_AUTH ?? processEnv.ALLOW_DEMO_AUTH,
+        NODE_ENV: processEnv.NODE_ENV,
+      })
+    ) {
+      return c.json([]);
+    }
+    return c.json(listPersonas(c.get('state')));
+  });
 
   app.post('/api/auth/device', async (c) => {
+    if (
+      !isDemoAuthEnabled({
+        ALLOW_DEMO_AUTH: c.env.ALLOW_DEMO_AUTH ?? processEnv.ALLOW_DEMO_AUTH,
+        NODE_ENV: processEnv.NODE_ENV,
+      })
+    ) {
+      return c.json({ error: 'Demo sign-in is disabled' }, 403);
+    }
     try {
       const body = await c.req.json<{ userId?: string }>();
       const user = deviceLogin(c.get('state'), String(body?.userId ?? ''));

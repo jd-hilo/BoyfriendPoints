@@ -6,7 +6,7 @@
   "description": "Track and manage boyfriend points.",
   "scripts": {
     "dev": "concurrently -k -n server,client -c green,cyan \"pnpm dev:server\" \"pnpm dev:client\"",
-    "dev:server": "tsx watch server/index.ts",
+    "dev:server": "ALLOW_DEMO_AUTH=1 tsx watch server/index.ts",
     "dev:client": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

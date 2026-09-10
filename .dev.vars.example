@@ -3,3 +3,5 @@ DATABASE_URL=
 NEON_AUTH_URL=
 NEON_JWKS_URL=
 APPLE_CLIENT_ID=
+# Local Worker preview only — never set to 1 on production Workers
+ALLOW_DEMO_AUTH=1

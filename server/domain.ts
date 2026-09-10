@@ -410,17 +410,44 @@ export function loginOrCreateFromIdentity(
   });
 }
 
-/** Device-based sign-in: enter as an existing persona, no password. */
+/**
+ * Demo persona picker must never mint sessions for real accounts.
+ * Seeded Emma/Noah use @boyfriendpoints.app; community uses @demo.….
+ */
+export function isDemoPersona(user: User): boolean {
+  if (user.demo) return true;
+  const email = user.email.trim().toLowerCase();
+  return (
+    email.endsWith('@boyfriendpoints.app') ||
+    email.endsWith('@demo.boyfriendpoints.app')
+  );
+}
+
+/**
+ * Device/persona auth is for local demos only. Safe-by-default: off unless
+ * ALLOW_DEMO_AUTH=1/true, or NODE_ENV is test/development.
+ */
+export function isDemoAuthEnabled(
+  env: { ALLOW_DEMO_AUTH?: string; NODE_ENV?: string } = process.env,
+): boolean {
+  const flag = (env.ALLOW_DEMO_AUTH ?? '').trim().toLowerCase();
+  if (flag === '1' || flag === 'true') return true;
+  if (flag === '0' || flag === 'false') return false;
+  return env.NODE_ENV === 'test' || env.NODE_ENV === 'development';
+}
+
+/** Device-based sign-in: enter as a seeded demo persona, no password. */
 export function deviceLogin(state: State, userId: string): User {
   const user = state.users.find((u) => u.id === userId);
-  if (!user) throw new Error('Persona not found');
+  if (!user || !isDemoPersona(user)) throw new Error('Persona not found');
   if (!user.token) user.token = token();
   return user;
 }
 
-/** Personas the device can tap to enter as, primary household first. */
+/** Personas the device can tap to enter as (demo accounts only). */
 export function listPersonas(state: State): PublicUser[] {
   return [...state.users]
+    .filter(isDemoPersona)
     .sort((a, b) => {
       const rank = (u: User) => (u.demo ? 1 : 0);
       if (rank(a) !== rank(b)) return rank(a) - rank(b);

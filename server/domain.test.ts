@@ -9,12 +9,14 @@ import {
   circleWifeIds,
   createEmptyState,
   createSubmission,
+  deviceLogin,
   feedForUser,
   grantPoints,
   personPeekForUser,
   friendRequestsForUser,
   avatarFor,
   inviteBoyfriend,
+  listPersonas,
   pendingRedemptionsForUser,
   prizesForUser,
   redeemPrize,
@@ -39,6 +41,7 @@ import {
   setPassword,
   type State,
 } from './domain.ts';
+import { seedDemo } from './seed.ts';
 
 function bootstrap() {
   const state = createEmptyState();
@@ -53,6 +56,34 @@ function bootstrap() {
   });
   return { state, wife, boyfriend };
 }
+
+describe('demo persona auth', () => {
+  it('lists only seeded demo personas', () => {
+    const state = createEmptyState();
+    seedDemo(state);
+    const real = signup(state, {
+      name: 'Ada',
+      email: 'ada@example.com',
+      password: 'password1',
+    });
+    const personas = listPersonas(state);
+    expect(personas.every((p) => p.email.includes('boyfriendpoints.app'))).toBe(
+      true,
+    );
+    expect(personas.find((p) => p.id === real.id)).toBeUndefined();
+  });
+
+  it('refuses device login for a non-demo account', () => {
+    const state = createEmptyState();
+    seedDemo(state);
+    const real = signup(state, {
+      name: 'Ada',
+      email: 'ada@example.com',
+      password: 'password1',
+    });
+    expect(() => deviceLogin(state, real.id)).toThrow(/Persona not found/);
+  });
+});
 
 describe('accounts', () => {
   it('signs up a wife and rejects duplicate emails', () => {

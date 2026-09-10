@@ -47,6 +47,34 @@ describe('BoyfriendPoints API', () => {
     expect(me.body.name).toBe('Emma');
   });
 
+  it('refuses device login for real accounts even when demo auth is on', async () => {
+    vi.stubEnv('ALLOW_DEMO_AUTH', '1');
+    const { client, state } = makeClient();
+    const real = state.users.find((u) => u.name === 'Emma')!;
+    real.email = 'real.user@example.com';
+    real.demo = false;
+    await client
+      .post('/api/auth/device')
+      .send({ userId: real.id })
+      .expect(404);
+    const personas = await client.get('/api/personas').expect(200);
+    expect(
+      personas.body.find((p: { id: string }) => p.id === real.id),
+    ).toBeUndefined();
+  });
+
+  it('disables persona listing and device login when demo auth is off', async () => {
+    vi.stubEnv('ALLOW_DEMO_AUTH', '0');
+    const { client, state } = makeClient();
+    const emma = state.users.find((u) => u.name === 'Emma')!;
+    const personas = await client.get('/api/personas').expect(200);
+    expect(personas.body).toEqual([]);
+    await client
+      .post('/api/auth/device')
+      .send({ userId: emma.id })
+      .expect(403);
+  });
+
   it('runs the couple flow with mock personas', async () => {
     const { client } = makeClient();
     const personas = await client.get('/api/personas');
