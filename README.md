@@ -1,32 +1,79 @@
-# BoyfriendPoints
+# Love Receipts
 
-Track and manage boyfriend points — a playful, Venmo-style rewards app for couples.
+Venmo-style rewards for couples. One partner sets tasks and prizes; the other
+earns points and redeems them. Shared wins show up as receipts in a social feed.
 
-A wife or girlfriend creates **prizes**, invites her **boyfriend**, and follows her
-**friends**. Boyfriends submit the things they do for points; she approves or revises.
-Points are redeemed for prizes, and every earn/redeem shows up in a shared, Venmo-like
-social feed.
+**Product name:** Love Receipts / LoveReceipts  
+**Internal / code name:** BoyfriendPoints (`boyfriendpoints` in package and Worker
+names). Domain types still use `wife` / `boyfriend` roles; product UI prefers
+partner language.
 
-## Tech stack
+## Features
 
-- **Frontend:** React 18 + Vite + TypeScript, mobile phone-framed UI (`src/`).
-- **Backend:** Express + TypeScript REST API with **device-based auth** (`server/`).
-- **Database:** [Neon](https://neon.tech) Postgres via Drizzle ORM (`server/db/`).
-- **Shared types:** `shared/types.ts`.
+- **Household** — create a couple (username + invite code) or join with a partner’s code
+- **Tasks & points** — catalog of earn tasks; submit with notes/photos; approve, deny, or revise; optional unprompted grants
+- **Prizes** — define rewards and redeem points; fulfill redemptions
+- **Receipt feed** — Venmo-like social feed of earns/redeems with reactions and comments
+- **Friends** — connect households via couple code / username search and friend requests
+- **Auth** — Neon Auth (email/password), optional Apple Sign In, plus seeded demo personas for local/dev
 
-## Getting started
+## Repo layout
 
-1. Copy a Neon connection string into `.env`:
+```
+src/          React 18 + Vite web app (phone-framed UI)
+mobile/       Expo (React Native) iOS app — bundle app.lovereceipts.mobile
+server/       Shared domain + API
+  domain.ts   Pure business logic
+  app.ts      Express routes (local + Railway)
+  hono.ts     Hono routes (Cloudflare Worker)
+  db/         Neon Postgres via Drizzle
+  seed.ts     Mock households + community feed
+worker/       Cloudflare Worker entry (`worker/index.ts` → Hono)
+shared/       Shared TypeScript types (`shared/types.ts`)
+```
+
+Local Express and the Worker share `server/domain.ts` and `server/db/*`. The
+Worker loads/saves Neon state per request (stateless isolates). Express keeps
+state in memory and serializes writes to Neon on each mutation (demo scale).
+
+## Stack
+
+| Layer | Tech |
+| --- | --- |
+| Web | React 18, Vite, TypeScript |
+| Mobile | Expo ~57, React Native, EAS (TestFlight) |
+| API (local / iOS) | Express on Node (`server/app.ts`); production iOS API on Railway |
+| API (web prod) | Cloudflare Worker + Hono (`server/hono.ts`) + Vite static assets |
+| DB | Neon Postgres + Drizzle |
+| Auth | Neon Managed Auth + optional Apple; app issues `bp_token` sessions |
+| Analytics | PostHog (optional via env) |
+
+## Prerequisites
+
+- Node.js + [pnpm](https://pnpm.io) 10 (`packageManager` is pinned in `package.json`)
+- A Neon Postgres database (`DATABASE_URL`)
+- Neon Auth URL for email/password (`VITE_NEON_AUTH_URL` / `NEON_AUTH_URL`)
+
+## Local development (web + API)
+
+1. Create `.env` in the repo root (gitignored):
 
    ```bash
    DATABASE_URL=postgresql://...
-   DATABASE_URL_UNPOOLED=postgresql://...   # optional; used by drizzle-kit push
+   DATABASE_URL_UNPOOLED=postgresql://...   # optional; drizzle-kit push prefers this
+   VITE_NEON_AUTH_URL=https://…/neondb/auth
+   NEON_AUTH_URL=https://…/neondb/auth      # server-side; can match VITE_
+   NEON_JWKS_URL=https://…/neondb/auth/.well-known/jwks.json   # optional override
+   # Optional Apple (web):
+   VITE_APPLE_CLIENT_ID=…          # Services ID
+   VITE_APPLE_REDIRECT_URI=…       # defaults to window.location.origin
+   APPLE_CLIENT_ID=…               # server verification
+   # Optional analytics:
+   VITE_PUBLIC_POSTHOG_PROJECT_TOKEN=…
+   VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
    ```
 
-   Or claim the temporary DB provisioned for this workspace:
-   see `NEON_CLAIM_URL` in `.env` (expires in 72h unless claimed).
-
-2. Install, push schema, seed mock data, run:
+2. Install, push schema, seed, run:
 
    ```bash
    pnpm install
@@ -35,58 +82,103 @@ social feed.
    pnpm dev
    ```
 
-3. Open http://localhost:5173 and **tap a persona** (Emma or Noah) — no password.
+3. Open **http://localhost:5173** (Vite). The API listens on **:3001**; Vite
+   proxies `/api` → Express. Do not use :3001 for the UI.
 
-### Mock personas
+### Demo personas
 
-| Persona | Role | Notes |
-| --- | --- | --- |
-| **Emma** | Wife | Pending point requests + a redemption alert |
-| **Noah** | Boyfriend | 240 pts, prizes ready to redeem |
-| Priya / Dev, Mia / Jake, Sofia / Leo | Community | Fill the Venmo-style feed |
+After `pnpm db:reset`, the auth screen can open a demo persona picker (Emma /
+Noah plus community couples that fill the feed). Tap the header avatar to clear
+the device session and return to the picker.
 
-Tap the avatar in the header to switch personas.
+`pnpm db:reset` truncates Neon and re-seeds. Domain unit tests run in-memory and
+do not need a database.
 
-## Hosting (Cloudflare)
-
-Production is a **Cloudflare Worker** that serves the Vite SPA (assets) and the
-`/api/*` Hono backend against Neon.
+## Mobile (Expo)
 
 ```bash
-# one-time: put your Neon URL into the Worker secret
-pnpm cf:secret          # prompts for DATABASE_URL
+pnpm mobile          # Expo Go (LAN)
+pnpm mobile:ios      # iOS Simulator / Expo Go
+```
 
-# build + deploy to workers.dev / your route
+The app lives in `mobile/` (separate `package.json`). Production builds target
+iOS bundle id `app.lovereceipts.mobile` and talk to the Railway API
+(`EXPO_PUBLIC_API_URL` / `extra.apiUrl` in `mobile/app.json` and `mobile/eas.json`).
+
+To point a local Expo client at your machine’s API:
+
+```bash
+EXPO_PUBLIC_API_URL=http://<your-lan-ip>:3001/api pnpm mobile
+```
+
+Ship iOS via EAS:
+
+```bash
+pnpm mobile:eas:ios   # eas build --platform ios --profile production --auto-submit
+```
+
+## Cloudflare Worker (web production)
+
+Production web is a Worker that serves the Vite SPA (`dist/`) and handles
+`/api/*` first (`wrangler.toml` → `run_worker_first`).
+
+```bash
+# one-time: Worker secret
+pnpm cf:secret          # wrangler secret put DATABASE_URL
+# optional: wrangler secret put APPLE_CLIENT_ID
+
+# build SPA + deploy
 pnpm deploy
 ```
 
-Requires `CLOUDFLARE_API_TOKEN` (Account → Workers Scripts:Edit, Account:Read).
-Optional: `CLOUDFLARE_ACCOUNT_ID`.
+Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts:Edit, Account:Read). Optional:
+`CLOUDFLARE_ACCOUNT_ID`. Non-secret Worker vars (`NEON_AUTH_URL`, `NEON_JWKS_URL`,
+PostHog) live in `wrangler.toml`.
 
 Local Worker preview: copy `.dev.vars.example` → `.dev.vars`, then `pnpm cf:dev`.
 
+`.dev.vars.example`:
+
+```
+DATABASE_URL=
+NEON_AUTH_URL=
+NEON_JWKS_URL=
+APPLE_CLIENT_ID=
+```
+
+## Railway (iOS API)
+
+`railway.toml` runs the Express API only (`pnpm start:api`), health check
+`/api/health`. The Railway deploy ignores the web client and Worker
+(`.railwayignore`). Configure `DATABASE_URL`, Neon Auth, and Apple env vars in
+the Railway service — same server env names as local Express.
+
 ## Scripts
 
-- `pnpm dev` — Express API (:3001) + Vite (:5173) for local development
-- `pnpm deploy` — build SPA + deploy Worker to Cloudflare
-- `pnpm cf:dev` / `pnpm cf:secret`
-- `pnpm test` / `pnpm lint` / `pnpm typecheck` / `pnpm build`
-- `pnpm db:push` — apply Drizzle schema to Neon
-- `pnpm db:reset` — wipe + re-seed mock data
-- `pnpm db:studio` — Drizzle Studio
+| Script | What it does |
+| --- | --- |
+| `pnpm dev` | Express (:3001) + Vite (:5173) |
+| `pnpm build` / `pnpm preview` | Production SPA build / preview |
+| `pnpm start` / `pnpm start:api` | Production Express (Railway uses `start:api`) |
+| `pnpm test` / `pnpm lint` / `pnpm typecheck` | Vitest, ESLint, `tsc` |
+| `pnpm db:push` | Apply Drizzle schema to Neon |
+| `pnpm db:reset` | Wipe + re-seed mock data |
+| `pnpm db:studio` | Drizzle Studio |
+| `pnpm deploy` | `pnpm build` + `wrangler deploy` |
+| `pnpm cf:dev` / `pnpm cf:secret` | Worker preview / set `DATABASE_URL` secret |
+| `pnpm mobile` / `pnpm mobile:ios` / `pnpm mobile:eas:ios` | Expo / EAS |
 
-## Project structure
+## Auth notes
 
-```
-server/
-  domain.ts       pure business logic
-  app.ts          Express routes + device auth
-  seed.ts         mock household + community
-  store.ts        Neon load/save via Drizzle
-  db/schema.ts    Drizzle tables
-  db/client.ts    Neon HTTP driver
-src/
-  screens/        AuthScreen (persona picker), Feed, Submit, Redeem, …
-  auth.tsx        device-auth context
-shared/types.ts
-```
+After Neon or Apple identity verification, the API issues an app session token
+via `POST /api/auth/neon` or `POST /api/auth/apple`. Demo personas use
+`POST /api/auth/device`. Sessions are per-device rows in Neon (`server/db/sessions.ts`),
+not part of the wipe-and-rewrite state snapshot. A legacy shared `users.token`
+is still accepted for older clients; without a DB (unit tests) the API falls
+back to that legacy token.
+
+## Agent / contributor notes
+
+Cursor agent guidance lives in [`AGENTS.md`](./AGENTS.md) (commands, Cloud setup,
+persistence quirks). Prefer that file for agent workflows; this README is the
+human-facing product and setup overview.
