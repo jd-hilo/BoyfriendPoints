@@ -497,6 +497,12 @@ describe('person peek', () => {
     expect(peek.partnerName).toBe('Wanda');
     expect(peek.activity[0]?.title).toBe('Dishes');
     expect(peek.activity[0]?.withName).toBe('Wanda');
+
+    const oldFeed = personPeekForUser(state, wife, boyfriend.id);
+    state.feed[0].images = undefined as unknown as string[];
+    const still = personPeekForUser(state, wife, boyfriend.id);
+    expect(still.activity[0]?.title).toBe('Dishes');
+    expect(oldFeed.activity[0]?.title).toBe('Dishes');
     expect(peek).not.toHaveProperty('email');
     expect(JSON.stringify(peek)).not.toMatch(/secret|inviteCode|password/i);
   });

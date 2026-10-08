@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import type { PersonPeek } from '../types';
+import type { FeedEventView, PersonPeek } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
@@ -26,12 +26,34 @@ export type PersonPreview = {
   partnerAvatar?: string;
 };
 
+function activityFromFeed(
+  events: FeedEventView[],
+  personId: string,
+): PersonPeek['activity'] {
+  return events
+    .filter((e) => e.boyfriendId === personId || e.wifeId === personId)
+    .slice(0, 12)
+    .map((e) => ({
+      id: e.id,
+      type: e.type,
+      title: e.title,
+      emoji: e.emoji,
+      points: e.points,
+      createdAt: e.createdAt,
+      withId: e.boyfriendId === personId ? e.wifeId : e.boyfriendId,
+      withName: e.boyfriendId === personId ? e.wifeName : e.boyfriendName,
+      image: e.images?.[0],
+    }));
+}
+
 export default function PersonPeekSheet({
   preview,
+  events = [],
   onClose,
   onOpenPerson,
 }: {
   preview: PersonPreview;
+  events?: FeedEventView[];
   onClose: () => void;
   onOpenPerson: (next: PersonPreview) => void;
 }) {
@@ -67,7 +89,10 @@ export default function PersonPeekSheet({
   const partnerId = peek?.partnerId ?? preview.partnerId;
   const coupleUsername = peek?.coupleUsername;
   const mine = user?.id === preview.id;
-  const activity = peek?.activity ?? [];
+  const activity = useMemo(() => {
+    if (peek?.activity?.length) return peek.activity;
+    return activityFromFeed(events, preview.id);
+  }, [peek, events, preview.id]);
 
   function openPartner() {
     if (!partnerId || !partnerName) return;

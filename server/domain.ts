@@ -1308,7 +1308,7 @@ export function personPeekForUser(
       createdAt: e.createdAt,
       withId: e.boyfriendId === person.id ? e.wifeId : e.boyfriendId,
       withName: e.boyfriendId === person.id ? e.wifeName : e.boyfriendName,
-      image: e.images[0],
+      image: e.images?.[0],
     }));
 
   return {

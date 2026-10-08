@@ -367,6 +367,7 @@ export default function Feed() {
       {peek && (
         <PersonPeekSheet
           preview={peek}
+          events={events}
           onClose={() => setPeek(null)}
           onOpenPerson={setPeek}
         />
