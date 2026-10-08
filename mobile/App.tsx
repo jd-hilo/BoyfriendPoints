@@ -127,7 +127,7 @@ export default function App() {
 const styles = StyleSheet.create({
   splash: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#fffcf7',
     alignItems: 'center',
     justifyContent: 'center',
   },
