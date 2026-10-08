@@ -646,6 +646,14 @@ input:focus {
   font-size: 12px;
   color: var(--ink-muted);
 }
+.comment-actions {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+}
+.comment-actions .comment-reply-btn {
+  margin-top: 0;
+}
 .comment-reply-btn {
   margin-top: 4px;
   padding: 0;
@@ -753,9 +761,14 @@ input:focus {
 }
 .peek-handle {
   margin: 8px 0 0;
-  font-size: 14px;
-  font-weight: 600;
   color: var(--ink-muted);
+  font-weight: 600;
+}
+.peek-safety {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
 }
 .peek-body {
   padding: 4px 18px 0;
@@ -2099,6 +2112,15 @@ input:focus {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+}
+.feed-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.report-link {
+  font-size: 12px;
+  font-weight: 700;
 }
 .feed-time {
   font-size: 13px;

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { PublicUser } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
 import { Avatar, Button, CoupleLockup, Xp } from '../ui.tsx';
@@ -19,10 +20,19 @@ export default function Profile({
   const [error, setError] = useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
+  const [blocked, setBlocked] = useState<PublicUser[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    void api
+      .blocks()
+      .then(setBlocked)
+      .catch(() => undefined);
+  }, [user?.id]);
 
   // A rename elsewhere (or a refresh) shouldn't leave a stale draft in the box.
   useEffect(() => {
@@ -265,8 +275,56 @@ export default function Profile({
             <Button variant="danger" block onClick={() => void logout()}>
               Sign out
             </Button>
+            <Button
+              variant="danger"
+              block
+              disabled={deleteBusy}
+              onClick={() => {
+                if (
+                  !window.confirm(
+                    'Delete your account? This removes your profile, points, and photos. Your partner keeps their account, unlinked.',
+                  )
+                ) {
+                  return;
+                }
+                setDeleteBusy(true);
+                void api
+                  .deleteAccount()
+                  .then(() => logout())
+                  .catch((err) => {
+                    setError((err as Error).message);
+                    setDeleteBusy(false);
+                  });
+              }}
+            >
+              {deleteBusy ? 'Deleting…' : 'Delete account'}
+            </Button>
           </div>
         </div>
+        {blocked.length > 0 && (
+          <>
+            <p className="section-label">BLOCKED</p>
+            <div className="card">
+              <div className="form">
+                {blocked.map((person) => (
+                  <div key={person.id} className="row">
+                    <span>{person.name}</span>
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        void api.unblockUser(person.id).then(() => {
+                          setBlocked((list) => list.filter((item) => item.id !== person.id));
+                        });
+                      }}
+                    >
+                      Unblock
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {leaveOpen ? (

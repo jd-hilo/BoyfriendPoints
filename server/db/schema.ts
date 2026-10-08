@@ -121,6 +121,32 @@ export const redemptions = pgTable('redemptions', {
  * the wipe-and-rewrite state snapshot), so a restart, rolling deploy, or a
  * sign-out on another device can't invalidate this device's session.
  */
+export const blocks = pgTable('blocks', {
+  id: text('id').primaryKey(),
+  blockerId: text('blocker_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  blockedId: text('blocked_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+    .notNull()
+    .defaultNow(),
+});
+
+export const reports = pgTable('reports', {
+  id: text('id').primaryKey(),
+  reporterId: text('reporter_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  targetType: text('target_type').notNull(),
+  targetId: text('target_id').notNull(),
+  reason: text('reason').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+    .notNull()
+    .defaultNow(),
+});
+
 export const sessions = pgTable('sessions', {
   token: text('token').primaryKey(),
   userId: text('user_id')

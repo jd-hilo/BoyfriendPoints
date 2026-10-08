@@ -1,21 +1,26 @@
 import { eq, inArray, or, sql } from 'drizzle-orm';
 import type {
+  ContentReport,
   EarnTask,
   FeedEvent,
   FriendRequest,
   Prize,
   Redemption,
+  ReportTarget,
   Role,
   Submission,
   SubmissionStatus,
   User,
+  UserBlock,
 } from '../../shared/types.ts';
 import { createEmptyState, healPartnerLink, type State } from '../domain.ts';
 import {
+  blocks,
   feed,
   friendRequests,
   prizes,
   redemptions,
+  reports,
   submissions,
   tasks,
   users,
@@ -282,9 +287,38 @@ function asFriendRequest(
   };
 }
 
+function asBlock(row: typeof blocks.$inferSelect): UserBlock {
+  return {
+    id: row.id,
+    blockerId: row.blockerId,
+    blockedId: row.blockedId,
+    createdAt: row.createdAt,
+  };
+}
+
+function asReport(row: typeof reports.$inferSelect): ContentReport {
+  return {
+    id: row.id,
+    reporterId: row.reporterId,
+    targetType: row.targetType as ReportTarget,
+    targetId: row.targetId,
+    reason: row.reason,
+    createdAt: row.createdAt,
+  };
+}
+
 export async function loadState(db: Database): Promise<State> {
-  const [userRows, prizeRows, taskRows, subRows, redRows, feedRows, requestRows] =
-    await Promise.all([
+  const [
+    userRows,
+    prizeRows,
+    taskRows,
+    subRows,
+    redRows,
+    feedRows,
+    requestRows,
+    blockRows,
+    reportRows,
+  ] = await Promise.all([
       db.select().from(users),
       db.select().from(prizes),
       db.select().from(tasks),
@@ -292,6 +326,8 @@ export async function loadState(db: Database): Promise<State> {
       db.select().from(redemptions),
       db.select().from(feed),
       db.select().from(friendRequests),
+      db.select().from(blocks),
+      db.select().from(reports),
     ]);
 
   if (userRows.length === 0) {
@@ -309,6 +345,8 @@ export async function loadState(db: Database): Promise<State> {
     redemptions: redRows.map(asRedemption),
     feed: feedRows.map(asFeed),
     friendRequests: requestRows.map(asFriendRequest),
+    blocks: blockRows.map(asBlock),
+    reports: reportRows.map(asReport),
   };
 }
 
@@ -316,6 +354,8 @@ export async function saveState(db: Database, state: State): Promise<void> {
   // Never DELETE the users table. Cloudflare isolates load a snapshot per
   // request; a wipe-and-rewrite races with other writes and can drop a brand
   // new account (reload then looks signed out / back on onboarding).
+  await db.delete(reports);
+  await db.delete(blocks);
   await db.delete(friendRequests);
   await db.delete(feed);
   await db.delete(redemptions);
@@ -405,10 +445,25 @@ export async function saveState(db: Database, state: State): Promise<void> {
       })),
     );
   }
+  if ((state.blocks ?? []).length > 0) {
+    await db.insert(blocks).values(state.blocks);
+  }
+  if ((state.reports ?? []).length > 0) {
+    await db.insert(reports).values(state.reports);
+  }
+}
+
+export async function clearPartnerLink(db: Database, userId: string): Promise<void> {
+  await db.update(users).set({ partnerId: null }).where(eq(users.id, userId));
+}
+
+/** Hard-delete one account. Sessions, photos, and owned rows cascade. */
+export async function deleteUserRecord(db: Database, userId: string): Promise<void> {
+  await db.delete(users).where(eq(users.id, userId));
 }
 
 export async function resetDatabase(db: Database): Promise<void> {
   await db.execute(
-    sql`TRUNCATE TABLE sessions, media, friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
+    sql`TRUNCATE TABLE sessions, media, reports, blocks, friend_requests, feed, redemptions, submissions, tasks, prizes, users CASCADE`,
   );
 }

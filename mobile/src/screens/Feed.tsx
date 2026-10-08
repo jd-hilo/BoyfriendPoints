@@ -25,6 +25,7 @@ import { Avatar, Xp } from '../ui';
 import { haptic, timeAgo } from '../utils';
 import AddCouplesModal from '../AddCouplesModal';
 import AddFriendPill from '../AddFriendPill';
+import { confirmReport } from '../safety';
 import PersonPeekSheet, { type PersonPreview } from './PersonPeek';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -190,6 +191,20 @@ export default function Feed({
     );
   }
 
+  function report(targetType: 'post' | 'comment', targetId: string) {
+    confirmReport((reason) => {
+      void api.report(targetType, targetId, reason).catch((err) => {
+        Alert.alert('Couldn’t report', (err as Error).message);
+      });
+    });
+  }
+
+  function ownHousehold(event: FeedEventView) {
+    if (!user) return false;
+    const ids = new Set([user.id, user.partnerId].filter(Boolean));
+    return ids.has(event.boyfriendId) && ids.has(event.wifeId);
+  }
+
   async function resolveFriendRequest(id: string, accept: boolean) {
     try {
       if (accept) await api.acceptFriendRequest(id);
@@ -288,7 +303,14 @@ export default function Feed({
           <View style={styles.feedCard}>
             <View style={styles.feedCardTop}>
               <Text style={styles.feedTime}>{timeAgo(e.createdAt)} ago</Text>
-              <Xp value={e.points} sign={e.type === 'earn' ? '+' : '−'} size={13} />
+              <View style={styles.feedTopRight}>
+                {!ownHousehold(e) ? (
+                  <Pressable hitSlop={8} onPress={() => report('post', e.id)}>
+                    <Text style={styles.reportLink}>Report</Text>
+                  </Pressable>
+                ) : null}
+                <Xp value={e.points} sign={e.type === 'earn' ? '+' : '−'} size={13} />
+              </View>
             </View>
 
             <StoryLine
@@ -394,6 +416,7 @@ export default function Feed({
           onSubmitComment={(text, replyToId) =>
             addComment(activeCommentEvent.id, text, replyToId)
           }
+          onReport={(commentId) => report('comment', commentId)}
           onOpenPerson={(next) => {
             haptic(8);
             setPeek(next);
@@ -784,11 +807,13 @@ function CommentSheet({
   onClose,
   onSubmitComment,
   onOpenPerson,
+  onReport,
 }: {
   event: FeedEventView;
   onClose: () => void;
   onSubmitComment: (text: string, replyToId?: string) => void | Promise<void>;
   onOpenPerson: (next: PersonPreview) => void;
+  onReport: (commentId: string) => void;
 }) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
@@ -885,15 +910,22 @@ function CommentSheet({
                     <Text style={styles.commentReplyTo}>@{shown.replyToName}</Text>
                   ) : null}
                   <Text style={styles.commentText}>{c.text}</Text>
-                  <Pressable
-                    hitSlop={8}
-                    onPress={() => {
-                      haptic(8);
-                      setReplyTo(c);
-                    }}
-                  >
-                    <Text style={styles.commentReplyBtn}>Reply</Text>
-                  </Pressable>
+                  <View style={styles.commentActions}>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => {
+                        haptic(8);
+                        setReplyTo(c);
+                      }}
+                    >
+                      <Text style={styles.commentReplyBtn}>Reply</Text>
+                    </Pressable>
+                    {shown.userId !== user?.id ? (
+                      <Pressable hitSlop={8} onPress={() => onReport(c.id)}>
+                        <Text style={styles.reportLink}>Report</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
                 </View>
               </View>
               );
@@ -979,6 +1011,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 14,
+  },
+  feedTopRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  reportLink: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.inkMuted,
   },
   feedTime: { fontSize: 13, color: colors.inkMuted, fontWeight: '500' },
   storyLine: {
@@ -1193,10 +1235,15 @@ const styles = StyleSheet.create({
   commentReplyTo: { fontSize: 12, color: colors.inkMuted, marginBottom: 2 },
   commentText: { fontSize: 14, lineHeight: 19 },
   commentReplyBtn: {
-    marginTop: 4,
     fontSize: 12,
     fontWeight: '700',
     color: colors.inkMuted,
+  },
+  commentActions: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
   },
   replyBar: {
     flexDirection: 'row',

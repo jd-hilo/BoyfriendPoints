@@ -12,8 +12,11 @@ import {
   addTask,
   approveSubmission,
   buildNotifications,
+  blockUser,
+  blocksForUser,
   completeOnboarding,
   createSubmission,
+  deleteAccount,
   denySubmission,
   grantPoints,
   deviceLogin,
@@ -45,6 +48,7 @@ import {
   removePartner,
   removePrize,
   removeTask,
+  reportContent,
   setPushToken,
   shareRedemption,
   shareSubmission,
@@ -58,6 +62,7 @@ import {
   TASK_SUGGESTIONS,
   tasksForUser,
   toggleLike,
+  unblockUser,
   type State,
 } from './domain.ts';
 import {
@@ -72,7 +77,7 @@ import { createMedia, mediaBytes, mediaUrl, publicOrigin, readMedia } from './me
 import { captureEvent, captureException } from './analytics.ts';
 import type { Database } from './db/client.ts';
 import { users } from './db/schema.ts';
-import { asUser, hydrateHousehold, persistPartnerPair, persistUserProfile } from './db/store.ts';
+import { asUser, clearPartnerLink, deleteUserRecord, hydrateHousehold, persistPartnerPair, persistUserProfile, saveState } from './db/store.ts';
 import { createSession, deleteSession, sessionUserId } from './db/sessions.ts';
 import { eq } from 'drizzle-orm';
 
@@ -513,6 +518,70 @@ export function createApp({ state, onChange, db }: CreateAppOptions): Express {
       }
       persist();
       res.json(publicUser(state, user));
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.delete('/api/account', async (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    const userId = user.id;
+    try {
+      const { partnerId } = deleteAccount(state, user);
+      if (db) {
+        await saveState(db, state);
+        if (partnerId) await clearPartnerLink(db, partnerId);
+        await deleteUserRecord(db, userId);
+      }
+      persist();
+      res.json({ ok: true });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.get('/api/blocks', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    res.json(blocksForUser(state, user));
+  });
+
+  app.post('/api/blocks', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      blockUser(state, user, String(req.body?.userId ?? ''));
+      persist();
+      res.status(201).json({ blocked: true });
+    } catch (err) {
+      fail(res, err);
+    }
+  });
+
+  app.delete('/api/blocks/:userId', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    unblockUser(state, user, req.params.userId);
+    persist();
+    res.json({ blocked: false });
+  });
+
+  app.post('/api/reports', (req: AuthedRequest, res) => {
+    const user = requireAuth(req, res);
+    if (!user) return;
+    try {
+      const targetType = String(req.body?.targetType ?? '');
+      if (targetType !== 'user' && targetType !== 'post' && targetType !== 'comment') {
+        throw new Error('Nothing to report');
+      }
+      reportContent(state, user, {
+        targetType,
+        targetId: String(req.body?.targetId ?? ''),
+        reason: String(req.body?.reason ?? ''),
+      });
+      persist();
+      res.status(201).json({ ok: true });
     } catch (err) {
       fail(res, err);
     }

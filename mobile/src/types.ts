@@ -187,6 +187,7 @@ export interface PersonPeek {
   partnerAvatar?: string;
   coupleUsername?: string;
   activity: PersonPeekActivity[];
+  blockedByMe?: boolean;
 }
 
 /** Feed row enriched with display names for the client. */

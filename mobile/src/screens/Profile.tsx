@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { PublicUser } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { pickAndUploadPhoto } from '../pickImage';
@@ -44,6 +45,8 @@ export default function Profile({
   const [pushBusy, setPushBusy] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveBusy, setLeaveBusy] = useState(false);
+  const [blocked, setBlocked] = useState<PublicUser[]>([]);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     void refresh();
@@ -57,6 +60,13 @@ export default function Profile({
   useEffect(() => {
     if (!user) return;
     void isPushEnabled(user.id).then(setPushOn);
+  }, [user?.id]);
+
+  useEffect(() => {
+    void api
+      .blocks()
+      .then(setBlocked)
+      .catch(() => undefined);
   }, [user?.id]);
 
   if (!user) return null;
@@ -112,6 +122,46 @@ export default function Profile({
         },
       ],
     );
+  }
+
+  function confirmDeleteAccount() {
+    haptic(10);
+    Alert.alert(
+      'Delete your account?',
+      'This removes your profile, points, and photos. Your partner keeps their account, unlinked. You can’t undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete account',
+          style: 'destructive',
+          onPress: () => void removeAccount(),
+        },
+      ],
+    );
+  }
+
+  async function removeAccount() {
+    if (deleteBusy) return;
+    setDeleteBusy(true);
+    setError(null);
+    try {
+      await api.deleteAccount();
+      await logout();
+    } catch (err) {
+      setError((err as Error).message);
+      setDeleteBusy(false);
+    }
+  }
+
+  async function unblock(person: PublicUser) {
+    setError(null);
+    try {
+      await api.unblockUser(person.id);
+      setBlocked((list) => list.filter((item) => item.id !== person.id));
+      haptic(10);
+    } catch (err) {
+      setError((err as Error).message);
+    }
   }
 
   async function leaveRelationship() {
@@ -385,7 +435,30 @@ export default function Profile({
               <Button block variant="danger" onPress={confirmSignOut}>
                 Sign out
               </Button>
+              <Button
+                block
+                variant="ghost"
+                disabled={deleteBusy}
+                onPress={confirmDeleteAccount}
+              >
+                {deleteBusy ? 'Deleting…' : 'Delete account'}
+              </Button>
             </View>
+            {blocked.length > 0 ? (
+              <>
+                <Text style={styles.section}>BLOCKED</Text>
+                <View style={styles.card}>
+                  {blocked.map((person) => (
+                    <View key={person.id} style={styles.row}>
+                      <Text style={styles.rowValueLeft}>{person.name}</Text>
+                      <Button variant="ghost" onPress={() => void unblock(person)}>
+                        Unblock
+                      </Button>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : null}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

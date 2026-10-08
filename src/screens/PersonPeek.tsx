@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FeedEventView, PersonPeek } from '../../shared/types.ts';
 import { api } from '../api.ts';
 import { useAuth } from '../auth.tsx';
-import { Avatar, Xp } from '../ui.tsx';
+import { Avatar, Button, Xp } from '../ui.tsx';
 import { haptic, timeAgo } from '../utils.ts';
 
 export type PersonPreview = {
@@ -79,6 +79,8 @@ export default function PersonPeekSheet({
   const partnerId = peek?.partnerId ?? preview.partnerId;
   const coupleUsername = peek?.coupleUsername;
   const mine = user?.id === preview.id;
+  const isPartner = Boolean(user?.partnerId && user.partnerId === preview.id);
+  const blocked = Boolean(peek?.blockedByMe);
   const activity = useMemo(() => {
     if (peek?.activity?.length) return peek.activity;
     return activityFromFeed(events, preview.id);
@@ -139,6 +141,46 @@ export default function PersonPeekSheet({
           ) : null}
           {coupleUsername ? (
             <p className="peek-handle">@{coupleUsername}</p>
+          ) : null}
+          {!mine ? (
+            <div className="peek-safety">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  const reason = window.prompt(
+                    'Why are you reporting them? Harassment, Spam, Inappropriate, or Other',
+                    'Harassment',
+                  );
+                  if (!reason) return;
+                  void api.report('user', preview.id, reason).catch((err) => {
+                    window.alert((err as Error).message);
+                  });
+                }}
+              >
+                Report
+              </Button>
+              {!isPartner ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const next = blocked ? 'Unblock' : 'Block';
+                    if (!window.confirm(`${next} ${name}?`)) return;
+                    const action = blocked
+                      ? api.unblockUser(preview.id)
+                      : api.blockUser(preview.id);
+                    void action
+                      .then(() => {
+                        setPeek((current) =>
+                          current ? { ...current, blockedByMe: !blocked } : current,
+                        );
+                      })
+                      .catch((err) => window.alert((err as Error).message));
+                  }}
+                >
+                  {blocked ? 'Unblock' : 'Block'}
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
 

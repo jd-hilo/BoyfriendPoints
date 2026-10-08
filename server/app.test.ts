@@ -176,6 +176,80 @@ describe('BoyfriendPoints API', () => {
     expect(Array.isArray(peek.body.activity)).toBe(true);
   });
 
+  it('reports, blocks, and deletes a real account', async () => {
+    const { client, state } = makeClient();
+    const emma = state.users.find((u) => u.name === 'Emma')!;
+    const noah = state.users.find((u) => u.name === 'Noah')!;
+    const emmaLogin = await client
+      .post('/api/auth/device')
+      .send({ userId: emma.id })
+      .expect(200);
+
+    await client
+      .delete('/api/account')
+      .set('Authorization', `Bearer ${emmaLogin.body.token}`)
+      .expect(400);
+
+    await client
+      .post('/api/blocks')
+      .set('Authorization', `Bearer ${emmaLogin.body.token}`)
+      .send({ userId: noah.id })
+      .expect(400);
+
+    const created = await client
+      .post('/api/auth/signup')
+      .send({
+        name: 'Ada',
+        email: 'ada@example.com',
+        password: 'secret-pass',
+        role: 'wife',
+      })
+      .expect(201);
+    const token = created.body.token as string;
+    const ada = state.users.find((u) => u.email === 'ada@example.com')!;
+    const community = state.users.find((u) => u.demo && u.role === 'wife')!;
+
+    const invited = await client
+      .post('/api/onboarding/boyfriend')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ name: 'Ben', email: 'ben@example.com', password: 'secret-pass' })
+      .expect(201);
+    expect(invited.body.loginHint.password).toBe('secret-pass');
+
+    ada.friendIds = [community.id];
+    community.friendIds = [...community.friendIds, ada.id];
+
+    await client
+      .post('/api/reports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ targetType: 'user', targetId: community.id, reason: 'Spam' })
+      .expect(201);
+    expect(state.reports).toHaveLength(1);
+
+    await client
+      .post('/api/blocks')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ userId: community.id })
+      .expect(201);
+    const blocks = await client
+      .get('/api/blocks')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(blocks.body.map((person: { id: string }) => person.id)).toContain(
+      community.id,
+    );
+
+    await client
+      .delete('/api/account')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(state.users.some((u) => u.id === ada.id)).toBe(false);
+    await client
+      .post('/api/auth/login')
+      .send({ email: 'ada@example.com', password: 'secret-pass' })
+      .expect(401);
+  });
+
   it('requires auth for protected routes', async () => {
     const { client } = makeClient();
     await client.get('/api/feed').expect(401);

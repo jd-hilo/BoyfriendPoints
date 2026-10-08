@@ -8,8 +8,11 @@ import {
   addTask,
   approveSubmission,
   buildNotifications,
+  blockUser,
+  blocksForUser,
   completeOnboarding,
   createSubmission,
+  deleteAccount,
   denySubmission,
   grantPoints,
   deviceLogin,
@@ -41,6 +44,7 @@ import {
   removePartner,
   removePrize,
   removeTask,
+  reportContent,
   setPushToken,
   shareRedemption,
   shareSubmission,
@@ -55,10 +59,11 @@ import {
   TASK_SUGGESTIONS,
   tasksForUser,
   toggleLike,
+  unblockUser,
   type State,
 } from './domain.ts';
 import { createDb, type Database } from './db/client.ts';
-import { loadState, persistPartnerPair, persistUserProfile, saveState } from './db/store.ts';
+import { clearPartnerLink, deleteUserRecord, loadState, persistPartnerPair, persistUserProfile, saveState } from './db/store.ts';
 import { createSession, deleteSession, sessionUserId } from './db/sessions.ts';
 import {
   neonAuthEnv,
@@ -541,6 +546,75 @@ export function createApiApp() {
       }
       markDirty(c);
       return c.json(publicUser(c.get('state'), user));
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.delete('/api/account', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    const userId = user.id;
+    try {
+      const state = c.get('state');
+      const { partnerId } = deleteAccount(state, user);
+      const db = c.get('db');
+      await saveState(db, state);
+      if (partnerId) await clearPartnerLink(db, partnerId);
+      await deleteUserRecord(db, userId);
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.get('/api/blocks', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    return c.json(blocksForUser(c.get('state'), user));
+  });
+
+  app.post('/api/blocks', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{ userId?: string }>();
+      blockUser(c.get('state'), user, String(body?.userId ?? ''));
+      markDirty(c);
+      return c.json({ blocked: true }, 201);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+  });
+
+  app.delete('/api/blocks/:userId', (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    unblockUser(c.get('state'), user, c.req.param('userId'));
+    markDirty(c);
+    return c.json({ blocked: false });
+  });
+
+  app.post('/api/reports', async (c) => {
+    const user = c.get('user');
+    if (!user) return c.json({ error: 'Not signed in' }, 401);
+    try {
+      const body = await c.req.json<{
+        targetType?: string;
+        targetId?: string;
+        reason?: string;
+      }>();
+      const targetType = String(body?.targetType ?? '');
+      if (targetType !== 'user' && targetType !== 'post' && targetType !== 'comment') {
+        throw new Error('Nothing to report');
+      }
+      reportContent(c.get('state'), user, {
+        targetType,
+        targetId: String(body?.targetId ?? ''),
+        reason: String(body?.reason ?? ''),
+      });
+      markDirty(c);
+      return c.json({ ok: true }, 201);
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }

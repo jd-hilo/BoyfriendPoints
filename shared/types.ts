@@ -193,6 +193,26 @@ export interface PersonPeek {
   partnerAvatar?: string;
   coupleUsername?: string;
   activity: PersonPeekActivity[];
+  /** True when the viewer has blocked this person. */
+  blockedByMe?: boolean;
+}
+
+export type ReportTarget = 'user' | 'post' | 'comment';
+
+export interface UserBlock {
+  id: string;
+  blockerId: string;
+  blockedId: string;
+  createdAt: string;
+}
+
+export interface ContentReport {
+  id: string;
+  reporterId: string;
+  targetType: ReportTarget;
+  targetId: string;
+  reason: string;
+  createdAt: string;
 }
 
 /** Feed row enriched with display names for the client. */

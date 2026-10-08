@@ -264,6 +264,19 @@ export const api = {
   feed: () => request<FeedEventView[]>('/feed'),
   person: (id: string) => request<PersonPeek>(`/people/${encodeURIComponent(id)}`),
   notifications: () => request<NotificationItem[]>('/notifications'),
+  deleteAccount: () => request<{ ok: true }>('/account', { method: 'DELETE' }),
+  blocks: () => request<PublicUser[]>('/blocks'),
+  blockUser: (userId: string) =>
+    request<{ blocked: boolean }>('/blocks', { method: 'POST', body: { userId } }),
+  unblockUser: (userId: string) =>
+    request<{ blocked: boolean }>(`/blocks/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    }),
+  report: (targetType: 'user' | 'post' | 'comment', targetId: string, reason: string) =>
+    request<{ ok: true }>('/reports', {
+      method: 'POST',
+      body: { targetType, targetId, reason },
+    }),
   like: (id: string) =>
     request<{ id: string; likes: number; likedByMe: boolean }>(
       `/feed/${id}/like`,

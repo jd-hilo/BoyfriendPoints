@@ -5,10 +5,12 @@ import {
   addPrize,
   addTask,
   approveSubmission,
+  blockUser,
   buildNotifications,
   circleWifeIds,
   createEmptyState,
   createSubmission,
+  deleteAccount,
   deviceLogin,
   feedForUser,
   grantPoints,
@@ -25,6 +27,7 @@ import {
   syncAuthorOnFeed,
   requestFriendByCode,
   removePartner,
+  reportContent,
   shareRedemption,
   shareSubmission,
   searchCouples,
@@ -803,5 +806,87 @@ describe('setPassword', () => {
       password: 'old-pass-word',
     });
     expect(() => setPassword(user, 'short')).toThrow(/at least 8/i);
+  });
+});
+
+describe('safety', () => {
+  it('hides a blocked person’s posts from both sides', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    const friend = addFriend(state, wife, { name: 'Fran', email: 'fran@x.com' });
+    const friendBf = inviteBoyfriend(state, friend, {
+      name: 'Fred',
+      email: 'fred@x.com',
+    });
+    addTask(state, friend, { title: 'Cooked', points: 20 });
+    const cooked = createSubmission(state, friendBf, { title: 'Cooked', points: 20 });
+    shareSubmission(state, friendBf, cooked.id);
+    approveSubmission(state, friend, cooked.id);
+    addTask(state, wife, { title: 'Flowers', points: 10 });
+    const flowers = createSubmission(state, boyfriend, { title: 'Flowers', points: 10 });
+    shareSubmission(state, boyfriend, flowers.id);
+    approveSubmission(state, wife, flowers.id);
+
+    expect(feedForUser(state, wife).some((event) => event.title === 'Cooked')).toBe(
+      true,
+    );
+    blockUser(state, wife, friendBf.id);
+    expect(feedForUser(state, wife).some((event) => event.title === 'Cooked')).toBe(
+      false,
+    );
+    expect(feedForUser(state, friendBf).some((event) => event.title === 'Flowers')).toBe(
+      false,
+    );
+    expect(personPeekForUser(state, wife, friendBf.id).blockedByMe).toBe(true);
+  });
+
+  it('stores a report and refuses a report of yourself', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    createSubmission(state, boyfriend, { title: 'Dishes', points: 30 });
+    shareSubmission(state, boyfriend, state.submissions[0].id);
+    approveSubmission(state, wife, state.submissions[0].id);
+    const postId = state.feed[0].id;
+    const report = reportContent(state, wife, {
+      targetType: 'post',
+      targetId: postId,
+      reason: 'Spam',
+    });
+    expect(report.reporterId).toBe(wife.id);
+    expect(state.reports).toHaveLength(1);
+    expect(() =>
+      reportContent(state, wife, {
+        targetType: 'user',
+        targetId: wife.id,
+        reason: 'Spam',
+      }),
+    ).toThrow(/yourself/i);
+  });
+
+  it('deletes a real account and unlinks the partner', () => {
+    const { state, wife, boyfriend } = bootstrap();
+    const friend = addFriend(state, wife, { name: 'Fran', email: 'fran@x.com' });
+    const friendBf = inviteBoyfriend(state, friend, {
+      name: 'Fred',
+      email: 'fred@x.com',
+    });
+    addTask(state, friend, { title: 'Cooked', points: 20 });
+    const cooked = createSubmission(state, friendBf, { title: 'Cooked', points: 20 });
+    shareSubmission(state, friendBf, cooked.id);
+    approveSubmission(state, friend, cooked.id);
+    addComment(state, boyfriend, state.feed[0].id, 'Nice');
+    const wifeId = wife.id;
+    deleteAccount(state, boyfriend);
+    expect(state.users.some((user) => user.id === boyfriend.id)).toBe(false);
+    expect(state.users.find((user) => user.id === wifeId)?.partnerId).toBeUndefined();
+    expect(state.feed[0]?.comments ?? []).toHaveLength(0);
+    expect(() => login(state, 'ben@example.com', 'points')).toThrow(/invalid/i);
+  });
+
+  it('refuses to delete a demo account', () => {
+    const state = createEmptyState();
+    seedDemo(state);
+    const emma = state.users.find((user) => user.name === 'Emma');
+    expect(emma).toBeTruthy();
+    expect(() => deleteAccount(state, emma!)).toThrow(/demo/i);
+    expect(state.users.some((user) => user.id === emma!.id)).toBe(true);
   });
 });

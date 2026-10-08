@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -12,7 +13,8 @@ import type { FeedEventView, PersonPeek } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { colors } from '../theme';
-import { Avatar, Xp } from '../ui';
+import { Avatar, Button, Xp } from '../ui';
+import { confirmReport } from '../safety';
 import { haptic, timeAgo } from '../utils';
 
 export type PersonPreview = {
@@ -89,6 +91,8 @@ export default function PersonPeekSheet({
   const partnerId = peek?.partnerId ?? preview.partnerId;
   const coupleUsername = peek?.coupleUsername;
   const mine = user?.id === preview.id;
+  const isPartner = Boolean(user?.partnerId && user.partnerId === preview.id);
+  const blocked = Boolean(peek?.blockedByMe);
   const activity = useMemo(() => {
     if (peek?.activity?.length) return peek.activity;
     return activityFromFeed(events, preview.id);
@@ -107,6 +111,44 @@ export default function PersonPeekSheet({
       partnerColor: color,
       partnerAvatar: avatar,
     });
+  }
+
+  function reportPerson() {
+    confirmReport((reason) => {
+      void api.report('user', preview.id, reason).catch((err) => {
+        Alert.alert('Couldn’t report', (err as Error).message);
+      });
+    });
+  }
+
+  function toggleBlock() {
+    const next = blocked ? 'Unblock' : 'Block';
+    Alert.alert(
+      `${next} ${name}?`,
+      blocked
+        ? 'Their posts and comments will show up in your feed again.'
+        : 'You won’t see their posts or comments, and they won’t see yours.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: next,
+          style: blocked ? 'default' : 'destructive',
+          onPress: () => {
+            const action = blocked
+              ? api.unblockUser(preview.id)
+              : api.blockUser(preview.id);
+            void action
+              .then(() => {
+                setPeek((current) =>
+                  current ? { ...current, blockedByMe: !blocked } : current,
+                );
+                haptic(10);
+              })
+              .catch((err) => Alert.alert('Couldn’t update block', (err as Error).message));
+          },
+        },
+      ],
+    );
   }
 
   return (
@@ -143,6 +185,18 @@ export default function PersonPeekSheet({
               ) : null}
               {coupleUsername ? (
                 <Text style={styles.handleText}>@{coupleUsername}</Text>
+              ) : null}
+              {!mine ? (
+                <View style={styles.safetyRow}>
+                  <Button variant="ghost" onPress={reportPerson}>
+                    Report
+                  </Button>
+                  {!isPartner ? (
+                    <Button variant="ghost" onPress={toggleBlock}>
+                      {blocked ? 'Unblock' : 'Block'}
+                    </Button>
+                  ) : null}
+                </View>
               ) : null}
             </View>
 
@@ -273,6 +327,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.inkMuted,
+  },
+  safetyRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    gap: 8,
   },
   label: {
     marginTop: 18,

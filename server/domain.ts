@@ -11,10 +11,13 @@ import type {
   Prize,
   PublicUser,
   Redemption,
+  ReportTarget,
   Role,
+  ContentReport,
   Submission,
   Suggestion,
   User,
+  UserBlock,
 } from '../shared/types.ts';
 
 export interface State {
@@ -25,6 +28,8 @@ export interface State {
   redemptions: Redemption[];
   feed: FeedEvent[];
   friendRequests: FriendRequest[];
+  blocks: UserBlock[];
+  reports: ContentReport[];
 }
 
 export function createEmptyState(): State {
@@ -36,8 +41,12 @@ export function createEmptyState(): State {
     redemptions: [],
     feed: [],
     friendRequests: [],
+    blocks: [],
+    reports: [],
   };
 }
+
+export const REPORT_REASONS = ['Harassment', 'Spam', 'Inappropriate', 'Other'] as const;
 
 const AVATAR_COLORS = [
   '#008CFF',
@@ -1217,6 +1226,128 @@ export function fulfillRedemption(
   return redemption;
 }
 
+/** People this user has blocked, or who have blocked them. */
+export function blockedIdsFor(state: State, userId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const block of state.blocks ?? []) {
+    if (block.blockerId === userId) ids.add(block.blockedId);
+    else if (block.blockedId === userId) ids.add(block.blockerId);
+  }
+  return ids;
+}
+
+export function blocksForUser(state: State, user: User): PublicUser[] {
+  return (state.blocks ?? [])
+    .filter((block) => block.blockerId === user.id)
+    .map((block) => state.users.find((candidate) => candidate.id === block.blockedId))
+    .filter((candidate): candidate is User => Boolean(candidate))
+    .map((candidate) => publicUser(state, candidate));
+}
+
+export function blockUser(state: State, user: User, blockedId: string): UserBlock {
+  if (blockedId === user.id) throw new Error('You can’t block yourself');
+  if (user.partnerId === blockedId) {
+    throw new Error('Unlink from your partner instead');
+  }
+  personPeekForUser(state, user, blockedId);
+  const existing = (state.blocks ?? []).find(
+    (block) => block.blockerId === user.id && block.blockedId === blockedId,
+  );
+  if (existing) return existing;
+  const block: UserBlock = {
+    id: id('blk_'),
+    blockerId: user.id,
+    blockedId,
+    createdAt: new Date().toISOString(),
+  };
+  state.blocks = [...(state.blocks ?? []), block];
+  return block;
+}
+
+export function unblockUser(state: State, user: User, blockedId: string): void {
+  state.blocks = (state.blocks ?? []).filter(
+    (block) => !(block.blockerId === user.id && block.blockedId === blockedId),
+  );
+}
+
+export function reportContent(
+  state: State,
+  user: User,
+  input: { targetType: ReportTarget; targetId: string; reason: string },
+): ContentReport {
+  const reason = input.reason.trim();
+  if (!REPORT_REASONS.includes(reason as (typeof REPORT_REASONS)[number])) {
+    throw new Error('Pick a reason');
+  }
+  const targetId = input.targetId.trim();
+  if (!targetId) throw new Error('Nothing to report');
+  if (input.targetType === 'user') {
+    if (targetId === user.id) throw new Error('You can’t report yourself');
+    personPeekForUser(state, user, targetId);
+  } else if (input.targetType === 'post') {
+    const visible = feedForUser(state, user).some((event) => event.id === targetId);
+    if (!visible) throw new Error('Post not found');
+  } else if (input.targetType === 'comment') {
+    const visible = feedForUser(state, user).some((event) =>
+      event.comments.some((comment) => comment.id === targetId),
+    );
+    if (!visible) throw new Error('Comment not found');
+  } else {
+    throw new Error('Nothing to report');
+  }
+  const report: ContentReport = {
+    id: id('rpt_'),
+    reporterId: user.id,
+    targetType: input.targetType,
+    targetId,
+    reason,
+    createdAt: new Date().toISOString(),
+  };
+  state.reports = [...(state.reports ?? []), report];
+  return report;
+}
+
+/** Remove a real account and the personal data attached to it.
+ *  The partner keeps their own account, unlinked. */
+export function deleteAccount(state: State, user: User): { partnerId?: string } {
+  if (isDemoPersona(user)) throw new Error('Demo accounts can’t be deleted');
+  const partnerId = user.partnerId;
+  if (partnerId && state.users.some((candidate) => candidate.id === partnerId)) {
+    removePartner(state, user);
+  }
+  const userId = user.id;
+  for (const other of state.users) {
+    if (other.id === userId) continue;
+    other.friendIds = other.friendIds.filter((friendId) => friendId !== userId);
+    if (other.partnerId === userId) other.partnerId = undefined;
+  }
+  state.friendRequests = state.friendRequests.filter(
+    (request) => request.fromWifeId !== userId && request.toWifeId !== userId,
+  );
+  state.prizes = state.prizes.filter((prize) => prize.wifeId !== userId);
+  state.tasks = state.tasks.filter((task) => task.wifeId !== userId);
+  state.submissions = state.submissions.filter(
+    (submission) => submission.boyfriendId !== userId && submission.wifeId !== userId,
+  );
+  state.redemptions = state.redemptions.filter(
+    (redemption) => redemption.boyfriendId !== userId && redemption.wifeId !== userId,
+  );
+  state.feed = state.feed
+    .filter((event) => event.boyfriendId !== userId && event.wifeId !== userId)
+    .map((event) => ({
+      ...event,
+      likes: event.likes.filter((likeId) => likeId !== userId),
+      reactions: event.reactions.filter((reaction) => reaction.userId !== userId),
+      comments: event.comments.filter((comment) => comment.userId !== userId),
+    }));
+  state.blocks = (state.blocks ?? []).filter(
+    (block) => block.blockerId !== userId && block.blockedId !== userId,
+  );
+  state.reports = (state.reports ?? []).filter((report) => report.reporterId !== userId);
+  state.users = state.users.filter((candidate) => candidate.id !== userId);
+  return { partnerId };
+}
+
 /** Household members + friend households whose activity a user can see. */
 export function circleWifeIds(state: State, user: User): Set<string> {
   const root = householdAnchor(state, user);
@@ -1242,8 +1373,10 @@ export function feedForUser(state: State, user: User): FeedEventView[] {
   } catch {
     return [];
   }
+  const hidden = blockedIdsFor(state, user.id);
   return state.feed
     .filter((e) => {
+      if (hidden.has(e.boyfriendId) || hidden.has(e.wifeId)) return false;
       if (!circle.has(e.wifeId)) return false;
       const wife = state.users.find((u) => u.id === e.wifeId);
       const boyfriend = state.users.find((u) => u.id === e.boyfriendId);
@@ -1269,7 +1402,9 @@ export function feedForUser(state: State, user: User): FeedEventView[] {
         wifeColor: wife?.color ?? '#7C5CFF',
         wifeAvatar: wife ? (wife.avatarUrl ?? avatarFor(wife.name)) : undefined,
         likedByMe: e.likes.includes(user.id),
-        comments: commentsWithLiveAuthors(state, e.comments),
+        comments: commentsWithLiveAuthors(state, e.comments).filter(
+          (comment) => !hidden.has(comment.userId),
+        ),
       };
     });
 }
@@ -1324,6 +1459,9 @@ export function personPeekForUser(
       : undefined,
     coupleUsername: household?.coupleUsername,
     activity,
+    blockedByMe: (state.blocks ?? []).some(
+      (block) => block.blockerId === viewer.id && block.blockedId === person.id,
+    ),
   };
 }
 

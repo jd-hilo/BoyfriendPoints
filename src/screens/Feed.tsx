@@ -146,6 +146,23 @@ export default function Feed() {
     );
   }
 
+  function report(targetType: 'post' | 'comment', targetId: string) {
+    const reason = window.prompt(
+      'Why are you reporting this? Harassment, Spam, Inappropriate, or Other',
+      'Harassment',
+    );
+    if (!reason) return;
+    void api.report(targetType, targetId, reason).catch((err) => {
+      window.alert((err as Error).message);
+    });
+  }
+
+  function ownHousehold(event: FeedEventView) {
+    if (!user) return false;
+    const ids = new Set([user.id, user.partnerId].filter(Boolean));
+    return ids.has(event.boyfriendId) && ids.has(event.wifeId);
+  }
+
   async function resolveFriendRequest(id: string, accept: boolean) {
     try {
       if (accept) await api.acceptFriendRequest(id);
@@ -224,11 +241,22 @@ export default function Feed() {
           <article key={e.id} className="feed-card">
             <div className="feed-card-top">
               <span className="feed-time">{timeAgo(e.createdAt)} ago</span>
-              <Xp
-                value={e.points}
-                sign={e.type === 'earn' ? '+' : '−'}
-                size={13}
-              />
+              <span className="feed-top-right">
+                {!ownHousehold(e) ? (
+                  <button
+                    type="button"
+                    className="linkish report-link"
+                    onClick={() => report('post', e.id)}
+                  >
+                    Report
+                  </button>
+                ) : null}
+                <Xp
+                  value={e.points}
+                  sign={e.type === 'earn' ? '+' : '−'}
+                  size={13}
+                />
+              </span>
             </div>
 
             <div className="story-line">
@@ -361,6 +389,7 @@ export default function Feed() {
             haptic(8);
             setPeek(next);
           }}
+          onReport={(commentId) => report('comment', commentId)}
         />
       )}
 
@@ -517,11 +546,13 @@ function CommentSheet({
   onClose,
   onSubmitComment,
   onOpenPerson,
+  onReport,
 }: {
   event: FeedEventView;
   onClose: () => void;
   onSubmitComment: (text: string, replyToId?: string) => void | Promise<void>;
   onOpenPerson: (next: PersonPreview) => void;
+  onReport: (commentId: string) => void;
 }) {
   const { user } = useAuth();
   const [text, setText] = useState('');
@@ -598,13 +629,24 @@ function CommentSheet({
                     <p className="comment-reply-to">@{shown.replyToName}</p>
                   ) : null}
                   <p className="comment-text">{c.text}</p>
-                  <button
-                    type="button"
-                    className="comment-reply-btn"
-                    onClick={() => setReplyTo(c)}
-                  >
-                    Reply
-                  </button>
+                  <span className="comment-actions">
+                    <button
+                      type="button"
+                      className="comment-reply-btn"
+                      onClick={() => setReplyTo(c)}
+                    >
+                      Reply
+                    </button>
+                    {shown.userId !== user?.id ? (
+                      <button
+                        type="button"
+                        className="comment-reply-btn"
+                        onClick={() => onReport(c.id)}
+                      >
+                        Report
+                      </button>
+                    ) : null}
+                  </span>
                 </div>
               </div>
               );
