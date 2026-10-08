@@ -554,7 +554,6 @@ export default function OnboardingFlow({ onSignIn }: { onSignIn?: () => void }) 
               inviteCode={user?.inviteCode}
               partnerName={user?.partnerName}
               sharerName={user?.name ?? name}
-              refresh={refresh}
             />
           ))}
 
@@ -714,18 +713,13 @@ function StepInvitePartner({
   inviteCode,
   partnerName,
   sharerName,
-  refresh,
 }: {
   onNext: () => void;
   inviteCode?: string;
   partnerName?: string;
   sharerName: string;
-  refresh: () => Promise<void>;
 }) {
   const code = inviteCode ?? '······';
-  const [joinCode, setJoinCode] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const linked = Boolean(partnerName);
 
   async function share() {
@@ -736,25 +730,10 @@ function StepInvitePartner({
     });
   }
 
-  async function join() {
-    setError(null);
-    setBusy(true);
-    try {
-      await api.joinWithCode(joinCode);
-      await refresh();
-      onNext();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <StepShell
       title="Add your partner"
-      sub="Share your code, or enter theirs if they already started a household."
-      error={error}
+      sub="Share your household code. They sign up and enter it to join you."
     >
       <Pop>
         <View style={styles.codeCard}>
@@ -775,28 +754,7 @@ function StepInvitePartner({
             You're set — keep the code handy if they need to reinstall.
           </Text>
         </View>
-      ) : (
-        <>
-          <TextInput
-            style={[styles.bigInput, styles.codeInput]}
-            value={joinCode}
-            onChangeText={(t) =>
-              setJoinCode(t.toUpperCase().replace(/[^A-Z0-9]/g, ''))
-            }
-            placeholder="Or enter their code"
-            placeholderTextColor="#b9b7b3"
-            autoCapitalize="characters"
-            autoCorrect={false}
-            maxLength={8}
-          />
-          <PrimaryButton
-            label={busy ? undefined : 'Join with their code'}
-            busy={busy}
-            disabled={joinCode.trim().length < 4 || busy}
-            onPress={() => void join()}
-          />
-        </>
-      )}
+      ) : null}
 
       <PrimaryButton
         label="Share invite"

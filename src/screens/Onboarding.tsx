@@ -279,7 +279,6 @@ function StepPartner({
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('points');
-  const [joinCode, setJoinCode] = useState('');
   const [hint, setHint] = useState<{ email: string; password: string } | null>(
     null,
   );
@@ -297,23 +296,11 @@ function StepPartner({
     }
   }
 
-  async function join(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      await api.joinWithCode(joinCode);
-      await refresh();
-      onNext();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
   return (
     <div className="ob-step">
       <h1 className="ob-title">Add your partner</h1>
       <p className="ob-sub">
-        Invite them with a login, or enter their household code if they already signed up.
+        Invite them with a login so they can join the couple you just created.
       </p>
 
       {partnerName || hint ? (
@@ -349,21 +336,6 @@ function StepPartner({
           {error && <p className="error">{error}</p>}
           <Button type="submit" block disabled={!name || !email}>
             Send invite
-          </Button>
-        </form>
-      )}
-
-      {!partnerName && !hint && (
-        <form className="card form" onSubmit={join}>
-          <input
-            value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-            placeholder="Or enter their code"
-            aria-label="Partner invite code"
-            autoCapitalize="characters"
-          />
-          <Button type="submit" block disabled={joinCode.trim().length < 4}>
-            Join with their code
           </Button>
         </form>
       )}
