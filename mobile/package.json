@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@expo/metro-runtime": "~57.0.17",
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.12",
@@ -23,13 +24,16 @@
     "expo-status-bar": "~57.0.1",
     "posthog-react-native": "^4.63.2",
     "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-native": "0.86.2",
+    "react-native-web": "^0.21.2",
     "react-native-safe-area-context": "^5.8.1",
     "react-native-view-shot": "^5.1.1",
     "rn-emoji-keyboard": "^1.7.0"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "playwright": "^1.56.1",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -37,6 +41,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios --go --lan",
     "web": "expo start --web",
+    "web:screenshots": "EXPO_PUBLIC_SCREENSHOT_MODE=1 CI=1 BROWSER=none expo start --web --port 8081 --non-interactive",
+    "screenshots": "EXPO_PUBLIC_SCREENSHOT_MODE=1 node scripts/capture-screenshots.mjs",
     "eas:ios": "eas build --platform ios --profile production --auto-submit"
   },
   "packageManager": "pnpm@10.33.3",

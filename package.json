@@ -22,6 +22,8 @@
     "cf:dev": "pnpm build && wrangler dev",
     "cf:secret": "wrangler secret put DATABASE_URL",
     "mobile": "pnpm --dir mobile exec expo start --lan",
+    "mobile:web:screenshots": "pnpm --dir mobile web:screenshots",
+    "mobile:screenshots": "pnpm --dir mobile screenshots",
     "mobile:ios": "pnpm --dir mobile exec expo start --ios --go --lan",
     "mobile:eas:ios": "pnpm --dir mobile run eas:ios"
   },

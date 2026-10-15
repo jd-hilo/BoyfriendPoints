@@ -25,7 +25,7 @@ import {
   isPushEnabled,
 } from '../push';
 import { colors, radius, shadow } from '../theme';
-import { Avatar, Button, CoupleLockup } from '../ui';
+import { Avatar, Button, CoupleLockup, Xp } from '../ui';
 import { APP_SHARE_URL, haptic, partnerWaitingShareMessage } from '../utils';
 
 export default function Profile({
@@ -243,7 +243,9 @@ export default function Profile({
             <Text style={styles.backIcon}>‹</Text>
           </Pressable>
           <Text style={styles.headerTitle}>Profile</Text>
-          <View style={[styles.headerIconBtn, styles.spacer]} />
+          <View style={[styles.headerIconBtn, styles.pointsChip]}>
+            <Xp value={me.points} size={13} />
+          </View>
         </View>
 
         <KeyboardAvoidingView
@@ -537,6 +539,11 @@ const styles = StyleSheet.create({
     ...shadow,
   },
   spacer: { opacity: 0 },
+  pointsChip: {
+    width: undefined,
+    paddingHorizontal: 10,
+    backgroundColor: colors.panel,
+  },
   backIcon: { fontSize: 24, color: colors.ink2 },
   headerTitle: {
     flex: 1,

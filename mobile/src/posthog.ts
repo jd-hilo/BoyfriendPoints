@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostHog from 'posthog-react-native';
 import Constants from 'expo-constants';
+import { isScreenshotMode } from './screenshot/mode';
 
 const apiKey =
   process.env.EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN?.trim() ||
@@ -12,7 +13,7 @@ const host =
 
 export const posthog = new PostHog(apiKey || 'placeholder_key', {
   host,
-  disabled: !apiKey,
+  disabled: !apiKey || isScreenshotMode(),
   captureAppLifecycleEvents: true,
   // Expo Go has AsyncStorage; skip expo-file-system persistence so we don't
   // pull a native path that isn't needed for product analytics.

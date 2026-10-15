@@ -4,12 +4,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { isScreenshotMode } from '../screenshot/mode';
 import {
   getSeenApprovals,
   getSeenNotificationIds,
   setSeenApprovals,
 } from '../storage';
-import { colors } from '../theme';
+import { colors, TAB_BAR_FLOAT_HEIGHT } from '../theme';
 import { Avatar, ReceiptIcon, ReceiptModal, Xp } from '../ui';
 import { haptic } from '../utils';
 import Feed from './Feed';
@@ -17,30 +18,39 @@ import Submit from './Submit';
 import Redeem from './Redeem';
 import Notifications from './Notifications';
 import Profile from './Profile';
+import WifeRequests from './WifeRequests';
+import WifeManage from './WifeManage';
 import type { Submission } from '../types';
 
 export type Tab = 'feed' | 'submit' | 'redeem';
+export type ScreenshotPane = 'requests' | 'manage';
 
 export default function MainApp({
   initialTab,
   openFirstReact,
   openReceipt,
+  initialNotifications,
+  initialProfile,
+  screenshotPane,
 }: {
   initialTab?: Tab;
   openFirstReact?: boolean;
   openReceipt?: boolean;
+  initialNotifications?: boolean;
+  initialProfile?: boolean;
+  screenshotPane?: ScreenshotPane;
 } = {}) {
   const insets = useSafeAreaInsets();
   const { user, refresh } = useAuth();
-  const [tab, setTab] = useState<Tab>('feed');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'feed');
   const [tick, setTick] = useState(0);
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(Boolean(initialNotifications));
+  const [profileOpen, setProfileOpen] = useState(Boolean(initialProfile));
   const [profileFocusJoin, setProfileFocusJoin] = useState(false);
   const [unreadNotifs, setUnreadNotifs] = useState(false);
   const [approval, setApproval] = useState<Submission | null>(null);
   const [booted, setBooted] = useState(false);
-  const notifOpenRef = useRef(false);
+  const notifOpenRef = useRef(Boolean(initialNotifications));
 
   const linked = Boolean(user?.partnerId);
 
@@ -83,6 +93,7 @@ export default function MainApp({
   }, [user, booted, initialTab]);
 
   useEffect(() => {
+    if (isScreenshotMode()) return;
     if (!user || !user.partnerId) return;
     let cancelled = false;
     void (async () => {
@@ -170,45 +181,57 @@ export default function MainApp({
         </View>
       </View>
 
-      <View style={[styles.main, tab === 'feed' && styles.homeMain]}>
-        {tab === 'feed' && (
-          <Feed
-            key={`feed-${tick}`}
-            openFirstReact={openFirstReact}
-            onInvitePartner={linked ? undefined : () => go('submit')}
-            onEnterCode={
-              linked
-                ? undefined
-                : () => {
-                    haptic(10);
-                    setProfileFocusJoin(true);
-                    setProfileOpen(true);
-                  }
-            }
-          />
-        )}
-        {tab === 'submit' && (
-          <Submit
-            key={`submit-${tick}`}
-            onDone={bump}
-            onEnterCode={() => {
-              haptic(10);
-              setProfileFocusJoin(true);
-              setProfileOpen(true);
-            }}
-          />
-        )}
-        {tab === 'redeem' && (
-          <Redeem
-            key={`redeem-${tick}`}
-            user={user}
-            onChange={bump}
-            onEnterCode={() => {
-              haptic(10);
-              setProfileFocusJoin(true);
-              setProfileOpen(true);
-            }}
-          />
+      <View style={[styles.main, tab === 'feed' && !screenshotPane && styles.homeMain]}>
+        {screenshotPane === 'requests' ? (
+          <View style={{ flex: 1, paddingBottom: TAB_BAR_FLOAT_HEIGHT }}>
+            <WifeRequests onChange={bump} onAddPrizes={() => go('redeem')} />
+          </View>
+        ) : screenshotPane === 'manage' ? (
+          <View style={{ flex: 1, paddingBottom: TAB_BAR_FLOAT_HEIGHT }}>
+            <WifeManage />
+          </View>
+        ) : (
+          <>
+            {tab === 'feed' && (
+              <Feed
+                key={`feed-${tick}`}
+                openFirstReact={openFirstReact}
+                onInvitePartner={linked ? undefined : () => go('submit')}
+                onEnterCode={
+                  linked
+                    ? undefined
+                    : () => {
+                        haptic(10);
+                        setProfileFocusJoin(true);
+                        setProfileOpen(true);
+                      }
+                }
+              />
+            )}
+            {tab === 'submit' && (
+              <Submit
+                key={`submit-${tick}`}
+                onDone={bump}
+                onEnterCode={() => {
+                  haptic(10);
+                  setProfileFocusJoin(true);
+                  setProfileOpen(true);
+                }}
+              />
+            )}
+            {tab === 'redeem' && (
+              <Redeem
+                key={`redeem-${tick}`}
+                user={user}
+                onChange={bump}
+                onEnterCode={() => {
+                  haptic(10);
+                  setProfileFocusJoin(true);
+                  setProfileOpen(true);
+                }}
+              />
+            )}
+          </>
         )}
       </View>
 

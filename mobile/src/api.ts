@@ -16,6 +16,8 @@ import type {
 import Constants from 'expo-constants';
 import { getToken } from './storage';
 import { captureAppException, posthogHeaders } from './analytics';
+import { isScreenshotMode } from './screenshot/mode';
+import { screenshotApi } from './screenshot/mockApi';
 
 const LOCAL_API = 'https://api-production-bae8.up.railway.app/api';
 const API_BASE_URL =
@@ -94,7 +96,7 @@ export interface AuthResult {
   user: PublicUser;
 }
 
-export const api = {
+const liveApi = {
   personas: () => request<PublicUser[]>('/personas'),
   enterAs: (userId: string) =>
     request<AuthResult>('/auth/device', {
@@ -293,3 +295,5 @@ export const api = {
       body: { text, replyToId },
     }),
 };
+
+export const api = isScreenshotMode() ? screenshotApi : liveApi;

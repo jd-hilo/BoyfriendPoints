@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { NotificationItem } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { isScreenshotMode } from '../screenshot/mode';
 import { markNotificationsSeen } from '../storage';
 import { colors } from '../theme';
 import { Avatar, Xp } from '../ui';
@@ -66,7 +67,9 @@ export default function Notifications({
 }) {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
-  const slide = useRef(new Animated.Value(width)).current;
+  const slide = useRef(
+    new Animated.Value(isScreenshotMode() ? 0 : width),
+  ).current;
   const closing = useRef(false);
   const [items, setItems] = useState<NotificationItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +96,7 @@ export default function Notifications({
   }, []);
 
   useEffect(() => {
+    if (isScreenshotMode()) return;
     Animated.timing(slide, {
       toValue: 0,
       duration: 280,

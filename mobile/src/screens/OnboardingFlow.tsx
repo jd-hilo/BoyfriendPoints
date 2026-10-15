@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { EarnTask, Prize, Suggestion } from '../types';
 import { api } from '../api';
 import { useAuth } from '../auth';
+import { isScreenshotMode } from '../screenshot/mode';
 import { colors } from '../theme';
 import { Button, EmojiField, TASK_EMOJIS, Xp } from '../ui';
 import AddCouplesModal from '../AddCouplesModal';
@@ -638,8 +639,9 @@ function Slideshow({
   );
 
   useEffect(() => {
-    fill.setValue(0);
+    fill.setValue(isScreenshotMode() ? 0.42 : 0);
     anim.current?.stop();
+    if (isScreenshotMode()) return;
     anim.current = Animated.timing(fill, {
       toValue: 1,
       duration: SLIDE_MS,
