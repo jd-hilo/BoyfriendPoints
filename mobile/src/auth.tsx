@@ -12,6 +12,8 @@ import type { PublicUser } from './types';
 import { identifyPerson, resetPerson } from './analytics';
 import { api, ApiError } from './api';
 import { configurePushHandler, refreshPushTokenIfEnabled } from './push';
+import { isScreenshotMode } from './screenshot/mode';
+import { screenshotCachedUser } from './screenshot/mockApi';
 import {
   getCachedUser,
   getToken,
@@ -45,6 +47,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    if (isScreenshotMode()) {
+      const shotUser = screenshotCachedUser();
+      setUser(shotUser);
+      if (shotUser) identifyPerson(shotUser);
+      return;
+    }
     const keepCached = async () => {
       const cached = await getCachedUser();
       if (cached) setUser(cached);

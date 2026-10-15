@@ -1,16 +1,20 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { PostHogErrorBoundary, PostHogProvider } from 'posthog-react-native';
 import { AuthProvider, useAuth } from './src/auth';
 import { api } from './src/api';
 import { posthog } from './src/posthog';
+import { isScreenshotMode } from './src/screenshot/mode';
+import { screenshotRoute } from './src/screenshot/route';
+import ScreenshotFrame from './src/screenshot/ScreenshotFrame';
 import { getToken } from './src/storage';
 import { colors } from './src/theme';
 import AuthScreen from './src/screens/AuthScreen';
 import OnboardingFlow from './src/screens/OnboardingFlow';
 import MainApp, { type Tab } from './src/screens/MainApp';
+import LinkPartner from './src/screens/LinkPartner';
 
 function parseDemoUrl(url: string | null): {
   name: string;
@@ -39,14 +43,16 @@ function parseDemoUrl(url: string | null): {
 function Router() {
   const { user, loading, enterAs } = useAuth();
   const [showSignIn, setShowSignIn] = useState(false);
-  const [shot, setShot] = useState<{
+  const [demoShot, setDemoShot] = useState<{
     tab?: Tab;
     react?: boolean;
     receipt?: boolean;
   }>({});
+  const marketing = screenshotRoute();
 
   useEffect(() => {
     async function apply(url: string | null) {
+      if (isScreenshotMode()) return;
       const parsed = parseDemoUrl(url);
       if (!parsed) return;
       // A leftover screenshot/demo deep link must not replace a real session
@@ -59,7 +65,7 @@ function Router() {
       if (!match) return;
       await enterAs(match.id);
       // Set tab only after the session exists so Feed/Review don't 401.
-      setShot({ tab: parsed.tab, react: parsed.react, receipt: parsed.receipt });
+      setDemoShot({ tab: parsed.tab, react: parsed.react, receipt: parsed.receipt });
     }
     void Linking.getInitialURL().then(apply);
     const sub = Linking.addEventListener('url', ({ url }) => void apply(url));
@@ -76,13 +82,26 @@ function Router() {
     );
   }
 
-  // Signed-out sign-in screen (separate from create-account onboarding).
   if (!user && showSignIn) {
     return <AuthScreen onCreateAccount={() => setShowSignIn(false)} />;
   }
 
-  // Keep ONE OnboardingFlow instance across signup so the session isn't
-  // remounted away right after email/password creates the account.
+  if (marketing?.shot === 'onboarding') {
+    return (
+      <OnboardingFlow
+        onSignIn={!user ? () => setShowSignIn(true) : undefined}
+      />
+    );
+  }
+
+  if (marketing?.shot === 'link' && user) {
+    return (
+      <SafeAreaView style={styles.linkShot} edges={['top', 'left', 'right']}>
+        <LinkPartner />
+      </SafeAreaView>
+    );
+  }
+
   if (!user || !user.onboarded) {
     return (
       <OnboardingFlow
@@ -91,18 +110,36 @@ function Router() {
     );
   }
 
+  const tab: Tab | undefined =
+    marketing?.shot === 'submit' || marketing?.shot === 'requests'
+      ? 'submit'
+      : marketing?.shot === 'redeem' || marketing?.shot === 'manage'
+        ? 'redeem'
+        : marketing?.shot === 'feed'
+          ? 'feed'
+          : demoShot.tab;
+
   return (
     <MainApp
-      key={`${user.id}-${shot.tab ?? 'default'}-${shot.react ? 'r' : ''}-${shot.receipt ? 'p' : ''}`}
-      initialTab={shot.tab}
-      openFirstReact={shot.react}
-      openReceipt={shot.receipt}
+      key={`${user.id}-${tab ?? 'default'}-${demoShot.react ? 'r' : ''}-${demoShot.receipt ? 'p' : ''}-${marketing?.shot ?? ''}`}
+      initialTab={tab}
+      openFirstReact={demoShot.react}
+      openReceipt={demoShot.receipt}
+      initialNotifications={marketing?.shot === 'notifications'}
+      initialProfile={marketing?.shot === 'profile'}
+      screenshotPane={
+        marketing?.shot === 'requests'
+          ? 'requests'
+          : marketing?.shot === 'manage'
+            ? 'manage'
+            : undefined
+      }
     />
   );
 }
 
 export default function App() {
-  return (
+  const tree = (
     <SafeAreaProvider>
       <PostHogProvider
         client={posthog}
@@ -122,6 +159,10 @@ export default function App() {
       </PostHogProvider>
     </SafeAreaProvider>
   );
+  if (isScreenshotMode()) {
+    return <ScreenshotFrame>{tree}</ScreenshotFrame>;
+  }
+  return tree;
 }
 
 const styles = StyleSheet.create({
@@ -131,6 +172,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  linkShot: { flex: 1, backgroundColor: colors.bg, paddingHorizontal: 14 },
   gem: { fontSize: 40, marginBottom: 8 },
   wordmark: {
     fontSize: 28,
