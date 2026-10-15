@@ -27,7 +27,7 @@ const SHOTS = [
     file: '01_feed.png',
     shot: 'feed',
     waitFor: 'mushroom risotto',
-    settleMs: 1600,
+    settleMs: 1800,
   },
   {
     file: '02_submit_request.png',
@@ -51,7 +51,8 @@ const SHOTS = [
     file: '05_wife_manage.png',
     shot: 'manage',
     waitFor: 'Breakfast in bed',
-    settleMs: 800,
+    scrollTo: 'Prizes they can get',
+    settleMs: 900,
   },
   {
     file: '06_profile_points.png',
@@ -240,12 +241,20 @@ async function waitForImages(page) {
 
 async function captureShot(page, spec) {
   const url = `${BASE}/?shot=${encodeURIComponent(spec.shot)}`;
-  await page.goto(url, { waitUntil: 'networkidle', timeout: 60_000 });
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await page.waitForSelector('#root', { timeout: 30_000 });
   await page.waitForFunction(
     (text) => document.body?.innerText?.includes(text),
     spec.waitFor,
     { timeout: 30_000 },
   );
+  if (spec.scrollTo) {
+    await page.evaluate((label) => {
+      const nodes = [...document.querySelectorAll('div, span, p')];
+      const el = nodes.find((node) => node.textContent?.trim() === label);
+      el?.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }, spec.scrollTo);
+  }
   await waitForImages(page);
   await page.waitForTimeout(spec.settleMs);
   await installChrome(page);

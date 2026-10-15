@@ -29,10 +29,8 @@ export const PRIZE_SUGGESTIONS: Suggestion[] = [
 
 export const TASK_SUGGESTIONS = TASKS;
 
-const NOW = Date.parse('2026-10-15T18:41:00.000Z');
-
 function ago(minutes: number): string {
-  return new Date(NOW - minutes * 60_000).toISOString();
+  return new Date(Date.now() - minutes * 60_000).toISOString();
 }
 
 function avatarFor(seed: string): string {
@@ -41,8 +39,8 @@ function avatarFor(seed: string): string {
   )}&backgroundType=gradientLinear&radius=50`;
 }
 
-function stockPhoto(seed: string): string {
-  return `https://picsum.photos/seed/${encodeURIComponent(seed)}/720/480`;
+function stockPhoto(id: string): string {
+  return `https://images.unsplash.com/${id}?auto=format&fit=crop&w=720&h=480&q=80`;
 }
 
 export interface ScreenshotState {
@@ -249,7 +247,10 @@ export function createScreenshotState(): ScreenshotState {
       emoji: '🍳',
       points: 60,
       note: 'mushroom risotto 🍚',
-      images: [stockPhoto('noah-risotto-1'), stockPhoto('noah-risotto-2')],
+      images: [
+        stockPhoto('photo-1476124369491-e7addf5db371'),
+        stockPhoto('photo-1504674900247-0877df9cc836'),
+      ],
       likes: [emma.id, 'u_mia'],
       reactions: [
         { emoji: '🔥', userId: 'u_priya' },
@@ -274,7 +275,7 @@ export function createScreenshotState(): ScreenshotState {
           createdAt: ago(95),
         },
       ],
-      createdAt: ago(130),
+      createdAt: ago(8),
     },
     {
       id: 'f2',
@@ -285,11 +286,11 @@ export function createScreenshotState(): ScreenshotState {
       emoji: '🍽️',
       points: 30,
       note: 'and the pots 🙃',
-      images: [stockPhoto('leo-dishes-1')],
+      images: [stockPhoto('photo-1556911220-e15b29be8c8f')],
       likes: [emma.id],
       reactions: [{ emoji: '💪', userId: noah.id }],
       comments: [],
-      createdAt: ago(15),
+      createdAt: ago(22),
     },
     {
       id: 'f3',
@@ -301,9 +302,9 @@ export function createScreenshotState(): ScreenshotState {
       points: 120,
       note: 'Rooftop tacos 🌮',
       images: [
-        stockPhoto('jake-date-1'),
-        stockPhoto('jake-date-2'),
-        stockPhoto('jake-date-3'),
+        stockPhoto('photo-1565299585323-38d6b0865b47'),
+        stockPhoto('photo-1517248135467-4c7edcad34c4'),
+        stockPhoto('photo-1414235077428-338989a2e8c0'),
       ],
       likes: [emma.id, noah.id, 'u_priya'],
       reactions: [
@@ -331,7 +332,10 @@ export function createScreenshotState(): ScreenshotState {
       emoji: '🌱',
       points: 50,
       note: 'Even did the edges 😤',
-      images: [stockPhoto('dev-lawn-1'), stockPhoto('dev-lawn-2')],
+      images: [
+        stockPhoto('photo-1558904541-efa843a96f01'),
+        stockPhoto('photo-1416879595882-3373a0480b5b'),
+      ],
       likes: [],
       reactions: [],
       comments: [],
@@ -361,7 +365,7 @@ export function createScreenshotState(): ScreenshotState {
       emoji: '🌱',
       points: 50,
       note: '',
-      images: [stockPhoto('noah-lawn-1')],
+      images: [stockPhoto('photo-1595846519845-68e298c2edd8')],
       likes: [],
       reactions: [{ emoji: '💪', userId: 'u_jake' }],
       comments: [],
@@ -439,7 +443,10 @@ export function createScreenshotState(): ScreenshotState {
       points: 80,
       requestedPoints: 80,
       note: 'took two trips to the hardware store 😅',
-      images: [stockPhoto('noah-sink-1'), stockPhoto('noah-sink-2')],
+      images: [
+        stockPhoto('photo-1585704032915-c3400ca199e7'),
+        stockPhoto('photo-1584622650111-993a426fbf0a'),
+      ],
       status: 'pending',
       revised: false,
       shared: true,
@@ -454,7 +461,7 @@ export function createScreenshotState(): ScreenshotState {
       points: 45,
       requestedPoints: 45,
       note: '',
-      images: [stockPhoto('noah-car-1')],
+      images: [stockPhoto('photo-1601362840469-51e4d8d58785')],
       status: 'pending',
       revised: false,
       shared: true,
@@ -469,7 +476,7 @@ export function createScreenshotState(): ScreenshotState {
       points: 60,
       requestedPoints: 60,
       note: 'mushroom risotto 🍚',
-      images: [stockPhoto('noah-risotto-1')],
+      images: [stockPhoto('photo-1476124369491-e7addf5db371')],
       status: 'approved',
       revised: false,
       shared: true,
@@ -548,11 +555,8 @@ export function notificationsFor(
         id: `n_appr_${s.id}`,
         kind: s.status === 'approved' ? 'approved' : 'denied',
         emoji: s.status === 'approved' ? '✅' : '🙈',
-        title:
-          s.status === 'approved'
-            ? `${wife.name} approved your request`
-            : `${wife.name} passed on your request`,
-        body: `${s.emoji} ${s.title}`,
+        title: s.title,
+        body: undefined,
         points: s.status === 'approved' ? s.points : undefined,
         actorName: wife.name,
         actorColor: wife.color,
@@ -566,8 +570,8 @@ export function notificationsFor(
         id: `n_req_${s.id}`,
         kind: 'request',
         emoji: s.emoji,
-        title: `${bf.name} requested points`,
-        body: s.title,
+        title: s.title,
+        body: undefined,
         points: s.requestedPoints,
         actorName: bf.name,
         actorColor: bf.color,
@@ -584,8 +588,8 @@ export function notificationsFor(
         id: `n_redeem_${r.id}`,
         kind: 'redeem',
         emoji: r.emoji,
-        title: `${bf.name} redeemed a prize`,
-        body: r.prizeTitle,
+        title: r.prizeTitle,
+        body: undefined,
         points: r.cost,
         actorName: bf.name,
         actorColor: bf.color,
@@ -606,11 +610,8 @@ export function notificationsFor(
         id: `n_react_${e.id}`,
         kind: 'reaction',
         emoji: others[0].emoji,
-        title:
-          extra > 0
-            ? `${first.name} & ${extra} other${extra > 1 ? 's' : ''} reacted`
-            : `${first.name} reacted`,
-        body: `${e.emoji} ${e.title}`,
+        title: `${e.emoji} ${e.title}`,
+        body: extra > 0 ? `& ${extra} other${extra > 1 ? 's' : ''}` : undefined,
         actorName: first.name,
         actorColor: first.color,
         actorAvatar: first.avatar,
@@ -623,8 +624,8 @@ export function notificationsFor(
         id: `n_comment_${c.id}`,
         kind: 'comment',
         emoji: '💬',
-        title: `${c.name} commented`,
-        body: `“${c.text}”`,
+        title: `“${c.text}”`,
+        body: undefined,
         actorName: c.name,
         actorAvatar: c.avatarUrl,
         createdAt: c.createdAt,

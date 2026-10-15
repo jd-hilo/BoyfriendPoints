@@ -10,7 +10,7 @@ import {
   getSeenNotificationIds,
   setSeenApprovals,
 } from '../storage';
-import { colors } from '../theme';
+import { colors, TAB_BAR_FLOAT_HEIGHT } from '../theme';
 import { Avatar, ReceiptIcon, ReceiptModal, Xp } from '../ui';
 import { haptic } from '../utils';
 import Feed from './Feed';
@@ -183,9 +183,13 @@ export default function MainApp({
 
       <View style={[styles.main, tab === 'feed' && !screenshotPane && styles.homeMain]}>
         {screenshotPane === 'requests' ? (
-          <WifeRequests onChange={bump} onAddPrizes={() => go('redeem')} />
+          <View style={{ flex: 1, paddingBottom: TAB_BAR_FLOAT_HEIGHT }}>
+            <WifeRequests onChange={bump} onAddPrizes={() => go('redeem')} />
+          </View>
         ) : screenshotPane === 'manage' ? (
-          <WifeManage />
+          <View style={{ flex: 1, paddingBottom: TAB_BAR_FLOAT_HEIGHT }}>
+            <WifeManage />
+          </View>
         ) : (
           <>
             {tab === 'feed' && (
